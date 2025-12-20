@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(openspec list:*)",
-      "Bash(openspec validate:*)"
+      "Bash(openspec validate:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd SpectralFit v2.1 with real-time baseline preview\n\nImplemented comprehensive v2.1 enhancements including:\n- Real-time baseline preview with instant parameter feedback\n- Auto mode detection from filename patterns (RM*/PL*)\n- Plot width control (Compact/Standard/Wide/Full presets)\n- X-range selection for processing regions\n- Negative Y value support with automatic shifting\n- Enhanced export with new metadata columns\n\nReal-time preview features:\n- Instant visual feedback on parameter changes\n- Session state caching for performance\n- Non-destructive preview-then-apply workflow\n- Red dashed baseline + green corrected spectrum overlay\n- Integration with all v2.1 features\n\nBackend implementation: 100% complete\nUI implementation: 60% complete (preview feature fully functional)\nTasks completed: 46/67 (69%)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)",
+      "Bash(openspec show:*)",
+      "Bash(openspec archive update-v21-enhancements:*)",
+      "Bash(git add:*)"
     ]
   }
 }
