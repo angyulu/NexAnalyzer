@@ -1,0 +1,380 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spectralfit.app/schemas/project-state.schema.json",
+  "title": "SpectralFit Project State",
+  "description": "JSON schema for SpectralFit project persistence (FR-051 to FR-055)",
+  "type": "object",
+  "required": ["version", "timestamp", "files"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version of project schema (e.g., '1.0.0')",
+      "examples": ["1.0.0"]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of project save (e.g., '2025-12-13T14:30:00Z')",
+      "examples": ["2025-12-13T14:30:00Z"]
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "description": "List of spectrum files with their processing state",
+      "items": {
+        "$ref": "#/definitions/SpectrumFile"
+      }
+    },
+    "global_styling": {
+      "$ref": "#/definitions/StylingPreferences",
+      "description": "Global plot styling preferences"
+    }
+  },
+  "definitions": {
+    "SpectrumFile": {
+      "type": "object",
+      "required": ["filename", "mode"],
+      "properties": {
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "Original .txt filename",
+          "examples": ["sample_raman.txt"]
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["Raman", "PL"],
+          "description": "Spectroscopy mode (affects units and bounds)"
+        },
+        "raw_data": {
+          "oneOf": [
+            {"$ref": "#/definitions/SpectrumData"},
+            {"type": "null"}
+          ],
+          "description": "Original X/Y arrays (null if excluded from export to reduce size)"
+        },
+        "processed_data": {
+          "oneOf": [
+            {"$ref": "#/definitions/SpectrumData"},
+            {"type": "null"}
+          ],
+          "description": "Current processed X/Y arrays (post-despike, post-baseline; null if excluded)"
+        },
+        "processing_settings": {
+          "$ref": "#/definitions/ProcessingSettings",
+          "description": "De-spike and baseline configuration"
+        },
+        "peak_table": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 10,
+          "description": "User-defined peak definitions for fitting",
+          "items": {
+            "$ref": "#/definitions/PeakDefinition"
+          }
+        },
+        "fit_result": {
+          "oneOf": [
+            {"$ref": "#/definitions/FitResult"},
+            {"type": "null"}
+          ],
+          "description": "Fitted parameters and quality metrics (null if not yet fitted)"
+        }
+      }
+    },
+    "SpectrumData": {
+      "type": "object",
+      "required": ["X", "Y"],
+      "properties": {
+        "X": {
+          "type": "array",
+          "minItems": 100,
+          "maxItems": 100000,
+          "description": "Wavenumber (cm⁻¹) or wavelength (nm) array",
+          "items": {"type": "number"}
+        },
+        "Y": {
+          "type": "array",
+          "minItems": 100,
+          "maxItems": 100000,
+          "description": "Intensity array (raw detector units, non-negative)",
+          "items": {"type": "number", "minimum": 0}
+        }
+      }
+    },
+    "ProcessingSettings": {
+      "type": "object",
+      "properties": {
+        "despike_threshold": {
+          "type": "number",
+          "minimum": 3.0,
+          "maximum": 15.0,
+          "default": 6.0,
+          "description": "Modified Z-score threshold for spike detection"
+        },
+        "despike_applied": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether spike removal has been run"
+        },
+        "baseline_algorithm": {
+          "type": "string",
+          "enum": ["Polynomial", "ALS"],
+          "default": "Polynomial",
+          "description": "Baseline correction method"
+        },
+        "baseline_degree": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3,
+          "description": "Polynomial degree (used if baseline_algorithm='Polynomial')"
+        },
+        "baseline_lambda": {
+          "type": "number",
+          "minimum": 1000,
+          "maximum": 1000000,
+          "default": 10000,
+          "description": "ALS smoothness parameter (used if baseline_algorithm='ALS')"
+        },
+        "baseline_p": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 0.1,
+          "default": 0.001,
+          "description": "ALS asymmetry parameter (used if baseline_algorithm='ALS')"
+        },
+        "baseline_applied": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether baseline correction has been run"
+        }
+      }
+    },
+    "PeakDefinition": {
+      "type": "object",
+      "required": ["center", "amplitude", "width_fwhm"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "maxLength": 50,
+          "default": "",
+          "description": "User-defined label (e.g., 'D-Band')"
+        },
+        "center": {
+          "type": "number",
+          "description": "Peak center position (cm⁻¹ or nm)"
+        },
+        "amplitude": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Initial amplitude guess (raw units)"
+        },
+        "width_fwhm": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Full-width-at-half-maximum (cm⁻¹ or nm)"
+        },
+        "shape": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.5,
+          "description": "Voigt mixing (0=Gaussian, 1=Lorentzian)"
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "default": "#1f77b4",
+          "description": "Hex color for plot component"
+        },
+        "center_min": {
+          "type": "number",
+          "description": "Lower bound for fitting (auto-calculated from mode)"
+        },
+        "center_max": {
+          "type": "number",
+          "description": "Upper bound for fitting (auto-calculated from mode)"
+        },
+        "width_min": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Minimum FWHM (auto-calculated from spectral resolution)"
+        },
+        "width_max": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum FWHM (auto-calculated as 50% of X range)"
+        },
+        "amplitude_max": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum amplitude (auto-calculated as 2× max(Y))"
+        }
+      }
+    },
+    "FitResult": {
+      "type": "object",
+      "required": ["success", "fitted_peaks", "chi_squared", "r_squared"],
+      "properties": {
+        "success": {
+          "type": "boolean",
+          "description": "True if L-M solver converged"
+        },
+        "fitted_peaks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "description": "Fitted parameters for each peak",
+          "items": {
+            "$ref": "#/definitions/FittedPeak"
+          }
+        },
+        "total_fit_curve": {
+          "type": "array",
+          "description": "Sum of all fitted peaks (same length as X)",
+          "items": {"type": "number"}
+        },
+        "residuals": {
+          "type": "array",
+          "description": "Y_data - total_fit_curve",
+          "items": {"type": "number"}
+        },
+        "chi_squared": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Sum of squared residuals"
+        },
+        "r_squared": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Coefficient of determination"
+        },
+        "convergence_time": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Fitting time in seconds"
+        },
+        "error_message": {
+          "type": "string",
+          "default": "",
+          "description": "Empty if success=true, else actionable suggestion"
+        }
+      }
+    },
+    "FittedPeak": {
+      "type": "object",
+      "required": ["label", "center", "amplitude", "width_fwhm", "shape"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Copied from PeakDefinition"
+        },
+        "center": {
+          "type": "number",
+          "description": "Fitted peak center (cm⁻¹ or nm)"
+        },
+        "center_stderr": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Standard error in center from lmfit covariance"
+        },
+        "amplitude": {
+          "type": "number",
+          "description": "Fitted amplitude (raw units)"
+        },
+        "amplitude_stderr": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Standard error in amplitude"
+        },
+        "width_fwhm": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Fitted FWHM (cm⁻¹ or nm)"
+        },
+        "width_stderr": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Standard error in FWHM"
+        },
+        "shape": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Fitted Voigt mixing (0-1)"
+        },
+        "component_curve": {
+          "type": "array",
+          "description": "This peak's contribution to total fit",
+          "items": {"type": "number"}
+        }
+      }
+    },
+    "StylingPreferences": {
+      "type": "object",
+      "properties": {
+        "data_color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "default": "#1f77b4",
+          "description": "Color for data scatter plot"
+        },
+        "data_line_width": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 5.0,
+          "default": 2.0,
+          "description": "Line width in points"
+        },
+        "data_marker_style": {
+          "type": "string",
+          "enum": ["markers", "lines", "markers+lines"],
+          "default": "markers",
+          "description": "Plot mode for data points"
+        },
+        "fit_color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "default": "#ff7f0e",
+          "description": "Color for total fit curve"
+        },
+        "fit_line_width": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 5.0,
+          "default": 2.5,
+          "description": "Line width for total fit"
+        },
+        "fit_line_style": {
+          "type": "string",
+          "enum": ["solid", "dash", "dot"],
+          "default": "solid",
+          "description": "Line style for total fit"
+        },
+        "residual_color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "default": "#d62728",
+          "description": "Color for residual subplot"
+        },
+        "peak_colors": {
+          "type": "array",
+          "description": "Colors for individual peak components (Plotly default palette)",
+          "items": {
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}$"
+          },
+          "default": [
+            "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+            "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+          ]
+        }
+      }
+    }
+  }
+}

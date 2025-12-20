@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git fetch:*)",
+      "Bash(if [ -d specs ])",
+      "Bash(then ls -d specs/[0-9]*-spectralfit)",
+      "Bash(fi)",
+      "Bash(powershell.exe:*)",
+      "Bash(if [ -d \"C:/Users/Ang-Yu Lu/python_virtual/platform/Spectrum_Analyzer/specs/001-spectralfit/checklists\" ])",
+      "Bash(then ls -la \"C:/Users/Ang-Yu Lu/python_virtual/platform/Spectrum_Analyzer/specs/001-spectralfit/checklists/\")",
+      "Bash(else echo \"No checklists directory found\")",
+      "Bash(tree:*)"
+    ]
+  }
+}

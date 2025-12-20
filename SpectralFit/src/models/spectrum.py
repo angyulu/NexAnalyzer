@@ -1,0 +1,286 @@
+"""
+Data models for spectrum files and processing state.
+
+This module defines the core data structures for SpectralFit:
+- SpectrumData: Immutable X/Y array pair with validation
+- ProcessingSettings: De-spike and baseline parameters
+- SpectrumFile: Container for a single .txt file's data and state
+"""
+
+from dataclasses import dataclass, field
+from typing import Optional, Literal
+import numpy as np
+
+
+@dataclass(frozen=True)
+class SpectrumData:
+    """
+    Immutable X/Y array pair representing spectroscopy data.
+
+    Attributes
+    ----------
+    X : np.ndarray
+        Wavenumber (cm⁻¹) for Raman or wavelength (nm) for PL.
+        Must be 1D float64 array with 100-100000 points.
+    Y : np.ndarray
+        Intensity in raw detector units (may be negative for background-subtracted spectra).
+        Must be same length as X, 1D float64 array.
+
+    Raises
+    ------
+    ValueError
+        If validation fails (length mismatch, wrong dtype, NaN/Inf values, etc.)
+
+    Notes
+    -----
+    v2.1+: Y values may be negative to support background-subtracted spectra and detector offsets.
+    Baseline correction algorithms automatically handle negative Y via internal shifting.
+    """
+
+    X: np.ndarray
+    Y: np.ndarray
+
+    def __post_init__(self):
+        """Validate arrays after initialization."""
+        # Convert to numpy arrays if needed
+        if not isinstance(self.X, np.ndarray):
+            object.__setattr__(self, 'X', np.array(self.X, dtype=np.float64))
+        if not isinstance(self.Y, np.ndarray):
+            object.__setattr__(self, 'Y', np.array(self.Y, dtype=np.float64))
+
+        # Validation
+        if self.X.ndim != 1 or self.Y.ndim != 1:
+            raise ValueError("X and Y must be 1D arrays")
+
+        if len(self.X) != len(self.Y):
+            raise ValueError(f"X and Y must have same length (got {len(self.X)} vs {len(self.Y)})")
+
+        if len(self.X) < 100:
+            raise ValueError(f"Spectrum too short: {len(self.X)} points (minimum 100)")
+
+        if len(self.X) > 100000:
+            raise ValueError(f"Spectrum too long: {len(self.X)} points (maximum 100000)")
+
+        if self.X.dtype != np.float64:
+            object.__setattr__(self, 'X', self.X.astype(np.float64))
+
+        if self.Y.dtype != np.float64:
+            object.__setattr__(self, 'Y', self.Y.astype(np.float64))
+
+        # v2.1: Removed negative Y check to support background-subtracted spectra
+        # Baseline algorithms handle negative values via automatic internal shifting
+
+        if not np.all(np.isfinite(self.X)) or not np.all(np.isfinite(self.Y)):
+            raise ValueError("X and Y must not contain NaN or Inf values")
+
+    def to_dict(self) -> dict:
+        """Serialize to dictionary for JSON export."""
+        return {
+            "X": self.X.tolist(),
+            "Y": self.Y.tolist()
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SpectrumData":
+        """Deserialize from dictionary."""
+        return cls(
+            X=np.array(data["X"], dtype=np.float64),
+            Y=np.array(data["Y"], dtype=np.float64)
+        )
+
+
+@dataclass
+class ProcessingSettings:
+    """
+    De-spiking and baseline correction parameters.
+
+    Attributes
+    ----------
+    despike_threshold : float
+        Modified Z-score threshold for spike detection (3.0-15.0, default 6.0).
+    despike_applied : bool
+        Whether spike removal has been run.
+    baseline_algorithm : Literal["Polynomial", "ALS"]
+        Baseline correction method.
+    baseline_degree : int
+        Polynomial degree (1-10, used if baseline_algorithm='Polynomial').
+    baseline_lambda : float
+        ALS smoothness parameter (1e3-1e6, used if baseline_algorithm='ALS').
+    baseline_p : float
+        ALS asymmetry parameter (0.001-0.1, used if baseline_algorithm='ALS').
+    baseline_applied : bool
+        Whether baseline correction has been run.
+    y_shift : float
+        Automatic Y-shift applied for baseline stability (v2.1+). 0 if not applied.
+    """
+
+    despike_threshold: float = 6.0
+    despike_applied: bool = False
+    baseline_algorithm: Literal["Polynomial", "ALS"] = "Polynomial"
+    baseline_degree: int = 3
+    baseline_lambda: float = 10000.0
+    baseline_p: float = 0.001
+    baseline_applied: bool = False
+    y_shift: float = 0.0
+
+    def __post_init__(self):
+        """Validate parameters."""
+        if not (3.0 <= self.despike_threshold <= 15.0):
+            raise ValueError(f"despike_threshold must be in [3.0, 15.0] (got {self.despike_threshold})")
+
+        if self.baseline_algorithm not in ["Polynomial", "ALS"]:
+            raise ValueError(f"baseline_algorithm must be 'Polynomial' or 'ALS' (got {self.baseline_algorithm})")
+
+        if not (1 <= self.baseline_degree <= 10):
+            raise ValueError(f"baseline_degree must be in [1, 10] (got {self.baseline_degree})")
+
+        if not (1000 <= self.baseline_lambda <= 1000000):
+            raise ValueError(f"baseline_lambda must be in [1e3, 1e6] (got {self.baseline_lambda})")
+
+        if not (0.001 <= self.baseline_p <= 0.1):
+            raise ValueError(f"baseline_p must be in [0.001, 0.1] (got {self.baseline_p})")
+
+    def to_dict(self) -> dict:
+        """Serialize to dictionary for JSON export."""
+        return {
+            "despike_threshold": self.despike_threshold,
+            "despike_applied": self.despike_applied,
+            "baseline_algorithm": self.baseline_algorithm,
+            "baseline_degree": self.baseline_degree,
+            "baseline_lambda": self.baseline_lambda,
+            "baseline_p": self.baseline_p,
+            "baseline_applied": self.baseline_applied,
+            "y_shift": self.y_shift
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ProcessingSettings":
+        """Deserialize from dictionary (with v2.0 backward compatibility)."""
+        # v2.1: Add default for y_shift if missing (v2.0 compatibility)
+        if "y_shift" not in data:
+            data = data.copy()
+            data["y_shift"] = 0.0
+        return cls(**data)
+
+
+@dataclass
+class SpectrumFile:
+    """
+    Container for a single .txt file's data and processing state.
+
+    Attributes
+    ----------
+    filename : str
+        Original .txt filename (1-255 characters).
+    mode : Literal["Raman", "PL"]
+        Spectroscopy mode (affects units and fitting bounds).
+    raw_data : SpectrumData
+        Original X/Y arrays (never modified after load).
+    processed_data : SpectrumData
+        Current processed X/Y arrays (after despike/baseline).
+    processing_settings : ProcessingSettings
+        De-spike and baseline configuration.
+    peak_table : list
+        User-defined peak definitions (list of PeakDefinition objects).
+    fit_result : Optional[FitResult]
+        Fitted parameters and quality metrics (None if not yet fitted).
+    auto_detected : bool
+        Whether mode was auto-detected from filename (v2.1+, FR-12).
+    x_range_enabled : bool
+        Whether X-range limiting is active (v2.1+, FR-15).
+    x_min : Optional[float]
+        Minimum X value for processing range (v2.1+, FR-15).
+    x_max : Optional[float]
+        Maximum X value for processing range (v2.1+, FR-15).
+    """
+
+    filename: str
+    mode: Literal["Raman", "PL"]
+    raw_data: SpectrumData
+    processed_data: SpectrumData
+    processing_settings: ProcessingSettings = field(default_factory=ProcessingSettings)
+    peak_table: list = field(default_factory=list)
+    fit_result: Optional[object] = None  # Will be FitResult after peak.py is implemented
+    auto_detected: bool = False
+    x_range_enabled: bool = False
+    x_min: Optional[float] = None
+    x_max: Optional[float] = None
+
+    def __post_init__(self):
+        """Validate attributes."""
+        if not (1 <= len(self.filename) <= 255):
+            raise ValueError(f"filename must be 1-255 characters (got {len(self.filename)})")
+
+        if self.mode not in ["Raman", "PL"]:
+            raise ValueError(f"mode must be 'Raman' or 'PL' (got {self.mode})")
+
+    def reset_to_raw(self):
+        """
+        Reset processed_data to raw_data and clear fit_result.
+
+        This reverts all pre-processing (de-spiking, baseline correction)
+        and clears fitting results.
+        """
+        self.processed_data = SpectrumData(
+            X=self.raw_data.X.copy(),
+            Y=self.raw_data.Y.copy()
+        )
+        self.processing_settings = ProcessingSettings()
+        self.fit_result = None
+
+    def to_dict(self, include_arrays: bool = True) -> dict:
+        """
+        Serialize to dictionary for JSON export.
+
+        Parameters
+        ----------
+        include_arrays : bool
+            If False, exclude raw_data and processed_data arrays to reduce file size.
+        """
+        result = {
+            "filename": self.filename,
+            "mode": self.mode,
+            "processing_settings": self.processing_settings.to_dict(),
+            "peak_table": [p.to_dict() for p in self.peak_table] if self.peak_table else [],
+            "fit_result": self.fit_result.to_dict() if self.fit_result else None,
+            "auto_detected": self.auto_detected,
+            "x_range_enabled": self.x_range_enabled,
+            "x_min": self.x_min,
+            "x_max": self.x_max
+        }
+
+        if include_arrays:
+            result["raw_data"] = self.raw_data.to_dict()
+            result["processed_data"] = self.processed_data.to_dict()
+        else:
+            result["raw_data"] = None
+            result["processed_data"] = None
+
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SpectrumFile":
+        """Deserialize from dictionary (with v2.0 backward compatibility)."""
+        # Import here to avoid circular dependency
+        from .peak import PeakDefinition, FitResult
+
+        raw_data = SpectrumData.from_dict(data["raw_data"]) if data.get("raw_data") else None
+        processed_data = SpectrumData.from_dict(data["processed_data"]) if data.get("processed_data") else None
+
+        if raw_data is None or processed_data is None:
+            raise ValueError("Cannot load SpectrumFile without raw_data and processed_data")
+
+        # v2.1: Add defaults for new fields if missing (v2.0 compatibility)
+        return cls(
+            filename=data["filename"],
+            mode=data["mode"],
+            raw_data=raw_data,
+            processed_data=processed_data,
+            processing_settings=ProcessingSettings.from_dict(data["processing_settings"]),
+            peak_table=[PeakDefinition.from_dict(p) for p in data.get("peak_table", [])],
+            fit_result=FitResult.from_dict(data["fit_result"]) if data.get("fit_result") else None,
+            auto_detected=data.get("auto_detected", False),
+            x_range_enabled=data.get("x_range_enabled", False),
+            x_min=data.get("x_min", None),
+            x_max=data.get("x_max", None)
+        )
