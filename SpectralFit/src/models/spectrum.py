@@ -192,6 +192,16 @@ class SpectrumFile:
         Minimum X value for processing range (v2.1+, FR-15).
     x_max : Optional[float]
         Maximum X value for processing range (v2.1+, FR-15).
+    despike_done : bool
+        Whether de-spiking has been successfully completed (v2.2+).
+    baseline_done : bool
+        Whether baseline correction has been successfully completed (v2.2+).
+    fit_done : bool
+        Whether peak fitting has been successfully completed (v2.2+).
+    fit_stale : bool
+        Whether preprocessing changed after fit (requires refitting) (v2.2+).
+    last_preprocessing_hash : Optional[str]
+        SHA256 hash of (despike + baseline params) for staleness detection (v2.2+).
     """
 
     filename: str
@@ -205,6 +215,12 @@ class SpectrumFile:
     x_range_enabled: bool = False
     x_min: Optional[float] = None
     x_max: Optional[float] = None
+    # v2.2: Status tracking for workflow orchestration
+    despike_done: bool = False
+    baseline_done: bool = False
+    fit_done: bool = False
+    fit_stale: bool = False
+    last_preprocessing_hash: Optional[str] = None
 
     def __post_init__(self):
         """Validate attributes."""
@@ -220,6 +236,10 @@ class SpectrumFile:
 
         This reverts all pre-processing (de-spiking, baseline correction)
         and clears fitting results.
+
+        Notes
+        -----
+        v2.2: Also clears status flags (despike_done, baseline_done, fit_done).
         """
         self.processed_data = SpectrumData(
             X=self.raw_data.X.copy(),
@@ -227,6 +247,12 @@ class SpectrumFile:
         )
         self.processing_settings = ProcessingSettings()
         self.fit_result = None
+        # v2.2: Clear status flags
+        self.despike_done = False
+        self.baseline_done = False
+        self.fit_done = False
+        self.fit_stale = False
+        self.last_preprocessing_hash = None
 
     def to_dict(self, include_arrays: bool = True) -> dict:
         """
@@ -246,7 +272,13 @@ class SpectrumFile:
             "auto_detected": self.auto_detected,
             "x_range_enabled": self.x_range_enabled,
             "x_min": self.x_min,
-            "x_max": self.x_max
+            "x_max": self.x_max,
+            # v2.2: Status tracking fields
+            "despike_done": self.despike_done,
+            "baseline_done": self.baseline_done,
+            "fit_done": self.fit_done,
+            "fit_stale": self.fit_stale,
+            "last_preprocessing_hash": self.last_preprocessing_hash
         }
 
         if include_arrays:
@@ -270,7 +302,7 @@ class SpectrumFile:
         if raw_data is None or processed_data is None:
             raise ValueError("Cannot load SpectrumFile without raw_data and processed_data")
 
-        # v2.1: Add defaults for new fields if missing (v2.0 compatibility)
+        # v2.1/v2.2: Add defaults for new fields if missing (backward compatibility)
         return cls(
             filename=data["filename"],
             mode=data["mode"],
@@ -282,5 +314,11 @@ class SpectrumFile:
             auto_detected=data.get("auto_detected", False),
             x_range_enabled=data.get("x_range_enabled", False),
             x_min=data.get("x_min", None),
-            x_max=data.get("x_max", None)
+            x_max=data.get("x_max", None),
+            # v2.2: Status tracking fields (defaults for v2.0/v2.1 projects)
+            despike_done=data.get("despike_done", False),
+            baseline_done=data.get("baseline_done", False),
+            fit_done=data.get("fit_done", False),
+            fit_stale=data.get("fit_stale", False),
+            last_preprocessing_hash=data.get("last_preprocessing_hash", None)
         )

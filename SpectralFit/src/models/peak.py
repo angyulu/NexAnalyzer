@@ -251,8 +251,9 @@ class FitResult:
 
     def __post_init__(self):
         """Validate attributes."""
-        if not (1 <= len(self.fitted_peaks) <= 10):
-            raise ValueError(f"fitted_peaks must have 1-10 peaks (got {len(self.fitted_peaks)})")
+        # Allow empty fitted_peaks only if success=False
+        if self.success and not (1 <= len(self.fitted_peaks) <= 10):
+            raise ValueError(f"fitted_peaks must have 1-10 peaks when success=True (got {len(self.fitted_peaks)})")
 
         if not (0.0 <= self.r_squared <= 1.0):
             raise ValueError(f"r_squared must be in [0, 1] (got {self.r_squared})")

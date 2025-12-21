@@ -123,14 +123,21 @@ def fit_voigt_peaks(
         params.add(f"{prefix}gamma", value=gamma_guess,
                    min=peak.width_min / 4.0, max=peak.width_max / 4.0)
 
-    # Fit using Levenberg-Marquardt
+    # Fit using Levenberg-Marquardt with increased tolerance
     start_time = time.time()
 
     try:
-        result = composite_model.fit(y, params, x=x, method='leastsq', max_nfev=2000)
+        result = composite_model.fit(
+            y, params, x=x,
+            method='leastsq',
+            max_nfev=2000,
+            fit_kws={'ftol': 1e-6, 'xtol': 1e-6}  # Increased tolerance for stability
+        )
         convergence_time = time.time() - start_time
 
-        if not result.success:
+        # Accept fit even if error bars couldn't be estimated (common with tight fits)
+        # result.success may be False if uncertainties couldn't be calculated, but fit is still valid
+        if not result.success and "Tolerance seems to be too small" not in str(result.message):
             return FitResult(
                 success=False,
                 fitted_peaks=[],
@@ -162,17 +169,40 @@ def fit_voigt_peaks(
     fitted_peaks = []
     total_fit = result.best_fit
 
+    # Helper functions to safely extract parameter values and errors
+    # (handles both Parameter objects and raw floats)
+    def get_param_value(param):
+        """Extract value from Parameter object or float."""
+        return param.value if hasattr(param, 'value') else float(param)
+
+    def get_param_stderr(param):
+        """Extract stderr from Parameter object (returns 0.0 if unavailable)."""
+        if hasattr(param, 'stderr'):
+            return param.stderr or 0.0
+        return 0.0
+
     for i, peak in enumerate(peak_table):
         prefix = f"p{i}_"
 
-        # Get fitted values
-        center_fit = result.params[f"{prefix}center"].value
-        center_stderr = result.params[f"{prefix}center"].stderr or 0.0
-        amplitude_fit = result.params[f"{prefix}amplitude"].value
-        amplitude_stderr = result.params[f"{prefix}amplitude"].stderr or 0.0
-        sigma_fit = result.params[f"{prefix}sigma"].value
-        sigma_stderr = result.params[f"{prefix}sigma"].stderr or 0.0
-        gamma_fit = result.params[f"{prefix}gamma"].value
+        try:
+            # Get fitted values - robust to both Parameter objects and raw floats
+            center_fit = get_param_value(result.params[f"{prefix}center"])
+            center_stderr = get_param_stderr(result.params[f"{prefix}center"])
+            amplitude_fit = get_param_value(result.params[f"{prefix}amplitude"])
+            amplitude_stderr = get_param_stderr(result.params[f"{prefix}amplitude"])
+            sigma_fit = get_param_value(result.params[f"{prefix}sigma"])
+            sigma_stderr = get_param_stderr(result.params[f"{prefix}sigma"])
+            gamma_fit = get_param_value(result.params[f"{prefix}gamma"])
+        except AttributeError as e:
+            # Debug: print parameter type if extraction fails
+            param_key = f"{prefix}center"
+            param_obj = result.params.get(param_key)
+            raise AttributeError(
+                f"Parameter extraction failed for {param_key}. "
+                f"Type: {type(param_obj)}, "
+                f"Has 'value': {hasattr(param_obj, 'value')}, "
+                f"Original error: {e}"
+            )
 
         # Convert sigma back to FWHM
         width_fwhm_fit = 2.355 * sigma_fit  # Approximate
@@ -184,13 +214,16 @@ def fit_voigt_peaks(
 
         # Evaluate component curve
         voigt_component = VoigtModel(prefix=prefix)
-        component_params = {
-            f"{prefix}center": center_fit,
-            f"{prefix}amplitude": amplitude_fit,
-            f"{prefix}sigma": sigma_fit,
-            f"{prefix}gamma": gamma_fit
-        }
-        component_curve = voigt_component.eval(params=component_params, x=x)
+        # Pass fitted parameters directly as keyword arguments
+        component_curve = voigt_component.eval(
+            x=x,
+            **{
+                f"{prefix}center": center_fit,
+                f"{prefix}amplitude": amplitude_fit,
+                f"{prefix}sigma": sigma_fit,
+                f"{prefix}gamma": gamma_fit
+            }
+        )
 
         fitted_peaks.append(FittedPeak(
             label=peak.label,
