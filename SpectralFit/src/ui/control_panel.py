@@ -516,10 +516,16 @@ def render_peak_fit_section(is_expanded: bool, is_enabled: bool):
                     st.error("❌ Maximum 10 peaks allowed")
                 else:
                     try:
-                        from ..processing.fitting import fit_voigt_peaks
+                        from ..processing.fitting import fit_voigt_peaks, detect_overlapping_peaks
 
                         X_fit = spectrum.processed_data.X
                         Y_fit = spectrum.processed_data.Y
+
+                        # Check for overlapping peaks before fitting
+                        overlap_warnings = detect_overlapping_peaks(spectrum.peak_table, merge_threshold=2.0)
+                        if overlap_warnings:
+                            for warning in overlap_warnings:
+                                st.warning(warning)
 
                         with st.spinner("Fitting in progress..."):
                             fit_result = fit_voigt_peaks(

@@ -103,27 +103,32 @@ class PeakDefinition:
         - width_max: 50% of X range
         - amplitude_max: 2 × max(Y)
         """
-        # Center bounds
+        # Center bounds (adaptive: wider tolerance for broader peaks)
         if mode == "Raman":
-            center_tolerance = 5.0  # cm⁻¹
+            # Raman: at least 5 cm⁻¹ or 5% of FWHM, whichever is larger
+            center_tolerance = max(5.0, 0.05 * self.width_fwhm)
         else:  # PL
-            center_tolerance = 30.0  # nm
+            # PL: at least 30 nm or 10% of FWHM, whichever is larger
+            center_tolerance = max(30.0, 0.10 * self.width_fwhm)
 
         if self.center_min is None:
             self.center_min = max(x_range[0], self.center - center_tolerance)
         if self.center_max is None:
             self.center_max = min(x_range[1], self.center + center_tolerance)
 
-        # Width bounds
+        # Width bounds (adaptive: allow 0.5× to 3× initial guess)
         if self.width_min is None:
-            self.width_min = 2.5 * spectral_resolution
+            # At least 2.5× spectral resolution, or 50% of initial guess
+            self.width_min = max(2.5 * spectral_resolution, 0.5 * self.width_fwhm)
 
         if self.width_max is None:
-            self.width_max = 0.5 * (x_range[1] - x_range[0])
+            # At most 50% of X range, or 3× initial guess (prevents runaway fitting)
+            self.width_max = min(0.5 * (x_range[1] - x_range[0]), 3.0 * self.width_fwhm)
 
-        # Amplitude bounds
+        # Amplitude bounds (wider range for uncertain peaks)
         if self.amplitude_max is None:
-            self.amplitude_max = 2.0 * y_max
+            # Allow up to 5× max intensity (accounts for sharp peaks above baseline)
+            self.amplitude_max = 5.0 * y_max
 
     def to_dict(self) -> dict:
         """Serialize to dictionary for JSON export."""

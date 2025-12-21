@@ -7,7 +7,14 @@
       "Bash(git push:*)",
       "Bash(openspec show:*)",
       "Bash(openspec archive update-v21-enhancements:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nArchive v2.1 enhancements and add project summary\n\n- Archived update-v21-enhancements change (46/67 tasks complete)\n- Added comprehensive Summary.md covering all project aspects\n- Documented real-time baseline preview implementation\n- Moved change to archive/2025-12-20-update-v21-enhancements\n\nSummary.md includes:\n- Complete feature overview and technical architecture\n- Workflow guide and data model documentation\n- Installation, testing, and contribution guidelines\n- Version history and quick reference\n\nOpenSpec archive contains:\n- Full v2.1 enhancement proposal and specs\n- Implementation status (69% complete)\n- Real-time preview deep dive\n- Task list (46/67 completed)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(mkdir:*)",
+      "Bash(cat:*)",
+      "Bash(python:*)",
+      "Bash(streamlit run:*)",
+      "Bash(openspec archive update-ui-single-page-layout:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nComplete SpectralFit v2.2 single-page UI with full workflow\n\nImplemented comprehensive v2.2 enhancements including:\n- Three-panel desktop layout (files/plot/controls)\n- X-range cropping with data masking\n- Real-time preview for despike and baseline\n- Full peak fitting with Voigt models\n- Sequential workflow with auto-expand\n- Unified multi-layer plot visualization\n\nFeatures completed:\n- Processing Range: X-min/X-max cropping (applies mask to data)\n- De-spiking: Real-time preview with threshold slider\n- Baseline Correction: Real-time preview for Polynomial and ALS\n- Peak Fitting: Auto-find, manual add, Voigt fitting with R²/χ²\n- View Options: Toggle plot layers independently\n- Status Tracking: Progress badges in file cards\n- Stale Fit Detection: Hash-based preprocessing change tracking\n\nBug fixes:\n- Fixed FitResult validation (allow empty peaks when failed)\n- Fixed baseline parameter naming (lambda_ not lam)\n- Fixed parameter extraction (handle both Parameter and float)\n- Fixed component curve evaluation (use kwargs not params dict)\n\nBackend: 100% functional\nUI: Fully integrated accordion workflow\nTasks: Core features complete\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n)\")"
     ]
   }
 }

@@ -107,17 +107,42 @@ def fit_voigt_peaks(
         else:
             composite_model += voigt
 
-        # Convert FWHM to sigma/gamma
-        # For Voigt: approximate FWHM ≈ 0.5346*FWHM_L + sqrt(0.2166*FWHM_L² + FWHM_G²)
-        # Simplification: assume equal Gaussian/Lorentzian contributions
-        sigma_guess = peak.width_fwhm / (2 * 2.355)  # Gaussian FWHM = 2.355 * sigma
-        gamma_guess = peak.width_fwhm / 4.0  # Lorentzian FWHM = 2 * gamma
+        # Convert FWHM to sigma/gamma using shape parameter
+        # Shape: 0 = pure Gaussian, 1 = pure Lorentzian, 0.5 = equal contribution
+        shape = peak.shape
+
+        if shape < 0.5:
+            # More Gaussian-like
+            frac_gaussian = 1.0 - shape
+            frac_lorentzian = shape
+        else:
+            # More Lorentzian-like
+            frac_gaussian = 1.0 - shape
+            frac_lorentzian = shape
+
+        # Distribute FWHM according to shape
+        # Gaussian FWHM = 2.355 * sigma, Lorentzian FWHM = 2 * gamma
+        sigma_guess = (peak.width_fwhm * frac_gaussian) / 2.355
+        gamma_guess = (peak.width_fwhm * frac_lorentzian) / 2.0
+
+        # Ensure non-zero values (minimum bounds)
+        sigma_min = peak.width_min / (2 * 2.355)
+        gamma_min = peak.width_min / 4.0
+        sigma_guess = max(sigma_guess, sigma_min)
+        gamma_guess = max(gamma_guess, gamma_min)
+
+        # Convert user-provided amplitude (peak height) to lmfit amplitude (integrated intensity)
+        # For Voigt profile: amplitude ≈ height × FWHM × sqrt(π/ln(2)) ≈ height × FWHM × 1.064
+        # This is critical: lmfit VoigtModel expects integrated intensity, not peak height!
+        fwhm_eff = peak.width_fwhm
+        amplitude_lmfit = peak.amplitude * fwhm_eff * 1.064
+        amplitude_max_lmfit = peak.amplitude_max * fwhm_eff * 1.064
 
         # Add parameters with bounds
         params.add(f"{prefix}center", value=peak.center,
                    min=peak.center_min, max=peak.center_max)
-        params.add(f"{prefix}amplitude", value=peak.amplitude,
-                   min=0, max=peak.amplitude_max)
+        params.add(f"{prefix}amplitude", value=amplitude_lmfit,
+                   min=0, max=amplitude_max_lmfit)
         params.add(f"{prefix}sigma", value=sigma_guess,
                    min=peak.width_min / (2 * 2.355), max=peak.width_max / (2 * 2.355))
         params.add(f"{prefix}gamma", value=gamma_guess,
@@ -308,12 +333,14 @@ def auto_find_peaks(
     # Calculate prominence threshold
     y_max = y.max()
     min_prominence = prominence_threshold * y_max
+    x_range = (x.min(), x.max())
 
-    # Find peaks
+    # Find peaks with width detection
     peak_indices, properties = signal.find_peaks(
         y,
         prominence=min_prominence,
-        width=2  # Minimum width in data points
+        width=2,  # Minimum width in data points
+        rel_height=0.5  # Measure width at half-maximum
     )
 
     if len(peak_indices) == 0:
@@ -326,6 +353,9 @@ def auto_find_peaks(
     # Take top N peaks
     n_peaks = min(max(len(sorted_indices), min_peaks), max_peaks)
     top_indices = sorted_indices[:n_peaks]
+
+    # Median spectral resolution
+    dx = np.median(np.abs(np.diff(x)))
 
     # Create PeakDefinition objects
     peak_table = []
@@ -343,14 +373,35 @@ def auto_find_peaks(
         # Amplitude (peak height)
         amplitude = y[peak_idx]
 
-        # Estimate FWHM from widths
-        if 'widths' in properties:
+        # Estimate FWHM from widths (improved with curvature-based fallback)
+        if 'widths' in properties and len(properties['widths']) > idx:
+            # Primary method: use scipy's width_half_height
             width_points = properties['widths'][idx]
-            dx = np.median(np.abs(np.diff(x)))
             width_fwhm = width_points * dx
         else:
-            # Fallback: use spectral resolution × 10
-            width_fwhm = 10 * np.median(np.abs(np.diff(x)))
+            # Improved fallback: estimate from peak curvature
+            if peak_idx > 1 and peak_idx < len(y) - 2:
+                # Calculate 2nd derivative at peak: y''(x) ≈ (y[i-1] - 2*y[i] + y[i+1]) / dx²
+                d2y = (y[peak_idx - 1] - 2 * y[peak_idx] + y[peak_idx + 1]) / (dx ** 2)
+
+                if d2y < 0:  # Concave down (valid peak)
+                    # For Gaussian: y''(peak) = -height / σ²
+                    # σ ≈ sqrt(height / |y''|)
+                    # FWHM ≈ 2.355 × σ
+                    sigma_est = np.sqrt(amplitude / abs(d2y))
+                    width_fwhm = 2.355 * sigma_est
+
+                    # Sanity check: FWHM should be reasonable
+                    x_span = x_range[1] - x_range[0]
+                    if width_fwhm < dx or width_fwhm > 0.5 * x_span:
+                        # Unreasonable estimate, use conservative fallback
+                        width_fwhm = 10 * dx
+                else:
+                    # Not a concave-down peak (edge case), use conservative fallback
+                    width_fwhm = 10 * dx
+            else:
+                # Peak too close to edge, use conservative fallback
+                width_fwhm = 10 * dx
 
         # Color
         color = default_colors[i % len(default_colors)]
@@ -375,6 +426,60 @@ def auto_find_peaks(
         peak.label = f"Peak {i+1}"
 
     return peak_table
+
+
+def detect_overlapping_peaks(
+    peak_table: List[PeakDefinition],
+    merge_threshold: float = 2.0
+) -> List[str]:
+    """
+    Detect peaks that are too close and may cause fitting issues.
+
+    Parameters
+    ----------
+    peak_table : List[PeakDefinition]
+        List of peaks (should be sorted by center position).
+    merge_threshold : float, default=2.0
+        Warn if centers are closer than this × average FWHM.
+
+    Returns
+    -------
+    warnings : List[str]
+        List of warning messages for overlapping peaks.
+
+    Notes
+    -----
+    Peaks closer than 2× FWHM often:
+    - Collapse into a single peak during fitting
+    - Cause poor convergence
+    - Result in low R² values
+
+    Example
+    -------
+    >>> warnings = detect_overlapping_peaks(peak_table, merge_threshold=2.0)
+    >>> for warning in warnings:
+    ...     print(warning)
+    """
+    warnings = []
+
+    # Sort by center position
+    sorted_peaks = sorted(peak_table, key=lambda p: p.center)
+
+    for i in range(len(sorted_peaks) - 1):
+        p1 = sorted_peaks[i]
+        p2 = sorted_peaks[i + 1]
+
+        distance = abs(p2.center - p1.center)
+        avg_fwhm = (p1.width_fwhm + p2.width_fwhm) / 2
+
+        if distance < merge_threshold * avg_fwhm:
+            warnings.append(
+                f"⚠️ Peaks '{p1.label}' and '{p2.label}' are very close "
+                f"({distance:.1f} < {merge_threshold}×FWHM={merge_threshold*avg_fwhm:.1f}). "
+                f"Consider merging into a single peak or refining guesses."
+            )
+
+    return warnings
 
 
 def estimate_peak_bounds(
