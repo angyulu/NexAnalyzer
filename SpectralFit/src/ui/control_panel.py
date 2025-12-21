@@ -17,6 +17,68 @@ from ..processing.baseline import (
 from ..models.spectrum import SpectrumData
 
 
+def validate_peak_row(row, x_range, spectral_resolution):
+    """
+    Validate a single peak table row.
+
+    Parameters
+    ----------
+    row : pd.Series
+        DataFrame row representing a peak.
+    x_range : tuple[float, float]
+        (min, max) of X data range.
+    spectral_resolution : float
+        Median step size in X.
+
+    Returns
+    -------
+    errors : list[str]
+        List of validation error messages.
+    """
+    import re
+    errors = []
+
+    # Center validation
+    if not (x_range[0] <= row["Center"] <= x_range[1]):
+        errors.append(
+            f"Peak '{row['Label']}': Center {row['Center']:.2f} outside data range "
+            f"[{x_range[0]:.2f}, {x_range[1]:.2f}]"
+        )
+
+    # Amplitude validation
+    if row["Amplitude"] <= 0:
+        errors.append(f"Peak '{row['Label']}': Amplitude must be > 0 (got {row['Amplitude']:.2f})")
+
+    # FWHM validation
+    if row["FWHM"] <= 0:
+        errors.append(f"Peak '{row['Label']}': FWHM must be > 0 (got {row['FWHM']:.2f})")
+
+    x_span = x_range[1] - x_range[0]
+    if row["FWHM"] > 0.5 * x_span:
+        errors.append(
+            f"Peak '{row['Label']}': FWHM {row['FWHM']:.2f} > 50% of data range ({0.5*x_span:.2f})"
+        )
+
+    if row["FWHM"] < spectral_resolution:
+        errors.append(
+            f"Peak '{row['Label']}': FWHM {row['FWHM']:.2f} < spectral resolution ({spectral_resolution:.2f})"
+        )
+
+    # Shape validation
+    if not (0.0 <= row["Shape"] <= 1.0):
+        errors.append(f"Peak '{row['Label']}': Shape must be in [0.0, 1.0] (got {row['Shape']:.2f})")
+
+    # Label validation
+    if len(row["Label"]) > 50:
+        errors.append(f"Peak '{row['Label']}': Label too long (max 50 characters)")
+
+    # Color validation (basic hex check)
+    if not re.match(r'^#[0-9A-Fa-f]{6}$', row["Color"]):
+        errors.append(f"Peak '{row['Label']}': Invalid color '{row['Color']}' (must be #RRGGBB)")
+
+    return errors
+
+
 def compute_preprocessing_hash(spectrum) -> str:
     """
     Compute SHA256 hash of preprocessing parameters for stale fit detection.
@@ -478,33 +540,115 @@ def render_peak_fit_section(is_expanded: bool, is_enabled: bool):
                     spectrum.fit_done = False
                     st.rerun()
 
-        # Display peak table
+        # Display editable peak table
         if len(spectrum.peak_table) == 0:
             st.info("No peaks defined. Click 'Auto-Find' or 'Add Peak'")
         else:
             import pandas as pd
+            import numpy as np
+
+            # Calculate data properties for bounds and validation
+            x_range = (spectrum.processed_data.X.min(), spectrum.processed_data.X.max())
+            y_max = spectrum.processed_data.Y.max()
+            spectral_resolution = np.median(np.abs(np.diff(spectrum.processed_data.X)))
+
+            # Build DataFrame with editable and display columns
             peak_data = []
             for i, peak in enumerate(spectrum.peak_table):
+                # Recalculate bounds for display
+                peak.calculate_auto_bounds(spectrum.mode, x_range, y_max, spectral_resolution)
+
                 peak_data.append({
                     "ID": i + 1,
                     "Label": peak.label,
-                    "Center": f"{peak.center:.2f}",
-                    "Amp": f"{peak.amplitude:.0f}",
-                    "FWHM": f"{peak.width_fwhm:.2f}"
+                    "Center": peak.center,
+                    "Amplitude": peak.amplitude,
+                    "FWHM": peak.width_fwhm,
+                    "Shape": peak.shape,
+                    "Color": peak.color,
+                    "Center Range": f"{peak.center_min:.1f} - {peak.center_max:.1f}",
+                    "Width Range": f"{peak.width_min:.1f} - {peak.width_max:.1f}"
                 })
 
             df = pd.DataFrame(peak_data)
-            st.dataframe(df, hide_index=True, use_container_width=True, height=150)
 
-            # Remove individual peak
+            # Editable data editor with column configuration
+            x_unit = " (cm⁻¹)" if spectrum.mode == "Raman" else " (nm)"
+            edited_df = st.data_editor(
+                df,
+                column_config={
+                    "ID": st.column_config.NumberColumn("ID", disabled=True, help="Peak index"),
+                    "Label": st.column_config.TextColumn("Label", max_chars=50, help="Peak name (max 50 characters)"),
+                    "Center": st.column_config.NumberColumn(
+                        f"Center{x_unit}",
+                        format="%.2f",
+                        help="Peak position"
+                    ),
+                    "Amplitude": st.column_config.NumberColumn(
+                        "Amp",
+                        format="%.0f",
+                        help="Peak height (NOT integrated intensity)"
+                    ),
+                    "FWHM": st.column_config.NumberColumn(
+                        "FWHM",
+                        format="%.2f",
+                        help="Full-width-at-half-maximum"
+                    ),
+                    "Shape": st.column_config.NumberColumn(
+                        "Shape (G→L)",
+                        format="%.2f",
+                        min_value=0.0,
+                        max_value=1.0,
+                        help="0=Pure Gaussian, 1=Pure Lorentzian, 0.5=Equal mix"
+                    ),
+                    "Color": st.column_config.ColorColumn("Color", help="Peak color in plot"),
+                    "Center Range": st.column_config.TextColumn("Center Bounds", disabled=True, help="Auto-calculated fitting bounds"),
+                    "Width Range": st.column_config.TextColumn("Width Bounds", disabled=True, help="Auto-calculated fitting bounds")
+                },
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed",  # Don't allow add/delete via table (use buttons instead)
+                key="peak_table_editor"
+            )
+
+            # Sync edits back to spectrum.peak_table
+            validation_errors = []
+
+            # Update existing peaks in-place
+            for i, row in edited_df.iterrows():
+                # Validate row
+                errors = validate_peak_row(row, x_range, spectral_resolution)
+                if errors:
+                    validation_errors.extend(errors)
+                    continue
+
+                peak = spectrum.peak_table[i]
+                peak.center = row["Center"]
+                peak.amplitude = row["Amplitude"]
+                peak.width_fwhm = row["FWHM"]
+                peak.label = row["Label"]
+                peak.shape = row["Shape"]
+                peak.color = row["Color"]
+
+                # Recalculate bounds after edit
+                peak.calculate_auto_bounds(spectrum.mode, x_range, y_max, spectral_resolution)
+
+            # Display validation errors
+            if validation_errors:
+                for error in validation_errors:
+                    st.error(error)
+                st.warning("⚠️ Fix validation errors before fitting")
+
+            # Remove individual peak (keep this for now, can remove rows manually)
             if len(spectrum.peak_table) > 1:
+                st.markdown("---")
                 remove_id = st.selectbox(
                     "Remove peak:",
                     options=list(range(len(spectrum.peak_table))),
                     format_func=lambda i: f"{spectrum.peak_table[i].label} @ {spectrum.peak_table[i].center:.2f}",
                     key="remove_peak_select"
                 )
-                if st.button("Remove Selected", key="remove_peak_btn"):
+                if st.button("🗑️ Remove Selected", key="remove_peak_btn"):
                     del spectrum.peak_table[remove_id]
                     st.rerun()
 
