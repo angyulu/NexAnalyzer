@@ -601,7 +601,7 @@ def render_peak_fit_section(is_expanded: bool, is_enabled: bool):
                         max_value=1.0,
                         help="0=Pure Gaussian, 1=Pure Lorentzian, 0.5=Equal mix"
                     ),
-                    "Color": st.column_config.ColorColumn("Color", help="Peak color in plot"),
+                    "Color": st.column_config.TextColumn("Color", help="Peak color in plot (hex #RRGGBB)"),
                     "Center Range": st.column_config.TextColumn("Center Bounds", disabled=True, help="Auto-calculated fitting bounds"),
                     "Width Range": st.column_config.TextColumn("Width Bounds", disabled=True, help="Auto-calculated fitting bounds")
                 },
