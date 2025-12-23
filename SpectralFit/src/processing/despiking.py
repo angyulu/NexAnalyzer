@@ -73,8 +73,9 @@ def remove_spikes(
     - Modified Z-score: robust alternative to standard Z-score
     """
     # Validation
-    if not (3.0 <= threshold <= 15.0):
-        raise ValueError(f"threshold must be in [3.0, 15.0] (got {threshold})")
+    # **FIX (Issue 4)**: Extended range to 30.0 per user request
+    if not (3.0 <= threshold <= 30.0):
+        raise ValueError(f"threshold must be in [3.0, 30.0] (got {threshold})")
 
     if window_size % 2 == 0:
         raise ValueError(f"window_size must be odd (got {window_size})")

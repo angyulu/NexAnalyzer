@@ -259,7 +259,8 @@ def fit_voigt_peaks(
             width_fwhm=width_fwhm_fit,
             width_stderr=width_stderr,
             shape=shape_fit,
-            component_curve=component_curve
+            component_curve=component_curve,
+            color=peak.color  # Copy color from PeakDefinition
         ))
 
     # Calculate quality metrics

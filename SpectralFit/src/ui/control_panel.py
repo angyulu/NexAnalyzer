@@ -38,6 +38,13 @@ def validate_peak_row(row, x_range, spectral_resolution):
     import re
     errors = []
 
+    # **FIX (Issue 2)**: Guard against None values in new/incomplete rows
+    # When user adds row via data_editor "+", all fields are None initially
+    # Skip validation for incomplete rows (return empty errors)
+    required_fields = ["Label", "Center", "Amplitude", "FWHM", "Shape", "Color"]
+    if any(row[field] is None for field in required_fields):
+        return []
+
     # Center validation
     if not (x_range[0] <= row["Center"] <= x_range[1]):
         errors.append(
@@ -125,14 +132,22 @@ def render_view_options():
     with st.expander("🔍 View Options", expanded=False):
         st.markdown("**Plot Layer Visibility**")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.checkbox("Show Raw", value=True, key="show_raw")
-            st.checkbox("Show De-spiked", value=False, key="show_despiked")
-            st.checkbox("Show Baseline-corrected", value=False, key="show_corrected")
-        with col2:
-            st.checkbox("Show Fit", value=False, key="show_fit")
-            st.checkbox("Show Components", value=False, key="show_components")
+        # Simplified view options per user request:
+        # - Removed "Show Baseline-corrected" (automatically managed by processing stages)
+        # - Keep only essential checkboxes for user control
+        st.checkbox("Show Raw", value=True, key="show_raw",
+                   help="Show raw data (before any processing)")
+        st.checkbox("Show De-spiked", value=False, key="show_despiked",
+                   help="Show data after spike removal")
+        st.checkbox("Show Baseline-corrected", value=False, key="show_corrected",
+                   help="Show data after baseline correction")
+
+        st.markdown("---")
+        st.markdown("**Peak Fitting Display**")
+        st.checkbox("Show Fit", value=False, key="show_fit",
+                   help="Show total fitted curve")
+        st.checkbox("Show Components", value=False, key="show_components",
+                   help="Show individual peak components")
 
         st.caption("Toggle plot layers on/off without reprocessing.")
 
@@ -224,6 +239,12 @@ def render_processing_range_section(is_expanded: bool):
 
                 # Auto-expand next section
                 st.session_state['expanded_section'] = 'despike'
+                # **FIX (Issue 3)**: Reset view options to show only raw
+                st.session_state['show_raw'] = True
+                st.session_state['show_despiked'] = False
+                st.session_state['show_corrected'] = False
+                st.session_state['show_fit'] = False
+                st.session_state['show_components'] = False
                 st.rerun()
 
             except Exception as e:
@@ -257,13 +278,14 @@ def render_despike_section(is_expanded: bool):
             key="despike_preview_toggle"
         )
 
+        # **FIX (Issue 4)**: Extended max_value to 30.0 per user request
         threshold = st.slider(
             "Sensitivity Threshold",
             min_value=3.0,
-            max_value=15.0,
+            max_value=30.0,
             value=spectrum.processing_settings.despike_threshold,
             step=0.5,
-            help="Higher = less sensitive (fewer spikes detected)\nDefault: 6.0"
+            help="Higher = less sensitive (fewer spikes detected)\nDefault: 6.0\n⚠️ Values >15 may miss real spikes"
         )
 
         # Real-time preview computation
@@ -326,6 +348,12 @@ def render_despike_section(is_expanded: bool):
 
                 # Auto-expand next section
                 st.session_state['expanded_section'] = 'baseline'
+                # **FIX (Issue 3 UPDATE)**: Show Raw AND De-spiked for comparison
+                st.session_state['show_raw'] = True
+                st.session_state['show_despiked'] = True
+                st.session_state['show_corrected'] = False
+                st.session_state['show_fit'] = False
+                st.session_state['show_components'] = False
                 st.rerun()
 
             except Exception as e:
@@ -349,9 +377,21 @@ def render_baseline_section(is_expanded: bool):
 
         baseline_alg = st.radio(
             "Algorithm",
-            ["Polynomial", "ALS"],
-            index=0 if spectrum.processing_settings.baseline_algorithm == "Polynomial" else 1,
-            help="Polynomial: Simple fitting\nALS: Asymmetric Least Squares (better for fluorescence)"
+            ["Polynomial", "ALS", "Rolling Ball", "Spline", "airPLS"],
+            index={
+                "Polynomial": 0,
+                "ALS": 1,
+                "Rolling Ball": 2,
+                "Spline": 3,
+                "airPLS": 4
+            }.get(spectrum.processing_settings.baseline_algorithm, 0),
+            help=(
+                "Polynomial: Fast, simple (degree 2-3)\n"
+                "ALS: Good for fluorescence (tune λ and p)\n"
+                "Rolling Ball: Excellent for many sharp peaks\n"
+                "Spline: Local control, no oscillations\n"
+                "airPLS: Self-optimizing ALS (advanced)"
+            )
         )
 
         # Enable real-time preview toggle
@@ -362,50 +402,235 @@ def render_baseline_section(is_expanded: bool):
         )
 
         if baseline_alg == "Polynomial":
+            # Auto-suggest polynomial degree based on data
+            from ..processing.baseline import estimate_baseline_degree
+            X = spectrum.processed_data.X
+            Y = spectrum.processed_data.Y
+            suggested_degree = estimate_baseline_degree(X, Y)
+            st.caption(f"💡 Suggested degree based on data: {suggested_degree}")
+
             degree = st.slider(
                 "Polynomial Degree",
                 min_value=1,
                 max_value=10,
                 value=spectrum.processing_settings.baseline_degree,
-                help="Higher = more flexible (may overfit)"
+                help="Controls baseline flexibility. Recommended: 2-3 for simple, 4-5 for complex."
             )
+
+            # Warning for high degrees
+            if degree > 6:
+                st.warning(
+                    f"⚠️ Degree {degree} may cause oscillations (Runge's phenomenon). "
+                    f"Consider using ALS instead for complex baselines."
+                )
+            elif degree > 3:
+                st.info(
+                    f"ℹ️ Degree {degree} is flexible. Check preview to ensure baseline doesn't fit through peaks."
+                )
+
             lambda_val = None
             p_val = None
-        else:  # ALS
+
+        elif baseline_alg == "ALS":
             degree = None
-            lambda_val = st.slider(
-                "Smoothness (λ)",
-                min_value=10000.0,
-                max_value=10000000.0,
-                value=max(spectrum.processing_settings.baseline_lambda, 100000.0),
-                step=10000.0,
-                format="%.0f",
-                help="Higher = smoother baseline (typical: 100k-1M for fluorescence)"
+
+            # Log-scale slider for lambda (easier to tune across wide range)
+            import numpy as np
+            lambda_log = st.slider(
+                "Smoothness (log₁₀ λ)",
+                min_value=3.0,   # 10^3 = 1,000
+                max_value=6.0,   # 10^6 = 1,000,000
+                value=np.log10(max(spectrum.processing_settings.baseline_lambda, 10000.0)),
+                step=0.1,
+                format="%.1f",
+                help=(
+                    "Controls baseline smoothness on log scale.\n"
+                    "• 3.0 (1k): Very flexible, follows data closely\n"
+                    "• 4.0 (10k): Typical for Raman\n"
+                    "• 5.0 (100k): Smooth, good for fluorescence\n"
+                    "• 6.0 (1M): Very smooth"
+                )
             )
+            lambda_val = 10 ** lambda_log
+            st.caption(f"Actual λ = {lambda_val:,.0f}")
+
+            # Rephrased asymmetry parameter for better user understanding
             p_val = st.slider(
-                "Asymmetry (p)",
-                min_value=0.0001,
+                "Peak Avoidance",
+                min_value=0.001,
                 max_value=0.01,
                 value=min(spectrum.processing_settings.baseline_p, 0.001),
-                step=0.0001,
-                format="%.4f",
-                help="Lower = more asymmetric (weights below baseline more)"
+                step=0.001,
+                format="%.3f",
+                help=(
+                    "Controls how strongly the baseline avoids peaks.\n"
+                    "• 0.001: Very strong avoidance (ignores peaks completely)\n"
+                    "• 0.005: Moderate avoidance (typical for complex spectra)\n"
+                    "• 0.01: Gentle avoidance (may fit through small peaks)"
+                )
             )
+            st.caption(f"Technical: p={p_val:.4f}, weight ratio = 1:{int((1-p_val)/p_val)}")
+
+        elif baseline_alg == "Rolling Ball":
+            degree = None
+            lambda_val = None
+            p_val = None
+
+            # Rolling ball radius parameter
+            radius = st.slider(
+                "Ball Radius",
+                min_value=10.0,
+                max_value=200.0,
+                value=50.0,
+                step=5.0,
+                help=(
+                    "Radius of the rolling ball in X units (cm⁻¹ or nm).\n"
+                    "Larger radius = smoother baseline.\n"
+                    "• 20-50: For narrow peaks\n"
+                    "• 50-100: General purpose\n"
+                    "• 100-200: For broad features"
+                )
+            )
+
+        elif baseline_alg == "Spline":
+            degree = None
+            lambda_val = None
+            p_val = None
+
+            # Spline smoothness parameter
+            smoothness_auto = st.checkbox(
+                "Auto-calculate smoothness",
+                value=True,
+                help="Automatically calculate smoothness based on data variance"
+            )
+
+            if smoothness_auto:
+                smoothness = None
+                st.caption("Using automatic smoothness = len(X) × var(Y)")
+            else:
+                smoothness = st.slider(
+                    "Smoothness Factor",
+                    min_value=100.0,
+                    max_value=100000.0,
+                    value=10000.0,
+                    step=1000.0,
+                    format="%.0f",
+                    help=(
+                        "Spline smoothing factor (s parameter).\n"
+                        "Larger = smoother baseline.\n"
+                        "• 100-1000: Flexible spline\n"
+                        "• 1000-10000: Balanced\n"
+                        "• 10000+: Very smooth"
+                    )
+                )
+
+        elif baseline_alg == "airPLS":
+            degree = None
+            p_val = None
+
+            # airPLS lambda parameter (similar to ALS)
+            import numpy as np
+            lambda_log = st.slider(
+                "Smoothness (log₁₀ λ)",
+                min_value=3.0,   # 10^3
+                max_value=7.0,   # 10^7
+                value=5.0,       # 10^5 = 100,000
+                step=0.1,
+                format="%.1f",
+                help=(
+                    "Controls baseline smoothness (automatic peak avoidance).\n"
+                    "• 3.0 (1k): Very flexible\n"
+                    "• 5.0 (100k): Balanced (recommended)\n"
+                    "• 7.0 (10M): Very smooth"
+                )
+            )
+            lambda_val = 10 ** lambda_log
+            st.caption(f"Actual λ = {lambda_val:,.0f}")
+            st.info("ℹ️ airPLS automatically optimizes peak avoidance (no manual p tuning needed)")
+
+        else:  # Fallback for any future algorithms
+            degree = None
+            lambda_val = None
+            p_val = None
+
+        # Peak Exclusion Regions (optional)
+        st.markdown("---")
+        st.markdown("**Peak Exclusion Regions** (optional)")
+        st.caption("Define X ranges to exclude from baseline fitting (e.g., known peak locations)")
+
+        exclude_regions_text = st.text_area(
+            "Exclusion Ranges",
+            value="",
+            placeholder="Example: 1300-1400, 1550-1620 (comma-separated)",
+            help="Enter X ranges to exclude. Baseline will interpolate through these regions.",
+            key="baseline_exclusions"
+        )
+
+        # Parse exclusion regions
+        exclusions = []
+        if exclude_regions_text.strip():
+            for region in exclude_regions_text.split(','):
+                try:
+                    parts = region.strip().split('-')
+                    if len(parts) == 2:
+                        x_min = float(parts[0].strip())
+                        x_max = float(parts[1].strip())
+                        if x_min < x_max:
+                            exclusions.append((x_min, x_max))
+                        else:
+                            st.error(f"Invalid region: {region}. Min must be < Max.")
+                    else:
+                        st.error(f"Invalid format: {region}. Use 'min-max' format.")
+                except ValueError:
+                    st.error(f"Invalid numbers in region: {region}")
+
+        if exclusions:
+            st.success(f"✓ {len(exclusions)} exclusion region(s) defined")
 
         # Real-time preview computation
         if show_preview:
             try:
+                from ..processing.baseline import (
+                    baseline_polynomial_with_mask, baseline_als_with_mask,
+                    baseline_rolling_ball, baseline_spline, baseline_airpls
+                )
+
                 X = spectrum.processed_data.X
                 Y = spectrum.processed_data.Y
 
                 if baseline_alg == "Polynomial":
-                    y_corrected_preview, baseline_preview, y_shift = baseline_polynomial_with_autoshift(
-                        X, Y, degree=degree
-                    )
-                else:
-                    y_corrected_preview, baseline_preview, y_shift = baseline_als_with_autoshift(
-                        X, Y, lambda_=lambda_val, p=p_val
-                    )
+                    if exclusions:
+                        y_corrected_preview, baseline_preview = baseline_polynomial_with_mask(
+                            X, Y, degree=degree, exclusions=exclusions
+                        )
+                        y_shift = 0.0
+                    else:
+                        y_corrected_preview, baseline_preview, y_shift = baseline_polynomial_with_autoshift(
+                            X, Y, degree=degree
+                        )
+
+                elif baseline_alg == "ALS":
+                    if exclusions:
+                        y_corrected_preview, baseline_preview = baseline_als_with_mask(
+                            X, Y, lambda_=lambda_val, p=p_val, exclusions=exclusions
+                        )
+                        y_shift = 0.0
+                    else:
+                        y_corrected_preview, baseline_preview, y_shift = baseline_als_with_autoshift(
+                            X, Y, lambda_=lambda_val, p=p_val
+                        )
+
+                elif baseline_alg == "Rolling Ball":
+                    y_corrected_preview, baseline_preview = baseline_rolling_ball(X, Y, radius=radius)
+                    y_shift = 0.0
+
+                elif baseline_alg == "Spline":
+                    y_corrected_preview, baseline_preview = baseline_spline(X, Y, smoothness=smoothness)
+                    y_shift = 0.0
+
+                elif baseline_alg == "airPLS":
+                    y_corrected_preview, baseline_preview = baseline_airpls(X, Y, lambda_=lambda_val)
+                    y_shift = 0.0
 
                 # Store preview in session state for unified_plot to render
                 st.session_state['baseline_preview'] = {
@@ -426,26 +651,58 @@ def render_baseline_section(is_expanded: bool):
         # Run button
         if st.button("🚀 Run Baseline Correction", key="run_baseline"):
             try:
+                from ..processing.baseline import (
+                    baseline_polynomial_with_mask, baseline_als_with_mask,
+                    baseline_rolling_ball, baseline_spline, baseline_airpls,
+                    calculate_baseline_quality_metrics
+                )
+
                 # Update settings
                 spectrum.processing_settings.baseline_algorithm = baseline_alg
                 if baseline_alg == "Polynomial":
                     spectrum.processing_settings.baseline_degree = degree
-                else:
+                elif baseline_alg in ["ALS", "airPLS"]:
                     spectrum.processing_settings.baseline_lambda = lambda_val
-                    spectrum.processing_settings.baseline_p = p_val
+                    if baseline_alg == "ALS":
+                        spectrum.processing_settings.baseline_p = p_val
 
                 # Run baseline correction
                 X = spectrum.processed_data.X
                 Y = spectrum.processed_data.Y
 
                 if baseline_alg == "Polynomial":
-                    y_corrected, baseline, y_shift = baseline_polynomial_with_autoshift(
-                        X, Y, degree=degree
-                    )
-                else:
-                    y_corrected, baseline, y_shift = baseline_als_with_autoshift(
-                        X, Y, lambda_=lambda_val, p=p_val
-                    )
+                    if exclusions:
+                        y_corrected, baseline = baseline_polynomial_with_mask(
+                            X, Y, degree=degree, exclusions=exclusions
+                        )
+                        y_shift = 0.0
+                    else:
+                        y_corrected, baseline, y_shift = baseline_polynomial_with_autoshift(
+                            X, Y, degree=degree
+                        )
+
+                elif baseline_alg == "ALS":
+                    if exclusions:
+                        y_corrected, baseline = baseline_als_with_mask(
+                            X, Y, lambda_=lambda_val, p=p_val, exclusions=exclusions
+                        )
+                        y_shift = 0.0
+                    else:
+                        y_corrected, baseline, y_shift = baseline_als_with_autoshift(
+                            X, Y, lambda_=lambda_val, p=p_val
+                        )
+
+                elif baseline_alg == "Rolling Ball":
+                    y_corrected, baseline = baseline_rolling_ball(X, Y, radius=radius)
+                    y_shift = 0.0
+
+                elif baseline_alg == "Spline":
+                    y_corrected, baseline = baseline_spline(X, Y, smoothness=smoothness)
+                    y_shift = 0.0
+
+                elif baseline_alg == "airPLS":
+                    y_corrected, baseline = baseline_airpls(X, Y, lambda_=lambda_val)
+                    y_shift = 0.0
 
                 # Update processed data
                 spectrum.processed_data = SpectrumData(X=X, Y=y_corrected)
@@ -463,10 +720,32 @@ def render_baseline_section(is_expanded: bool):
                 if 'baseline_preview' in st.session_state:
                     st.session_state['baseline_preview'] = None
 
+                # Calculate and display quality metrics
+                metrics = calculate_baseline_quality_metrics(Y, baseline, X)
+
                 st.success(f"✅ Baseline corrected (Y-shift: {y_shift:.1f})")
+
+                # Display quality metrics in columns
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Residual Std", f"{metrics['residual_std']:.1f}",
+                              help="Lower = better fit (but beware overfitting)")
+                with col2:
+                    st.metric("Roughness", f"{metrics['roughness']:.2e}",
+                              help="Lower = smoother baseline (more desirable)")
+                with col3:
+                    st.metric("Peaks Found", metrics['peak_count'],
+                              help="Number of peaks preserved above baseline")
 
                 # Auto-expand next section
                 st.session_state['expanded_section'] = 'peak_fit'
+                # **FIX (Issue 3 UPDATE)**: Show De-spiked AND Baseline-corrected for comparison
+                # User wants to see despiked (original) + baseline-corrected (result) curves
+                st.session_state['show_raw'] = False
+                st.session_state['show_despiked'] = True
+                st.session_state['show_corrected'] = True
+                st.session_state['show_fit'] = False
+                st.session_state['show_components'] = False
                 st.rerun()
 
             except Exception as e:
@@ -542,10 +821,11 @@ def render_peak_fit_section(is_expanded: bool, is_enabled: bool):
 
         # Display editable peak table
         if len(spectrum.peak_table) == 0:
-            st.info("No peaks defined. Click 'Auto-Find' or 'Add Peak'")
+            st.info("No peaks defined. Click 'Auto-Find' or 'Add Peak' button, or add rows directly in the table below")
         else:
             import pandas as pd
             import numpy as np
+            from ..models.peak import PeakDefinition
 
             # Calculate data properties for bounds and validation
             x_range = (spectrum.processed_data.X.min(), spectrum.processed_data.X.max())
@@ -607,31 +887,84 @@ def render_peak_fit_section(is_expanded: bool, is_enabled: bool):
                 },
                 hide_index=True,
                 use_container_width=True,
-                num_rows="fixed",  # Don't allow add/delete via table (use buttons instead)
+                num_rows="dynamic",  # Allow add/delete via table
                 key="peak_table_editor"
             )
 
             # Sync edits back to spectrum.peak_table
             validation_errors = []
 
-            # Update existing peaks in-place
-            for i, row in edited_df.iterrows():
+            # Handle row additions
+            if len(edited_df) > len(spectrum.peak_table):
+                # Compute smart defaults
+                x_center = (x_range[0] + x_range[1]) / 2
+                amp_default = y_max * 0.5
+                fwhm_default = 10 * spectral_resolution
+                default_colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+                                  "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
+
+                for idx in range(len(spectrum.peak_table), len(edited_df)):
+                    row = edited_df.iloc[idx]
+
+                    # Use row values if provided, else defaults
+                    new_peak = PeakDefinition(
+                        center=row.get("Center") if pd.notna(row.get("Center")) else x_center,
+                        amplitude=row.get("Amplitude") if pd.notna(row.get("Amplitude")) else amp_default,
+                        width_fwhm=row.get("FWHM") if pd.notna(row.get("FWHM")) else fwhm_default,
+                        label=row.get("Label") if pd.notna(row.get("Label")) else f"Peak {len(spectrum.peak_table) + 1}",
+                        shape=row.get("Shape") if pd.notna(row.get("Shape")) else 0.5,
+                        color=row.get("Color") if pd.notna(row.get("Color")) else default_colors[len(spectrum.peak_table) % 10]
+                    )
+                    spectrum.peak_table.append(new_peak)
+
+            # Handle row deletions
+            elif len(edited_df) < len(spectrum.peak_table):
+                # **FIX (Issue 1)**: Rebuild peak_table using position-based iteration
+                new_peak_table = []
+                for idx in range(len(edited_df)):
+                    row = edited_df.iloc[idx]  # Use iloc for position-based access
+
+                    # Validate row BEFORE adding to peak_table
+                    errors = validate_peak_row(row, x_range, spectral_resolution)
+                    if errors:
+                        validation_errors.extend(errors)
+                        # Still add peak (user will see validation errors)
+
+                    peak = PeakDefinition(
+                        center=row["Center"],
+                        amplitude=row["Amplitude"],
+                        width_fwhm=row["FWHM"],
+                        label=row["Label"],
+                        shape=row["Shape"],
+                        color=row["Color"]
+                    )
+                    new_peak_table.append(peak)
+
+                spectrum.peak_table = new_peak_table
+
+            # **FIX (Issue 1)**: Update existing peaks using position-based iteration
+            # Use range(len()) instead of iterrows() to avoid index mismatch
+            for idx in range(len(edited_df)):
+                row = edited_df.iloc[idx]  # Use iloc for position-based access
+
                 # Validate row
                 errors = validate_peak_row(row, x_range, spectral_resolution)
                 if errors:
                     validation_errors.extend(errors)
                     continue
 
-                peak = spectrum.peak_table[i]
-                peak.center = row["Center"]
-                peak.amplitude = row["Amplitude"]
-                peak.width_fwhm = row["FWHM"]
-                peak.label = row["Label"]
-                peak.shape = row["Shape"]
-                peak.color = row["Color"]
+                # Ensure peak_table has enough elements (handle edge cases)
+                if idx < len(spectrum.peak_table):
+                    peak = spectrum.peak_table[idx]
+                    peak.center = row["Center"]
+                    peak.amplitude = row["Amplitude"]
+                    peak.width_fwhm = row["FWHM"]
+                    peak.label = row["Label"]
+                    peak.shape = row["Shape"]
+                    peak.color = row["Color"]
 
-                # Recalculate bounds after edit
-                peak.calculate_auto_bounds(spectrum.mode, x_range, y_max, spectral_resolution)
+                    # Recalculate bounds after edit
+                    peak.calculate_auto_bounds(spectrum.mode, x_range, y_max, spectral_resolution)
 
             # Display validation errors
             if validation_errors:
@@ -695,6 +1028,19 @@ def render_peak_fit_section(is_expanded: bool, is_enabled: bool):
 
                                 # Auto-expand export section
                                 st.session_state['expanded_section'] = 'export'
+
+                                # Clear all preview states
+                                if 'despike_preview' in st.session_state:
+                                    st.session_state['despike_preview'] = None
+                                if 'baseline_preview' in st.session_state:
+                                    st.session_state['baseline_preview'] = None
+
+                                # **FIX (Issue 3)**: Show fit results only (no despiked curves)
+                                st.session_state['show_raw'] = False
+                                st.session_state['show_despiked'] = False
+                                st.session_state['show_corrected'] = True
+                                st.session_state['show_fit'] = True
+                                st.session_state['show_components'] = False
                                 st.rerun()
                             else:
                                 st.error(f"❌ {fit_result.error_message}")
@@ -753,36 +1099,41 @@ def render_control_panel():
     spectrum = get_current_spectrum()
     expanded_section = st.session_state.get('expanded_section', 'processing_range')
 
-    # Mobile: Add "Jump to Plot" link
-    is_mobile = st.session_state.get('is_mobile', False)
-    if is_mobile:
-        st.markdown("📊 [Jump to Plot](#plot-anchor)")
+    # **FIX (Issue 6c)**: Wrap entire panel in scrollable container
+    with st.container(height=800):  # Fixed height scrollable container
+        # Mobile: Add "Jump to Plot" link
+        is_mobile = st.session_state.get('is_mobile', False)
+        if is_mobile:
+            st.markdown("📊 [Jump to Plot](#plot-anchor)")
 
-    # View Options (always at top)
-    render_view_options()
+        st.markdown("---")
+        st.markdown("### Processing Workflow")
 
-    st.markdown("---")
-    st.markdown("### Processing Workflow")
+        # **FIX (Issue 6a & 6b)**: Reordered UI sections
+        # Render accordion sections in order
+        render_processing_range_section(is_expanded=(expanded_section == 'processing_range'))
+        render_despike_section(is_expanded=(expanded_section == 'despike'))
+        render_baseline_section(is_expanded=(expanded_section == 'baseline'))
 
-    # Reset to Raw button (global)
-    if spectrum is not None:
-        if st.button("🔄 Reset to Raw", help="Clear all processing and start over"):
-            spectrum.reset_to_raw()
-            st.session_state['expanded_section'] = 'processing_range'
-            st.success("✅ Reset to raw data")
-            st.rerun()
+        peak_fit_enabled = is_section_enabled('peak_fit', spectrum)
+        render_peak_fit_section(
+            is_expanded=(expanded_section == 'peak_fit'),
+            is_enabled=peak_fit_enabled
+        )
 
-    st.markdown("---")
+        render_export_section(is_expanded=(expanded_section == 'export'))
 
-    # Render accordion sections in order
-    render_processing_range_section(is_expanded=(expanded_section == 'processing_range'))
-    render_despike_section(is_expanded=(expanded_section == 'despike'))
-    render_baseline_section(is_expanded=(expanded_section == 'baseline'))
+        st.markdown("---")
 
-    peak_fit_enabled = is_section_enabled('peak_fit', spectrum)
-    render_peak_fit_section(
-        is_expanded=(expanded_section == 'peak_fit'),
-        is_enabled=peak_fit_enabled
-    )
+        # Reset to Raw button (MOVED below Export per Issue 6a)
+        if spectrum is not None:
+            if st.button("🔄 Reset to Raw", help="Clear all processing and start over"):
+                spectrum.reset_to_raw()
+                st.session_state['expanded_section'] = 'processing_range'
+                st.success("✅ Reset to raw data")
+                st.rerun()
 
-    render_export_section(is_expanded=(expanded_section == 'export'))
+        st.markdown("---")
+
+        # View Options (MOVED below Reset to Raw per Issue 6b)
+        render_view_options()

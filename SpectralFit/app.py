@@ -61,21 +61,18 @@ with st.sidebar:
 is_mobile = st.session_state.get('is_mobile', False)
 
 if is_mobile:
-    # Mobile: Vertical stack (Files → Controls → Plot)
-    render_file_panel()
-    st.markdown("---")
+    # Mobile: Vertical stack (Controls → Plot)
+    # **FIX (Issue 6d)**: File panel removed - navigation now in plot
     render_control_panel()
     st.markdown("---")
     render_unified_plot()
 else:
-    # Desktop: Three columns (20% / 50% / 30%)
-    col_left, col_center, col_right = st.columns([1, 2.5, 1.5])
-
-    with col_left:
-        render_file_panel()
+    # Desktop: Two columns (70% plot / 30% controls)
+    # **FIX (Issue 6d)**: Removed left file panel - navigation now at top of plot
+    col_center, col_right = st.columns([3.5, 1.5])
 
     with col_center:
-        render_unified_plot()
+        render_unified_plot()  # Now includes file navigation at top
 
     with col_right:
         render_control_panel()

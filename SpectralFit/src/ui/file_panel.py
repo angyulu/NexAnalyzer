@@ -108,22 +108,23 @@ def render_file_card(filename: str, spectrum: SpectrumFile, is_current: bool):
             st.session_state['current_file'] = filename
             st.rerun()
 
-        # Mode chip
-        mode_color = "#2196F3" if spectrum.mode == "Raman" else "#FF9800"
-        st.markdown(
-            f'<span style="background-color: {mode_color}; color: white; '
-            f'padding: 2px 8px; border-radius: 3px; font-size: 12px;">{spectrum.mode}</span>',
-            unsafe_allow_html=True
-        )
+        # **FIX (Issue 6d)**: Hide mode chip and status badges per user request
+        # # Mode chip
+        # mode_color = "#2196F3" if spectrum.mode == "Raman" else "#FF9800"
+        # st.markdown(
+        #     f'<span style="background-color: {mode_color}; color: white; '
+        #     f'padding: 2px 8px; border-radius: 3px; font-size: 12px;">{spectrum.mode}</span>',
+        #     unsafe_allow_html=True
+        # )
 
-        # Status badges row
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            render_status_badge("Despike", compute_badge_state(spectrum, "despike"), filename)
-        with col2:
-            render_status_badge("Baseline", compute_badge_state(spectrum, "baseline"), filename)
-        with col3:
-            render_status_badge("Fit", compute_badge_state(spectrum, "fit"), filename)
+        # # Status badges row
+        # col1, col2, col3 = st.columns(3)
+        # with col1:
+        #     render_status_badge("Despike", compute_badge_state(spectrum, "despike"), filename)
+        # with col2:
+        #     render_status_badge("Baseline", compute_badge_state(spectrum, "baseline"), filename)
+        # with col3:
+        #     render_status_badge("Fit", compute_badge_state(spectrum, "fit"), filename)
 
         st.markdown('</div>', unsafe_allow_html=True)
 

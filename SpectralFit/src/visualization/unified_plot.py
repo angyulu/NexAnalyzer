@@ -143,10 +143,11 @@ def create_unified_figure(spectrum: SpectrumFile, layer_config: Optional[Dict[st
     - "raw": Raw data (blue, markers)
     - "despiked": De-spiked data (orange, line)
     - "baseline_preview": Preview baseline (red, dash)
-    - "corrected_preview": Preview corrected (green, line)
     - "baseline_corrected": Final corrected (purple, line)
     - "fit_total": Fit total curve (black, line)
     - "component_N": Individual fit components (gray, dash)
+
+    NOTE: "Preview Corrected" (green curve) was removed per user request.
     """
     if layer_config is None:
         layer_config = compute_default_visibility(spectrum)
@@ -204,8 +205,9 @@ def create_unified_figure(spectrum: SpectrumFile, layer_config: Optional[Dict[st
             visible=layer_config.get("baseline_corrected", False)
         ))
 
-    # Layers 4-5: Baseline preview traces (Phase 2.4)
-    # These are added dynamically from session state when user adjusts baseline params
+    # Layer 4: Baseline preview trace (Phase 2.4)
+    # Added dynamically from session state when user adjusts baseline params
+    # NOTE: Removed "Preview Corrected" (green curve) per user request
     if 'baseline_preview' in st.session_state and st.session_state['baseline_preview'] is not None:
         preview_data = st.session_state['baseline_preview']
         if 'baseline' in preview_data:
@@ -216,16 +218,6 @@ def create_unified_figure(spectrum: SpectrumFile, layer_config: Optional[Dict[st
                 name="Preview Baseline",
                 line=dict(color="red", width=2, dash="dash"),
                 visible=layer_config.get("baseline_preview", True)
-            ))
-        if 'corrected' in preview_data:
-            fig.add_trace(go.Scatter(
-                x=preview_data['x'],
-                y=preview_data['corrected'],
-                mode="lines",
-                name="Preview Corrected",
-                line=dict(color="green", width=2),
-                opacity=0.6,
-                visible=layer_config.get("corrected_preview", True)
             ))
 
     # Layer 6: Fit total curve (if exists)
@@ -247,15 +239,55 @@ def create_unified_figure(spectrum: SpectrumFile, layer_config: Optional[Dict[st
                 for i, peak in enumerate(spectrum.fit_result.fitted_peaks):
                     if hasattr(peak, 'component_curve') and peak.component_curve is not None:
                         peak_label = getattr(peak, 'label', f"Peak {i+1}")
+                        peak_color = getattr(peak, 'color', "#1f77b4")  # Use peak color
                         fig.add_trace(go.Scatter(
                             x=spectrum.processed_data.X,
                             y=peak.component_curve,
                             mode="lines",
                             name=peak_label,
-                            line=dict(color="gray", width=1.5, dash="dash"),
+                            line=dict(color=peak_color, width=1.5, dash="dash"),
                             opacity=0.7,
                             visible=True
                         ))
+
+    # Layer 8+: Peak markers for initial guesses (before fitting)
+    if len(spectrum.peak_table) > 0 and layer_config.get("show_peak_markers", False):
+        # Get current Y data for marker heights
+        if spectrum.baseline_done:
+            Y_ref = spectrum.processed_data.Y
+        elif spectrum.despike_done:
+            Y_ref = spectrum.processed_data.Y
+        else:
+            Y_ref = spectrum.raw_data.Y
+
+        X_ref = spectrum.processed_data.X if spectrum.despike_done else spectrum.raw_data.X
+
+        for peak in spectrum.peak_table:
+            # Find Y value at peak center
+            idx = np.argmin(np.abs(X_ref - peak.center))
+            y_at_peak = Y_ref[idx] if idx < len(Y_ref) else 0
+
+            # Vertical line marker
+            fig.add_trace(go.Scatter(
+                x=[peak.center, peak.center],
+                y=[0, y_at_peak],
+                mode='lines',
+                name=f"{peak.label} (initial)",
+                line=dict(color=peak.color, width=1.5, dash='dot'),
+                showlegend=True,
+                visible=True
+            ))
+
+            # Diamond marker at peak center
+            fig.add_trace(go.Scatter(
+                x=[peak.center],
+                y=[y_at_peak],
+                mode='markers',
+                name=peak.label,
+                marker=dict(color=peak.color, size=8, symbol='diamond'),
+                showlegend=False,
+                visible=True
+            ))
 
     # Note: X-range indicators removed - we now crop the data instead of showing indicators
 
@@ -285,7 +317,54 @@ def render_unified_plot():
 
     This function should be called from app.py within the center column.
     """
-    spectrum = st.session_state.get("files", {}).get(st.session_state.get("current_file"))
+    # **FIX (Issue 6d)**: Add file navigation dropdown + left/right buttons at top of plot
+    files = st.session_state.get("files", {})
+    current_file = st.session_state.get("current_file")
+
+    if files:
+        file_list = list(files.keys())
+
+        # File navigation row
+        nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([1, 6, 1, 1])
+
+        with nav_col1:
+            # Previous button
+            if st.button("◀", key="file_prev", help="Previous file"):
+                if current_file in file_list:
+                    current_idx = file_list.index(current_file)
+                    prev_idx = (current_idx - 1) % len(file_list)
+                    st.session_state['current_file'] = file_list[prev_idx]
+                    st.rerun()
+
+        with nav_col2:
+            # File dropdown
+            selected_file = st.selectbox(
+                "File",
+                options=file_list,
+                index=file_list.index(current_file) if current_file in file_list else 0,
+                key="file_selector_dropdown",
+                label_visibility="collapsed"
+            )
+            if selected_file != current_file:
+                st.session_state['current_file'] = selected_file
+                st.rerun()
+
+        with nav_col3:
+            # Next button
+            if st.button("▶", key="file_next", help="Next file"):
+                if current_file in file_list:
+                    current_idx = file_list.index(current_file)
+                    next_idx = (current_idx + 1) % len(file_list)
+                    st.session_state['current_file'] = file_list[next_idx]
+                    st.rerun()
+
+        with nav_col4:
+            # File count indicator
+            if current_file in file_list:
+                current_idx = file_list.index(current_file)
+                st.markdown(f"<div style='text-align: center; padding-top: 8px; color: #666;'>{current_idx + 1}/{len(file_list)}</div>", unsafe_allow_html=True)
+
+    spectrum = files.get(current_file)
 
     if spectrum is None:
         # Show empty placeholder

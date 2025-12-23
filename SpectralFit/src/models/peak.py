@@ -111,19 +111,17 @@ class PeakDefinition:
             # PL: at least 30 nm or 10% of FWHM, whichever is larger
             center_tolerance = max(30.0, 0.10 * self.width_fwhm)
 
-        if self.center_min is None:
-            self.center_min = max(x_range[0], self.center - center_tolerance)
-        if self.center_max is None:
-            self.center_max = min(x_range[1], self.center + center_tolerance)
+        # Always recalculate center bounds to ensure they include the current center
+        # (important when user manually edits peak positions)
+        self.center_min = max(x_range[0], self.center - center_tolerance)
+        self.center_max = min(x_range[1], self.center + center_tolerance)
 
         # Width bounds (adaptive: allow 0.5× to 3× initial guess)
-        if self.width_min is None:
-            # At least 2.5× spectral resolution, or 50% of initial guess
-            self.width_min = max(2.5 * spectral_resolution, 0.5 * self.width_fwhm)
-
-        if self.width_max is None:
-            # At most 50% of X range, or 3× initial guess (prevents runaway fitting)
-            self.width_max = min(0.5 * (x_range[1] - x_range[0]), 3.0 * self.width_fwhm)
+        # Always recalculate to ensure bounds match current width_fwhm
+        # At least 2.5× spectral resolution, or 50% of initial guess
+        self.width_min = max(2.5 * spectral_resolution, 0.5 * self.width_fwhm)
+        # At most 50% of X range, or 3× initial guess (prevents runaway fitting)
+        self.width_max = min(0.5 * (x_range[1] - x_range[0]), 3.0 * self.width_fwhm)
 
         # Amplitude bounds (wider range for uncertain peaks)
         if self.amplitude_max is None:
@@ -177,6 +175,8 @@ class FittedPeak:
         Fitted Voigt mixing (0-1).
     component_curve : np.ndarray
         This peak's contribution to total fit (same length as X).
+    color : str
+        Peak color for plotting (hex #RRGGBB), copied from PeakDefinition.
     """
 
     label: str
@@ -188,6 +188,7 @@ class FittedPeak:
     width_stderr: float
     shape: float
     component_curve: np.ndarray
+    color: str = "#1f77b4"  # Default color
 
     def to_dict(self) -> dict:
         """Serialize to dictionary for JSON export."""
@@ -200,7 +201,8 @@ class FittedPeak:
             "width_fwhm": self.width_fwhm,
             "width_stderr": self.width_stderr,
             "shape": self.shape,
-            "component_curve": self.component_curve.tolist() if self.component_curve is not None else None
+            "component_curve": self.component_curve.tolist() if self.component_curve is not None else None,
+            "color": self.color
         }
 
     @classmethod
@@ -216,7 +218,8 @@ class FittedPeak:
             width_fwhm=data["width_fwhm"],
             width_stderr=data["width_stderr"],
             shape=data["shape"],
-            component_curve=component_curve
+            component_curve=component_curve,
+            color=data.get("color", "#1f77b4")  # Default color if not present
         )
 
 

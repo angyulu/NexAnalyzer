@@ -125,8 +125,9 @@ class ProcessingSettings:
 
     def __post_init__(self):
         """Validate parameters."""
-        if not (3.0 <= self.despike_threshold <= 15.0):
-            raise ValueError(f"despike_threshold must be in [3.0, 15.0] (got {self.despike_threshold})")
+        # **FIX (Issue 4)**: Extended range to 30.0 per user request
+        if not (3.0 <= self.despike_threshold <= 30.0):
+            raise ValueError(f"despike_threshold must be in [3.0, 30.0] (got {self.despike_threshold})")
 
         if self.baseline_algorithm not in ["Polynomial", "ALS"]:
             raise ValueError(f"baseline_algorithm must be 'Polynomial' or 'ALS' (got {self.baseline_algorithm})")
@@ -174,8 +175,11 @@ class SpectrumFile:
         Original .txt filename (1-255 characters).
     mode : Literal["Raman", "PL"]
         Spectroscopy mode (affects units and fitting bounds).
+    original_data : SpectrumData
+        Unmodified original X/Y arrays from file load (v2.2+, Issue 5 fix).
+        Never modified after initial load, used for full reset.
     raw_data : SpectrumData
-        Original X/Y arrays (never modified after load).
+        Original X/Y arrays (may be cropped by X-range, never modified by processing).
     processed_data : SpectrumData
         Current processed X/Y arrays (after despike/baseline).
     processing_settings : ProcessingSettings
@@ -206,6 +210,7 @@ class SpectrumFile:
 
     filename: str
     mode: Literal["Raman", "PL"]
+    original_data: SpectrumData  # **NEW (Issue 5)**: True original before X-range cropping
     raw_data: SpectrumData
     processed_data: SpectrumData
     processing_settings: ProcessingSettings = field(default_factory=ProcessingSettings)
@@ -232,22 +237,42 @@ class SpectrumFile:
 
     def reset_to_raw(self):
         """
-        Reset processed_data to raw_data and clear fit_result.
+        Reset to original unmodified data (before X-range or processing).
 
-        This reverts all pre-processing (de-spiking, baseline correction)
-        and clears fitting results.
+        This reverts:
+        - X-range cropping (restores full original data)
+        - De-spiking
+        - Baseline correction
+        - Peak fitting
 
         Notes
         -----
-        v2.2: Also clears status flags (despike_done, baseline_done, fit_done).
+        v2.2+: Resets to original_data (full uncropped data), not raw_data.
+        Also clears X-range settings and all status flags.
         """
-        self.processed_data = SpectrumData(
-            X=self.raw_data.X.copy(),
-            Y=self.raw_data.Y.copy()
+        # **FIX (Issue 5)**: Reset to true original data (before any X-range cropping)
+        self.original_data = SpectrumData(
+            X=self.original_data.X.copy(),
+            Y=self.original_data.Y.copy()
         )
+        self.raw_data = SpectrumData(
+            X=self.original_data.X.copy(),
+            Y=self.original_data.Y.copy()
+        )
+        self.processed_data = SpectrumData(
+            X=self.original_data.X.copy(),
+            Y=self.original_data.Y.copy()
+        )
+
+        # Reset X-range settings
+        self.x_range_enabled = False
+        self.x_min = None
+        self.x_max = None
+
         self.processing_settings = ProcessingSettings()
         self.fit_result = None
-        # v2.2: Clear status flags
+
+        # Clear status flags
         self.despike_done = False
         self.baseline_done = False
         self.fit_done = False
@@ -282,9 +307,11 @@ class SpectrumFile:
         }
 
         if include_arrays:
+            result["original_data"] = self.original_data.to_dict()  # **NEW (Issue 5)**
             result["raw_data"] = self.raw_data.to_dict()
             result["processed_data"] = self.processed_data.to_dict()
         else:
+            result["original_data"] = None
             result["raw_data"] = None
             result["processed_data"] = None
 
@@ -296,16 +323,23 @@ class SpectrumFile:
         # Import here to avoid circular dependency
         from .peak import PeakDefinition, FitResult
 
+        # **FIX (Issue 5)**: Backward compatibility for original_data
+        # If original_data is missing (old v2.2 files), use raw_data as fallback
+        original_data = (SpectrumData.from_dict(data["original_data"])
+                         if data.get("original_data")
+                         else SpectrumData.from_dict(data["raw_data"]) if data.get("raw_data") else None)
+
         raw_data = SpectrumData.from_dict(data["raw_data"]) if data.get("raw_data") else None
         processed_data = SpectrumData.from_dict(data["processed_data"]) if data.get("processed_data") else None
 
-        if raw_data is None or processed_data is None:
-            raise ValueError("Cannot load SpectrumFile without raw_data and processed_data")
+        if original_data is None or raw_data is None or processed_data is None:
+            raise ValueError("Cannot load SpectrumFile without original_data, raw_data, and processed_data")
 
         # v2.1/v2.2: Add defaults for new fields if missing (backward compatibility)
         return cls(
             filename=data["filename"],
             mode=data["mode"],
+            original_data=original_data,  # **NEW (Issue 5)**
             raw_data=raw_data,
             processed_data=processed_data,
             processing_settings=ProcessingSettings.from_dict(data["processing_settings"]),

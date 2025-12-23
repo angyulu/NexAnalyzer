@@ -110,9 +110,11 @@ def render_sidebar():
                     auto_detected = False
 
                 # Create SpectrumFile
+                # **FIX (Issue 5)**: Initialize original_data to preserve full dataset
                 spectrum_file = SpectrumFile(
                     filename=uploaded_file.name,
                     mode=file_mode,
+                    original_data=spectrum_data,  # **NEW**: Never modified, for full reset
                     raw_data=spectrum_data,
                     processed_data=spectrum_data,  # Initially same as raw
                     processing_settings=ProcessingSettings(),
