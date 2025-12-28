@@ -114,9 +114,9 @@ class ProcessingSettings:
         Automatic Y-shift applied for baseline stability (v2.1+). 0 if not applied.
     """
 
-    despike_threshold: float = 6.0
+    despike_threshold: float = 30.0
     despike_applied: bool = False
-    baseline_algorithm: Literal["Polynomial", "ALS"] = "Polynomial"
+    baseline_algorithm: Literal["Polynomial", "ALS"] = "ALS"
     baseline_degree: int = 3
     baseline_lambda: float = 10000.0
     baseline_p: float = 0.001
