@@ -63,74 +63,151 @@ def render_sidebar():
 
     st.markdown("---")
 
-    # File upload
+    # Folder browser
     st.subheader("Load Spectra")
-    uploaded_files = st.file_uploader(
-        "Upload .txt files",
-        type=["txt"],
-        accept_multiple_files=True,
-        help="Two-column format: X<tab|comma>Y\nNo header row, numeric values only"
+
+    # Initialize last folder path in session state if not exists
+    if 'last_folder_path' not in st.session_state:
+        st.session_state['last_folder_path'] = ""
+
+    # Text input for folder path
+    folder_path = st.text_input(
+        "Folder Path",
+        value=st.session_state.get('last_folder_path', ''),
+        placeholder="Enter or paste folder path here",
+        help="Enter the full path to a folder containing .txt spectrum files"
     )
 
-    if uploaded_files:
-        for uploaded_file in uploaded_files:
-            # Check if already loaded
-            if uploaded_file.name in st.session_state.get("files", {}):
-                continue
+    # Browse folder button
+    if st.button("Browse File Folder", use_container_width=True):
+        try:
+            import subprocess
+            import sys
+            import os
 
-            try:
-                # Save to temp file and parse
-                import tempfile
-                import os
+            # Create a separate Python script to run tkinter dialog
+            dialog_script = """
+import tkinter as tk
+from tkinter import filedialog
+import sys
 
-                with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.txt') as tmp_file:
-                    tmp_file.write(uploaded_file.read())
-                    tmp_path = tmp_file.name
+root = tk.Tk()
+root.withdraw()
+root.wm_attributes('-topmost', 1)
 
-                # Parse spectrum
-                spectrum_data = parse_spectrum(tmp_path)
+initial_dir = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else ""
+selected_folder = filedialog.askdirectory(
+    title="Select Folder Containing Spectrum Files",
+    initialdir=initial_dir
+)
 
-                # v2.1+ (FR-12): Auto-detect mode from filename
-                detected_mode = detect_mode_from_filename(uploaded_file.name)
+root.destroy()
+print(selected_folder)
+"""
 
-                if detected_mode is not None:
-                    # Use detected mode and mark as auto-detected
-                    file_mode = detected_mode
-                    auto_detected = True
-                    set_mode(detected_mode)  # Update global mode
+            # Write script to temp file
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py') as f:
+                f.write(dialog_script)
+                script_path = f.name
 
-                    # Display info banner
-                    st.info(
-                        f"ℹ️ Mode auto-detected as **{detected_mode}** from filename; "
-                        "change manually if incorrect."
-                    )
-                else:
-                    # Use current mode setting
-                    file_mode = mode
-                    auto_detected = False
+            # Run dialog in separate process
+            initial_dir = st.session_state.get('last_folder_path', '')
+            result = subprocess.run(
+                [sys.executable, script_path, initial_dir],
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
 
-                # Create SpectrumFile
-                # **FIX (Issue 5)**: Initialize original_data to preserve full dataset
-                spectrum_file = SpectrumFile(
-                    filename=uploaded_file.name,
-                    mode=file_mode,
-                    original_data=spectrum_data,  # **NEW**: Never modified, for full reset
-                    raw_data=spectrum_data,
-                    processed_data=spectrum_data,  # Initially same as raw
-                    processing_settings=ProcessingSettings(),
-                    auto_detected=auto_detected
-                )
+            # Clean up temp file
+            os.unlink(script_path)
 
-                # Add to session state
-                add_spectrum_file(spectrum_file)
+            # Get selected folder from output
+            selected_folder = result.stdout.strip()
 
-                # Clean up temp file
-                os.unlink(tmp_path)
+            if selected_folder:
+                # Update folder path in session state and text input
+                st.session_state['last_folder_path'] = selected_folder
+                st.rerun()
 
-                st.success(f"✅ Loaded: {uploaded_file.name}")
+        except Exception as e:
+            st.error(f"❌ Failed to open folder browser: {e}")
 
-            except Exception as e:
-                st.error(f"❌ Failed to load {uploaded_file.name}: {e}")
+    # Load files from folder when path is provided
+    if folder_path and folder_path != st.session_state.get('loaded_folder_path', ''):
+        try:
+            import os
+            import glob
+
+            # Store the loaded folder path to prevent reloading
+            st.session_state['loaded_folder_path'] = folder_path
+
+            # Find all .txt files in the folder
+            txt_files = glob.glob(os.path.join(folder_path, "*.txt"))
+
+            if not txt_files:
+                st.warning(f"⚠️ No .txt files found in: {folder_path}")
+            else:
+                # Load each .txt file
+                loaded_count = 0
+                skipped_count = 0
+
+                for file_path in txt_files:
+                    filename = os.path.basename(file_path)
+
+                    # Check if already loaded
+                    if filename in st.session_state.get("files", {}):
+                        skipped_count += 1
+                        continue
+
+                    try:
+                        # Parse spectrum
+                        spectrum_data = parse_spectrum(file_path)
+
+                        # v2.1+ (FR-12): Auto-detect mode from filename
+                        detected_mode = detect_mode_from_filename(filename)
+
+                        if detected_mode is not None:
+                            # Use detected mode and mark as auto-detected
+                            file_mode = detected_mode
+                            auto_detected = True
+                            set_mode(detected_mode)  # Update global mode
+                        else:
+                            # Use current mode setting
+                            file_mode = mode
+                            auto_detected = False
+
+                        # Create SpectrumFile
+                        spectrum_file = SpectrumFile(
+                            filename=filename,
+                            mode=file_mode,
+                            original_data=spectrum_data,
+                            raw_data=spectrum_data,
+                            processed_data=spectrum_data,
+                            processing_settings=ProcessingSettings(),
+                            auto_detected=auto_detected
+                        )
+
+                        # Add to session state
+                        add_spectrum_file(spectrum_file)
+                        loaded_count += 1
+
+                    except Exception as e:
+                        st.error(f"❌ Failed to load {filename}: {e}")
+
+                # Show summary message
+                if loaded_count > 0:
+                    st.success(f"✅ Loaded {loaded_count} file(s) from folder")
+                    if skipped_count > 0:
+                        st.info(f"ℹ️ Skipped {skipped_count} already loaded file(s)")
+                    st.rerun()
+                elif skipped_count > 0:
+                    st.info(f"ℹ️ All {skipped_count} file(s) already loaded")
+
+        except Exception as e:
+            st.error(f"❌ Failed to load files from folder: {e}")
+            st.session_state['loaded_folder_path'] = ""  # Reset on error
 
     st.markdown("---")
 
