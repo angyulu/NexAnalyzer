@@ -32,7 +32,7 @@ def create_material_sheet(wb, sheet_name, settings_data, peak_data):
     settings_headers = [
         'x_range_enabled', 'x_min', 'x_max', 'despike_threshold',
         'baseline_algorithm', 'baseline_degree', 'baseline_lambda',
-        'baseline_p', 'description'
+        'baseline_p', 'exclusion_ranges', 'description'
     ]
 
     for col_idx, header in enumerate(settings_headers, start=1):
@@ -88,6 +88,7 @@ def create_presets_excel():
         'baseline_degree': '',
         'baseline_lambda': 10000,
         'baseline_p': 0.001,
+        'exclusion_ranges': '1300-1400; 1550-1620; 2650-2750',
         'description': 'Graphene on Si/SiO2 substrate, D/G/2D analysis'
     }
 
@@ -133,6 +134,7 @@ def create_presets_excel():
         'baseline_degree': '',
         'baseline_lambda': 50000,
         'baseline_p': 0.01,
+        'exclusion_ranges': '375-390; 400-415',
         'description': 'MoS2 E2g and A1g peaks'
     }
 
@@ -169,6 +171,7 @@ def create_presets_excel():
         'baseline_degree': 5,
         'baseline_lambda': '',
         'baseline_p': '',
+        'exclusion_ranges': '',
         'description': 'Silicon reference peak at 520 cm⁻¹'
     }
 

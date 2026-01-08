@@ -13,7 +13,9 @@ from ..models.preset import MaterialPreset
 from .despiking import remove_spikes
 from .baseline import (
     baseline_polynomial_with_autoshift,
-    baseline_als_with_autoshift
+    baseline_als_with_autoshift,
+    baseline_polynomial_with_mask,
+    baseline_als_with_mask
 )
 from .fitting import fit_voigt_peaks
 from ..ui.control_panel import mark_fit_stale_if_needed, compute_preprocessing_hash
@@ -163,17 +165,50 @@ def execute_auto_workflow(
             X = spectrum.processed_data.X
             Y_despiked = spectrum.processed_data.Y
 
+            # Parse exclusion ranges if provided
+            exclusions = None
+            if preset.exclusion_ranges:
+                from ..io.preset_parser import parse_exclusion_ranges
+                try:
+                    exclusions = parse_exclusion_ranges(preset.exclusion_ranges)
+                except ValueError as e:
+                    raise WorkflowExecutionError(
+                        f"Invalid exclusion_ranges format: {e}. "
+                        f"Expected format: '1200-1400; 2600-2800'"
+                    )
+
             # Route to appropriate algorithm (matches manual workflow)
             if preset.baseline_algorithm == "Polynomial":
-                Y_corrected, baseline_curve, y_shift = baseline_polynomial_with_autoshift(
-                    X, Y_despiked, degree=preset.baseline_degree
-                )
+                if exclusions:
+                    # Use masked version (no autoshift)
+                    Y_corrected, baseline_curve = baseline_polynomial_with_mask(
+                        X, Y_despiked,
+                        degree=preset.baseline_degree,
+                        exclusions=exclusions
+                    )
+                    y_shift = 0.0  # No shift in masked version
+                else:
+                    # Use standard version with autoshift
+                    Y_corrected, baseline_curve, y_shift = baseline_polynomial_with_autoshift(
+                        X, Y_despiked, degree=preset.baseline_degree
+                    )
             elif preset.baseline_algorithm == "ALS":
-                Y_corrected, baseline_curve, y_shift = baseline_als_with_autoshift(
-                    X, Y_despiked,
-                    lambda_=preset.baseline_lambda,
-                    p=preset.baseline_p
-                )
+                if exclusions:
+                    # Use masked version (no autoshift)
+                    Y_corrected, baseline_curve = baseline_als_with_mask(
+                        X, Y_despiked,
+                        lambda_=preset.baseline_lambda,
+                        p=preset.baseline_p,
+                        exclusions=exclusions
+                    )
+                    y_shift = 0.0  # No shift in masked version
+                else:
+                    # Use standard version with autoshift
+                    Y_corrected, baseline_curve, y_shift = baseline_als_with_autoshift(
+                        X, Y_despiked,
+                        lambda_=preset.baseline_lambda,
+                        p=preset.baseline_p
+                    )
             else:
                 raise WorkflowExecutionError(
                     f"Baseline algorithm '{preset.baseline_algorithm}' not supported. "

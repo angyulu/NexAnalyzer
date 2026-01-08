@@ -134,8 +134,8 @@ def render_sidebar():
             )
 
             if selected_material != "(None)":
-                # Get preset
-                preset = preset_library.get_preset(selected_material, current_mode)
+                # Get preset (selected_material is now full sheet name like "WSe2_Raman")
+                preset = preset_library.get_preset(selected_material)
                 st.session_state['selected_preset'] = preset
 
                 # Display preset info

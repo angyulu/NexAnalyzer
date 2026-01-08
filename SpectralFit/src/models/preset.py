@@ -100,6 +100,7 @@ class MaterialPreset:
     baseline_degree: Optional[int]  # For Polynomial
     baseline_lambda: Optional[float]  # For ALS
     baseline_p: Optional[float]  # For ALS
+    exclusion_ranges: Optional[str] = None  # Semicolon-separated ranges (e.g., "1200-1400; 2600-2800")
 
     # Peak templates
     peak_templates: List[PeakTemplate]
@@ -229,27 +230,37 @@ class PresetLibrary:
     file_path: str
     last_loaded: datetime
 
-    def get_preset(self, material_name: str, mode: str) -> Optional[MaterialPreset]:
+    def get_preset(self, sheet_name: str) -> Optional[MaterialPreset]:
         """
-        Get preset by material name and mode.
+        Get preset by full sheet name.
 
         Parameters
         ----------
-        material_name : str
-            Material identifier
-        mode : str
-            "Raman" or "PL"
+        sheet_name : str
+            Full sheet name (e.g., "WSe2_Raman", "Graphene_PL")
 
         Returns
         -------
         MaterialPreset or None
             Preset if found, None otherwise
+
+        Raises
+        ------
+        ValueError
+            If sheet name format is invalid
         """
-        return self.presets.get((material_name, mode))
+        from ..io.preset_parser import parse_sheet_name
+
+        try:
+            material_name, mode = parse_sheet_name(sheet_name)
+            return self.presets.get((material_name, mode))
+        except ValueError:
+            # If parsing fails, try direct lookup (backwards compatibility)
+            return None
 
     def list_materials(self, mode: Optional[str] = None) -> List[str]:
         """
-        List all available materials (optionally filtered by mode).
+        List all available material sheet names (optionally filtered by mode).
 
         Parameters
         ----------
@@ -259,13 +270,15 @@ class PresetLibrary:
         Returns
         -------
         list of str
-            Sorted list of material names
+            Sorted list of full sheet names (e.g., "WSe2_Raman", "Graphene_PL")
         """
-        materials = set()
+        sheet_names = []
         for (mat, mod), preset in self.presets.items():
             if preset.enabled and (mode is None or mod == mode):
-                materials.add(mat)
-        return sorted(materials)
+                # Reconstruct full sheet name: Material_Mode
+                sheet_name = f"{mat}_{mod}"
+                sheet_names.append(sheet_name)
+        return sorted(sheet_names)
 
     def get_sheet_count(self) -> int:
         """Get total number of loaded presets."""

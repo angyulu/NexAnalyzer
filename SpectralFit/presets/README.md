@@ -42,11 +42,35 @@ Row 5+: Peak Template Data (one row per peak)
 | `baseline_degree` | int | Conditional | Polynomial degree [1-10] (if Polynomial) | 3, 5 |
 | `baseline_lambda` | float | Conditional | ALS smoothness [1e3-1e6] (if ALS) | 10000, 50000 |
 | `baseline_p` | float | Conditional | ALS asymmetry [0.001-0.1] (if ALS) | 0.001, 0.01 |
+| `exclusion_ranges` | string | No | X-ranges to exclude from baseline fit | "1200-1400; 2600-2800" |
 | `description` | string | No | User notes | "Graphene on Si/SiO2" |
 
 **Notes:**
 - Empty cells (for optional parameters) should be left blank
 - Boolean values: TRUE or FALSE (case-insensitive)
+
+#### Exclusion Ranges
+
+Exclusion ranges allow you to exclude specific X-ranges (typically peak regions) from baseline fitting. This prevents the baseline algorithm from trying to fit through your peaks.
+
+**Format**: Semicolon-separated range pairs
+**Example**: `"1300-1400; 2650-2750"`
+
+**When to use**:
+- Strong, sharp peaks that baseline shouldn't fit through (e.g., D-band, G-band, 2D-band for Graphene)
+- Peak regions you want to preserve during baseline correction
+- Regions with known artifacts or cosmic rays
+
+**How it works**:
+- Data points in exclusion ranges are masked out during baseline fitting
+- Baseline is fit only to the remaining "background" regions
+- The fitted baseline is then interpolated across excluded regions for subtraction
+- Works with both Polynomial and ALS algorithms
+
+**Note**:
+- Ranges are in the same units as your X-axis (cm⁻¹ for Raman, nm for PL)
+- Leave blank if no exclusions needed
+- Multiple ranges can be specified (separated by semicolons)
 
 ### Peak Templates (Row 4+)
 
@@ -80,6 +104,7 @@ despike_threshold = 6.0
 baseline_algorithm = ALS
 baseline_lambda = 10000
 baseline_p = 0.001
+exclusion_ranges = 1300-1400; 1550-1620; 2650-2750
 ```
 
 **Peaks:**
@@ -98,6 +123,7 @@ despike_threshold = 8.0
 baseline_algorithm = ALS
 baseline_lambda = 50000
 baseline_p = 0.01
+exclusion_ranges = 375-390; 400-415
 ```
 
 **Peaks:**

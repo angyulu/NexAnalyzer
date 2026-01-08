@@ -12,6 +12,53 @@ from datetime import datetime
 from ..models.preset import MaterialPreset, PeakTemplate, PresetLibrary
 
 
+def parse_exclusion_ranges(exclusion_str: str) -> List[Tuple[float, float]]:
+    """
+    Parse exclusion ranges from string format.
+
+    Parameters
+    ----------
+    exclusion_str : str
+        Format: "min1-max1; min2-max2; ..."
+        Example: "1200-1400; 2600-2800"
+
+    Returns
+    -------
+    list of tuple
+        List of (x_min, x_max) tuples
+
+    Raises
+    ------
+    ValueError
+        If format is invalid
+    """
+    if not exclusion_str or pd.isna(exclusion_str):
+        return []
+
+    ranges = []
+    for pair in exclusion_str.split(';'):
+        pair = pair.strip()
+        if not pair:
+            continue
+
+        parts = pair.split('-')
+        if len(parts) != 2:
+            raise ValueError(f"Invalid exclusion range format: '{pair}'. Expected 'min-max'")
+
+        try:
+            x_min = float(parts[0].strip())
+            x_max = float(parts[1].strip())
+        except ValueError:
+            raise ValueError(f"Invalid numbers in exclusion range: '{pair}'")
+
+        if x_min >= x_max:
+            raise ValueError(f"Invalid exclusion range: x_min ({x_min}) must be < x_max ({x_max})")
+
+        ranges.append((x_min, x_max))
+
+    return ranges
+
+
 def parse_sheet_name(sheet_name: str) -> Tuple[str, str]:
     """
     Extract material name and mode from sheet name.
@@ -198,6 +245,13 @@ def parse_preset_excel(file_path: str) -> PresetLibrary:
             if len(peak_templates) == 0:
                 raise ValueError("No peak templates found (all rows empty or invalid)")
 
+            # Parse exclusion_ranges (optional)
+            exclusion_ranges = settings_dict.get('exclusion_ranges', '')
+            if pd.isna(exclusion_ranges) or str(exclusion_ranges).strip() == '':
+                exclusion_ranges = None
+            else:
+                exclusion_ranges = str(exclusion_ranges).strip()
+
             # Build MaterialPreset
             preset = MaterialPreset(
                 material_name=material_name,
@@ -226,6 +280,7 @@ def parse_preset_excel(file_path: str) -> PresetLibrary:
                     float(settings_dict['baseline_p'])
                     if pd.notna(settings_dict.get('baseline_p')) else None
                 ),
+                exclusion_ranges=exclusion_ranges,
                 peak_templates=peak_templates,
                 description=str(settings_dict.get('description', '')).strip()
             )
