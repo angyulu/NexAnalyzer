@@ -100,12 +100,12 @@ class MaterialPreset:
     baseline_degree: Optional[int]  # For Polynomial
     baseline_lambda: Optional[float]  # For ALS
     baseline_p: Optional[float]  # For ALS
-    exclusion_ranges: Optional[str] = None  # Semicolon-separated ranges (e.g., "1200-1400; 2600-2800")
 
     # Peak templates
     peak_templates: List[PeakTemplate]
 
-    # Metadata
+    # Optional fields with defaults
+    exclusion_ranges: Optional[str] = None  # Semicolon-separated ranges (e.g., "1200-1400; 2600-2800")
     description: str = ""
 
     def validate(self) -> List[str]:
