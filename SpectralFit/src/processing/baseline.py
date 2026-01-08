@@ -220,6 +220,9 @@ def baseline_als_with_mask(
         W = sparse.diags(w, 0, shape=(n, n))
         A = W + lambda_ * D_T_D
 
+        # Convert to CSC format for spsolve
+        A = A.tocsc()
+
         # Solve
         baseline = spsolve(A, w * y)
 
@@ -457,6 +460,9 @@ def baseline_als(
         # Build weighted matrix: W + λD^T*D
         W = sparse.diags(w, 0, shape=(n, n))
         A = W + lambda_ * D_T_D
+
+        # Convert to CSC format for spsolve
+        A = A.tocsc()
 
         # Solve: (W + λD^T*D) z = W y
         baseline = spsolve(A, w * y)
@@ -718,6 +724,9 @@ def baseline_airpls(
         # Build weighted matrix
         W = sparse.diags(w, 0, shape=(n, n))
         A = W + lambda_ * D_T_D
+
+        # Convert to CSC format for spsolve
+        A = A.tocsc()
 
         # Solve: (W + λD^T*D) z = W*y
         baseline = spsolve(A, w * y)

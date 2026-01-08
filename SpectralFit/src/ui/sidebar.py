@@ -63,6 +63,145 @@ def render_sidebar():
 
     st.markdown("---")
 
+    # v2.3: Material Presets
+    st.subheader("Material Presets")
+
+    # Initialize preset-related session state (redundant with session_state.py but kept for safety)
+    if 'preset_library' not in st.session_state:
+        st.session_state['preset_library'] = None
+    if 'selected_preset' not in st.session_state:
+        st.session_state['selected_preset'] = None
+
+    # Preset file path input
+    preset_path = st.text_input(
+        "Preset File Path",
+        value=st.session_state.get('preset_file_path', ''),
+        placeholder="Path to material_presets.xlsx",
+        help="Path to Excel file containing material presets"
+    )
+    st.session_state['preset_file_path'] = preset_path
+
+    # Reload presets button
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        reload_clicked = st.button("🔄 Reload Presets", use_container_width=True)
+    with col2:
+        clear_clicked = st.button("✖️", use_container_width=True, help="Clear preset selection")
+
+    if reload_clicked and preset_path:
+        try:
+            from ..io.preset_parser import parse_preset_excel
+            from pathlib import Path
+
+            # Check if file exists
+            if not Path(preset_path).exists():
+                st.error(f"❌ Preset file not found: {preset_path}")
+            else:
+                # Parse Excel file
+                with st.spinner("Loading presets..."):
+                    preset_library = parse_preset_excel(preset_path)
+                    st.session_state['preset_library'] = preset_library
+                    st.session_state['selected_preset'] = None  # Reset selection
+
+                st.success(f"✅ Loaded {preset_library.get_sheet_count()} preset(s)")
+
+        except Exception as e:
+            st.error(f"❌ Failed to load presets: {e}")
+
+    if clear_clicked:
+        st.session_state['selected_preset'] = None
+        st.rerun()
+
+    # Material selector (only show if presets are loaded and files exist)
+    preset_library = st.session_state.get('preset_library')
+    files = st.session_state.get("files", {})
+    current_file = st.session_state.get("current_file")
+
+    if preset_library and files and current_file:
+        current_spectrum = files[current_file]
+        current_mode = current_spectrum.mode
+
+        # Get materials for current mode
+        available_materials = preset_library.list_materials(mode=current_mode)
+
+        if available_materials:
+            # Material dropdown
+            selected_material = st.selectbox(
+                "Select Material",
+                options=["(None)"] + available_materials,
+                index=0,
+                help=f"Materials for {current_mode} mode"
+            )
+
+            if selected_material != "(None)":
+                # Get preset
+                preset = preset_library.get_preset(selected_material, current_mode)
+                st.session_state['selected_preset'] = preset
+
+                # Display preset info
+                st.caption(f"**Baseline**: {preset.baseline_algorithm}")
+                st.caption(f"**Peaks**: {len(preset.peak_templates)}")
+                if preset.description:
+                    st.caption(f"**Notes**: {preset.description}")
+
+                # Run Auto-Workflow button
+                if st.button("🚀 Run Auto-Workflow", type="primary", use_container_width=True):
+                    # Execute auto-workflow immediately (single-click behavior)
+                    from ..processing.auto_workflow import execute_auto_workflow, format_workflow_summary, get_workflow_suggestions
+
+                    with st.spinner("🚀 Executing automated workflow..."):
+                        result = execute_auto_workflow(current_spectrum, preset)
+
+                    if result["success"]:
+                        # Show success message with summary
+                        summary = format_workflow_summary(result, preset)
+                        st.success(summary)
+
+                        # Update view options to show fit results
+                        st.session_state['show_fit'] = True
+                        st.session_state['show_components'] = True
+
+                        # Auto-expand export section
+                        st.session_state['expanded_section'] = 'export'
+
+                    else:
+                        # Show error message with suggestions
+                        st.error(format_workflow_summary(result, preset))
+
+                        # Show contextual suggestions
+                        if result['stage_completed']:
+                            suggestions = get_workflow_suggestions(
+                                result['stage_completed'],
+                                result['error_message']
+                            )
+                            st.info(suggestions)
+
+                        # Expand section where failure occurred
+                        stage_to_section = {
+                            'x_range': 'processing_range',
+                            'despike': 'despiking',
+                            'baseline': 'baseline',
+                            'fitting': 'peak_fitting'
+                        }
+                        failed_section = stage_to_section.get(result['stage_completed'], 'processing_range')
+                        st.session_state['expanded_section'] = failed_section
+
+                    # Trigger rerun to update UI
+                    st.rerun()
+
+            else:
+                st.session_state['selected_preset'] = None
+
+        else:
+            st.info(f"ℹ️ No {current_mode} presets found. Add a '{current_mode}' sheet to Excel file.")
+
+    elif preset_library and not files:
+        st.caption("Load spectrum files to use presets")
+    elif not preset_library:
+        st.caption("Click 'Reload' to load presets")
+
+    st.markdown("---")
+
     # Folder browser
     st.subheader("Load Spectra")
 

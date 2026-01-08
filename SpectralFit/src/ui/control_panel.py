@@ -836,9 +836,12 @@ def render_processing_range_section(is_expanded: bool):
             # - value= sets initial value (saved value or data minimum)
             # - min_value/max_value= bounds (can't go outside data range)
             # - disabled= greys out input when checkbox is unchecked
+            # FIX: Ensure value is always >= min_value to avoid validation error
+            x_min_value = spectrum.x_min if spectrum.x_min is not None else x_min_data
+            x_min_value = max(x_min_value, x_min_data)  # Clamp to data minimum
             x_min = st.number_input(
                 f"X min ({spectrum.mode} units)",
-                value=spectrum.x_min if spectrum.x_min is not None else x_min_data,
+                value=x_min_value,
                 min_value=x_min_data,
                 max_value=x_max_data,
                 disabled=not x_range_enabled  # Disabled when checkbox is off
@@ -846,9 +849,12 @@ def render_processing_range_section(is_expanded: bool):
 
         with col2:
             # X-max input (same logic as X-min)
+            # FIX: Ensure value is always <= max_value to avoid validation error
+            x_max_value = spectrum.x_max if spectrum.x_max is not None else x_max_data
+            x_max_value = min(x_max_value, x_max_data)  # Clamp to data maximum
             x_max = st.number_input(
                 f"X max ({spectrum.mode} units)",
-                value=spectrum.x_max if spectrum.x_max is not None else x_max_data,
+                value=x_max_value,
                 min_value=x_min_data,
                 max_value=x_max_data,
                 disabled=not x_range_enabled  # Disabled when checkbox is off
@@ -2415,6 +2421,8 @@ def render_control_panel():
     # Get current file and expanded section state
     spectrum = get_current_spectrum()
     expanded_section = st.session_state.get('expanded_section', 'processing_range')
+
+    # NOTE: Auto-workflow execution now handled directly in sidebar.py for single-click behavior
 
     # **FIX (Issue 6c)**: Wrap entire panel in scrollable container
     with st.container(height=800):  # Fixed height scrollable container

@@ -1,4 +1,4 @@
-# SpectralFit v2.2.1 - Project Summary
+# SpectralFit v2.3.0 - Project Summary
 
 ## Overview
 
@@ -6,41 +6,108 @@ SpectralFit is a desktop web application for analyzing Raman and Photoluminescen
 
 ---
 
-## Recent Updates (v2.2.1)
+## Recent Updates (v2.3.0)
 
-### Critical Fixes Completed
+### New Features ⭐
 
-#### 1. File Navigation Button Fix ✅
-**Problem:** Previous/Next file navigation buttons weren't working - clicking them had no effect.
+#### 1. Material Preset System
+**What It Does:** Excel-based automation for complete processing workflows.
 
-**Root Cause:** Race condition between button handlers and selectbox widget:
-- Button handlers updated `session_state['current_file']` and called `st.rerun()`
-- On rerun, selectbox evaluated with NEW current_file but still reflected old visual selection
-- Mismatch detection overwrote button's change
-
-**Solution:** Restructured navigation logic ([unified_plot.py:413-456](src/visualization/unified_plot.py#L413-L456)):
-- Removed `st.rerun()` calls from button handlers
-- Added `on_change` callback to selectbox
-- Let selectbox handle rerun automatically through callback
-
-**Impact:** Navigation buttons now work correctly with wrap-around behavior.
-
-#### 2. "None (Skip)" Baseline Correction Option ✅
-**Problem:** PL spectra with ultra-wide peaks (70%+ coverage) cause baseline algorithms to follow the peak curve instead of background, making correction impossible.
-
-**Solution:** Added "None (Skip)" option to baseline algorithm dropdown ([control_panel.py](src/ui/control_panel.py) - Baseline section):
-- Allows users to skip baseline correction entirely
-- Marks baseline stage as "done" and advances to Peak Fitting
-- Physically accurate for PL emission spectra where the broad peak IS the signal (not background)
+**Key Features:**
+- **One-click auto-workflow**: Complete pipeline execution (X-range → Despike → Baseline → Fitting) from preset
+- **Sheet-per-material design**: Each material gets its own sheet (e.g., "Graphene_Raman", "MoS2_Raman")
+- **Auto-discovery**: Materials automatically loaded from Excel sheet names
+- **Mode validation**: Ensures Raman presets only apply to Raman files (prevents unit mismatches)
+- **Excel-based configuration**: No code changes needed to add new materials
 
 **User Workflow:**
-1. Load PL file with wide emission peak
-2. Run de-spiking (if needed)
-3. Select "None (Skip)" for baseline algorithm
-4. Click "Run Baseline Correction" → advances to Peak Fitting
-5. Fit Voigt peaks directly to de-spiked data
+1. Create preset in `SpectralFit/presets/material_presets.xlsx` (or use provided examples)
+2. Load spectrum files in app
+3. Click "🔄 Reload Presets" in sidebar
+4. Select material from dropdown (e.g., "Graphene_Raman")
+5. Click "🚀 Run Auto-Workflow" → entire pipeline executes automatically
+6. Results displayed with R² and χ² metrics
 
-**Impact:** Users can now analyze PL spectra with ultra-wide peaks without fighting baseline algorithms.
+**Excel Schema:**
+- **Processing Settings** (Row 1-2): x_range, despike_threshold, baseline_algorithm, baseline parameters
+- **Peak Templates** (Row 4+): peak_label, center, center_tolerance, amplitude, width_fwhm, shape, color
+
+**Impact:** Batch processing 10+ files with identical material parameters now takes seconds instead of minutes.
+
+**Documentation:** See [presets/README.md](SpectralFit/presets/README.md) for Excel schema and examples.
+
+#### 2. Auto-Workflow Rewrite (Critical Behavior Change)
+**What Changed:** Auto-workflow now replicates exact manual user workflow instead of taking shortcuts.
+
+**Old Behavior (v2.2.1 and earlier):**
+- Used `original_data` as source for X-range (incorrect)
+- Didn't reset flags properly after X-range application
+- Skipped session state updates
+- Didn't mark fits as stale after preprocessing changes
+- Set `x_range_enabled=True` (should be False after applying)
+
+**New Behavior (v2.3.0):**
+- **X-Range**: Uses `raw_data` as source, updates BOTH `raw_data` and `processed_data`, resets flags, clears previews
+- **Despike**: Saves threshold, unpacks tuple correctly, marks fit stale, clears preview, updates view options
+- **Baseline**: Routes to correct algorithm, saves y_shift, marks fit stale, clears preview, updates view options
+- **Fitting**: Converts templates, computes hash, clears previews, updates all session state
+
+**Impact:** Auto-workflow now produces IDENTICAL results to manual step-by-step processing. All edge cases and state management logic are preserved.
+
+### Critical Bug Fixes ✅
+
+#### 1. Tuple Unpacking Error in Despike (CRITICAL)
+**Error:** "X and Y must be 1D arrays" during auto-workflow despike stage
+
+**Root Cause:**
+- `remove_spikes()` returns tuple `(y_clean, spike_mask)`
+- Code assigned entire tuple to `Y_despiked` variable
+- When passed to `SpectrumData`, numpy converted tuple to 2D array
+- Validation rejected 2D array
+
+**Fix:** Changed `Y_despiked = remove_spikes(...)` to `Y_despiked, spike_mask = remove_spikes(...)`
+
+**Impact:** Auto-workflow now completes despike stage successfully.
+
+#### 2. ALS Baseline Parameter Name Mismatch
+**Error:** Auto-workflow stopped at baseline with no clear error message
+
+**Root Cause:** Code used `lam=preset.baseline_lambda` but function expects `lambda_=`
+
+**Fix:** Changed all ALS calls to use `lambda_=preset.baseline_lambda`
+
+**Impact:** ALS baseline now works in auto-workflow.
+
+#### 3. Sparse Matrix Format Error
+**Error:** "spsolve requires A be CSC or CSR matrix format"
+
+**Root Cause:** Matrix A wasn't converted to CSC/CSR format before calling scipy's `spsolve()`
+
+**Fix:** Added `A = A.tocsc()` before all 3 `spsolve()` calls in [baseline.py](src/processing/baseline.py) (lines 224, 465, 729)
+
+**Impact:** ALS, Rolling Ball, and airPLS algorithms now work correctly.
+
+#### 4. Preset File Not Found
+**Error:** "❌ Preset file not found: SpectralFit/presets/material_presets.xlsx"
+
+**Root Cause:** Default path was relative, failed depending on working directory
+
+**Fix:** Created `get_default_preset_path()` in [session_state.py](src/ui/session_state.py) using `Path(__file__).resolve()` for absolute path
+
+**Impact:** Preset path now works regardless of where app is launched from.
+
+#### 5. Number Input Validation Error
+**Error:** "StreamlitValueBelowMinError: The value 100.0 is less than the min_value 100.874"
+
+**Root Cause:** Saved x_min (100.0 from preset) was less than actual data minimum (100.874)
+
+**Fix:** Added clamping logic in [control_panel.py](src/ui/control_panel.py):
+```python
+x_min_value = max(x_min_value, x_min_data)
+x_max_value = min(x_max_value, x_max_data)
+```
+
+**Impact:** X-range inputs now always stay within valid data bounds.
 
 ---
 
@@ -88,6 +155,12 @@ SpectralFit is a desktop web application for analyzing Raman and Photoluminescen
   - Shape-aware initialization (Gaussian/Lorentzian mixing)
   - Adaptive parameter bounds
   - Overlap detection with warnings
+- **Material Preset System** ⭐ NEW in v2.3.0:
+  - Excel-based presets for common materials
+  - One-click auto-workflow execution
+  - Sheet-per-material design (easy to add new materials)
+  - Mode validation (Raman/PL)
+  - No code changes needed to add materials
 
 ### Visualization & UX
 - **Single-Page Accordion Workflow**: Streamlined sequential processing
@@ -97,6 +170,7 @@ SpectralFit is a desktop web application for analyzing Raman and Photoluminescen
 - **File Navigation**: Dropdown + Previous/Next buttons (recently fixed)
 - **Batch Processing**: Load and process multiple files independently
 - **Project Persistence**: Save/load full project state to JSON
+- **Folder Browser** ⭐ NEW in v2.3.0: Load all .txt files from folder with path memory
 
 ### Plot Layer Visibility (Auto-Managed)
 - **Processing Range**: Only "Raw" data
@@ -402,6 +476,39 @@ Example:
 
 ## Version History
 
+### v2.3.0 (2026-01-08) - Current Release
+**Release Date:** January 8, 2026
+**Status:** Production Ready
+
+**New Features:**
+- **Material Preset System** ⭐: Excel-based automation for common materials
+- **Auto-workflow engine**: One-click processing (X-range → Despike → Baseline → Fitting)
+- **Folder browser with path memory**: Load all .txt files from folder
+- **Rewritten auto-workflow**: Now matches manual user process exactly
+
+**Bug Fixes:**
+- Fixed tuple unpacking in despike stage (CRITICAL - was causing 2D array error)
+- Fixed ALS baseline parameter name (`lambda_` not `lam`)
+- Fixed sparse matrix format for scipy.spsolve (added `.tocsc()`)
+- Fixed X-range processing to use `raw_data` instead of `original_data`
+- Fixed preset file path to use absolute path
+- Added X-range input clamping to prevent validation errors
+- Added fit staleness detection after each processing stage
+- Added session state updates for view options and expanded sections
+
+**Files Modified:**
+- `src/processing/auto_workflow.py`: Complete rewrite to match manual workflow
+- `src/processing/baseline.py`: Added `.tocsc()` for sparse matrix operations
+- `src/ui/control_panel.py`: Added X-range clamping validation
+- `src/ui/session_state.py`: Added `get_default_preset_path()`
+- `src/ui/sidebar.py`: Added folder browser and material preset UI
+- `src/io/preset_parser.py`: New file for Excel preset parsing
+- `src/models/preset.py`: New file for MaterialPreset and PeakTemplate models
+
+**Breaking Changes:**
+- Auto-workflow now modifies spectrum object in-place matching manual workflow
+- Requires `material_presets.xlsx` file in `SpectralFit/presets/` folder
+
 ### v2.2.1 (2025-12-28)
 - **Critical fitting algorithm improvements** (50-80% better convergence)
 - **Navigation button fix** (race condition resolved)
@@ -484,6 +591,6 @@ Example:
 
 ---
 
-**Last Updated:** 2025-12-28
-**Version:** 2.2.1
-**Status:** Production-ready with planned enhancements
+**Last Updated:** 2026-01-08
+**Project Version:** v2.3.0
+**Status:** Production-ready with Material Preset System

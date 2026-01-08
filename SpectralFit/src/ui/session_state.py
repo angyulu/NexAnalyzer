@@ -8,7 +8,23 @@ This module provides functions to:
 """
 
 import streamlit as st
+from pathlib import Path
 from ..models.project import StylingPreferences
+
+
+def get_default_preset_path() -> str:
+    """
+    Get the default path to material_presets.xlsx.
+
+    Returns absolute path to ensure it works regardless of working directory.
+    """
+    # Get the directory where this file is located
+    this_file = Path(__file__).resolve()
+    # Navigate to SpectralFit root: src/ui -> src -> SpectralFit
+    spectralfit_root = this_file.parent.parent.parent
+    # Build path to presets folder
+    preset_path = spectralfit_root / "presets" / "material_presets.xlsx"
+    return str(preset_path)
 
 
 def initialize_session_state():
@@ -21,6 +37,10 @@ def initialize_session_state():
     - current_file: Optional[str] (selected filename)
     - global_styling: StylingPreferences
     - plot_width_preset: str (v2.1+, FR-14: "Compact" | "Standard" | "Wide" | "Full")
+    - preset_library: PresetLibrary or None (v2.3: loaded material presets)
+    - selected_preset: MaterialPreset or None (v2.3: currently selected preset)
+    - preset_file_path: str (v2.3: path to material_presets.xlsx)
+    - auto_workflow_trigger: DEPRECATED (v2.3+: removed, workflow executes directly on button click)
 
     This function is idempotent (safe to call multiple times).
     """
@@ -39,6 +59,15 @@ def initialize_session_state():
     # v2.1+ (FR-14): Plot width control
     if "plot_width_preset" not in st.session_state:
         st.session_state["plot_width_preset"] = "Standard"  # Default: 75% width
+
+    # v2.3: Material preset system
+    if "preset_library" not in st.session_state:
+        st.session_state["preset_library"] = None
+    if "selected_preset" not in st.session_state:
+        st.session_state["selected_preset"] = None
+    if "preset_file_path" not in st.session_state:
+        st.session_state["preset_file_path"] = get_default_preset_path()
+    # DEPRECATED: auto_workflow_trigger no longer needed (workflow executes directly)
 
 
 def get_current_spectrum():
