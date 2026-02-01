@@ -131,23 +131,8 @@ def compute_default_visibility(spectrum: SpectrumFile) -> Dict[str, bool]:
 
     # Apply visibility rules based on processing stage
     # Order matters: most advanced stage first, fallback to earlier stages
-    if despike_preview_active:
-        # STAGE 1: During despike preview (user adjusting threshold slider)
-        # Show comparison: raw data vs what will be after spike removal
-        visibility["raw"] = True  # Show original data for comparison
-        visibility["despiked_preview"] = False  # Preview is disabled per current design
-        visibility["despiked"] = False  # Hide confirmed despiked data if it exists
-        # WHY: User needs to see how threshold affects spike detection before committing
-    elif baseline_preview_active:
-        # STAGE 2: During baseline preview (user adjusting baseline params)
-        # Show raw data + red dashed baseline curve that will be subtracted
-        visibility["raw"] = True  # Show current data state (may be despiked or raw)
-        visibility["baseline_preview"] = True  # Red dashed line showing baseline to subtract
-        visibility["corrected_preview"] = True  # Show what data looks like after baseline removal
-        visibility["despiked"] = False  # Hide intermediate despiked layer (not needed during baseline preview)
-        visibility["baseline_corrected"] = False  # Hide confirmed baseline-corrected data
-        # WHY: User needs to see baseline curve before clicking "Apply" to ensure it follows background correctly
-    elif fit_done:
+    if fit_done:
+        # Skip previews when fit is already done
         # STAGE 4: After peak fitting completed successfully
         # Show final results: baseline-corrected data + fitted peaks
         visibility["raw"] = False  # Hide original raw data (not relevant for fit evaluation)
@@ -156,14 +141,21 @@ def compute_default_visibility(spectrum: SpectrumFile) -> Dict[str, bool]:
         visibility["fit_total"] = True  # Black line - sum of all fitted Voigt components
         visibility["components"] = False  # Hidden by default per design.md (user can enable in View Options)
         # WHY: User wants to see how well the fit matches the corrected data (R² evaluation)
+    elif despike_preview_active:
+        visibility["raw"] = True
+        visibility["despiked_preview"] = False
+        visibility["despiked"] = False
+    elif baseline_preview_active:
+        visibility["raw"] = True
+        visibility["baseline_preview"] = True
+        visibility["corrected_preview"] = True
+        visibility["despiked"] = False
+        visibility["baseline_corrected"] = False
     elif baseline_done:
-        # STAGE 3: After baseline correction applied and confirmed
-        # Show only the baseline-corrected data ready for peak fitting
-        visibility["raw"] = False  # Hide original raw data
-        visibility["despiked"] = False  # Hide intermediate despiked layer
-        visibility["baseline_corrected"] = True  # Purple line - final corrected spectrum
-        visibility["despiked_preview"] = False  # Preview is disabled per current design
-        # WHY: User proceeds to peak fitting stage - only need to see corrected data
+        visibility["raw"] = False
+        visibility["despiked"] = False
+        visibility["baseline_corrected"] = True
+        visibility["despiked_preview"] = False
     elif despike_done:
         # STAGE 2: After despike applied and confirmed (before baseline)
         # Show only the despiked data ready for baseline correction
@@ -460,65 +452,80 @@ def render_unified_plot():
     if files:
         file_list = list(files.keys())  # Convert dict keys to list for indexing
 
-        # Create 4-column layout for navigation controls
-        # Widths: [1, 6, 1, 1] = [prev button, dropdown, next button, counter]
+        # Resolve current index
+        current_idx = file_list.index(current_file) if current_file in file_list else 0
+
+        def _update_visibility_for_file(spectrum):
+            """Update plot visibility settings based on file's processing state."""
+            # Clear preview data to prevent stale previews from previous file
+            st.session_state['despike_preview'] = None
+            st.session_state['baseline_preview'] = None
+            if spectrum.fit_done and getattr(spectrum, 'fit_result', None) and spectrum.fit_result.success:
+                st.session_state['show_raw'] = False
+                st.session_state['show_despiked'] = False
+                st.session_state['show_corrected'] = True
+                st.session_state['show_fit'] = True
+                st.session_state['show_components'] = True
+                st.session_state['show_residuals'] = True
+            elif getattr(spectrum, 'baseline_done', False):
+                st.session_state['show_raw'] = False
+                st.session_state['show_despiked'] = False
+                st.session_state['show_corrected'] = True
+                st.session_state['show_fit'] = False
+                st.session_state['show_components'] = False
+                st.session_state['show_residuals'] = False
+            else:
+                st.session_state['show_raw'] = True
+                st.session_state['show_despiked'] = False
+                st.session_state['show_corrected'] = False
+                st.session_state['show_fit'] = False
+                st.session_state['show_components'] = False
+                st.session_state['show_residuals'] = False
+
+        # Handle arrow button clicks from previous rerun
+        nav_action = st.session_state.pop('_file_nav_action', None)
+        if nav_action == 'prev':
+            current_idx = (current_idx - 1) % len(file_list)
+            st.session_state['current_file'] = file_list[current_idx]
+            current_file = file_list[current_idx]
+            _update_visibility_for_file(files[current_file])
+        elif nav_action == 'next':
+            current_idx = (current_idx + 1) % len(file_list)
+            st.session_state['current_file'] = file_list[current_idx]
+            current_file = file_list[current_idx]
+            _update_visibility_for_file(files[current_file])
+
         nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([1, 6, 1, 1])
 
         with nav_col1:
-            # ========== PREVIOUS FILE BUTTON ==========
-            # Unicode arrow character "◀" (Black Left-Pointing Triangle)
-            # FIX: Don't call st.rerun() inside button handler - just update session state
-            # The selectbox will handle the rerun after evaluating
             if st.button("◀", key="file_prev", help="Previous file"):
-                # Only proceed if current_file exists in file_list
-                if current_file in file_list:
-                    current_idx = file_list.index(current_file)  # Find current position
-                    prev_idx = (current_idx - 1) % len(file_list)  # Wrap around to end if at start
-                    st.session_state['current_file'] = file_list[prev_idx]  # Update session state
-                    # Don't call st.rerun() here - let the selectbox widget handle it below
+                st.session_state['_file_nav_action'] = 'prev'
+                st.rerun()
 
         with nav_col2:
-            # ========== FILE DROPDOWN ==========
-            # Streamlit selectbox widget for file selection
-            # FIX: Use on_change callback instead of checking selected_file != current_file
-            # This ensures the selectbox value updates correctly after button clicks
-            def on_file_change():
-                """Callback when user selects a different file from dropdown"""
-                new_file = st.session_state['file_selector_dropdown']
-                if new_file != st.session_state.get('current_file'):
-                    st.session_state['current_file'] = new_file
-
-            st.selectbox(
-                "File",  # Label (hidden by label_visibility="collapsed")
-                options=file_list,  # List of all loaded filenames
-                index=file_list.index(current_file) if current_file in file_list else 0,  # Pre-select current
-                key="file_selector_dropdown",  # Unique key for Streamlit state
-                label_visibility="collapsed",  # Hide label (save vertical space)
-                on_change=on_file_change  # Callback to update current_file
+            # Use return value instead of key+callback to avoid widget state conflicts
+            selected = st.selectbox(
+                "File",
+                options=file_list,
+                index=current_idx,
+                label_visibility="collapsed"
             )
+            if selected != current_file:
+                st.session_state['current_file'] = selected
+                current_file = selected
+                current_idx = file_list.index(selected)
+                _update_visibility_for_file(files[current_file])
 
         with nav_col3:
-            # ========== NEXT FILE BUTTON ==========
-            # Unicode arrow character "▶" (Black Right-Pointing Triangle)
-            # FIX: Don't call st.rerun() inside button handler - just update session state
             if st.button("▶", key="file_next", help="Next file"):
-                # Only proceed if current_file exists in file_list
-                if current_file in file_list:
-                    current_idx = file_list.index(current_file)  # Find current position
-                    next_idx = (current_idx + 1) % len(file_list)  # Wrap around to start if at end
-                    st.session_state['current_file'] = file_list[next_idx]  # Update session state
-                    # Don't call st.rerun() here - let the selectbox widget handle it below
+                st.session_state['_file_nav_action'] = 'next'
+                st.rerun()
 
         with nav_col4:
-            # ========== FILE COUNTER ==========
-            # Display "3/10" (current index / total files)
-            if current_file in file_list:
-                current_idx = file_list.index(current_file)
-                # Use HTML/CSS for custom styling (center alignment, gray color)
-                st.markdown(
-                    f"<div style='text-align: center; padding-top: 8px; color: #666;'>{current_idx + 1}/{len(file_list)}</div>",
-                    unsafe_allow_html=True
-                )
+            st.markdown(
+                f"<div style='text-align: center; padding-top: 8px; color: #666;'>{current_idx + 1}/{len(file_list)}</div>",
+                unsafe_allow_html=True
+            )
 
     # ==================== GET CURRENT SPECTRUM ====================
     # Retrieve SpectrumFile object for currently selected file

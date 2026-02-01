@@ -1,18 +1,29 @@
-# SpectralFit v2.2.3 - Project Summary
+# SpectralFit v2.4.0 - Project Summary
 
 ## Overview
 
 **SpectralFit** is a modern, interactive Streamlit application for analyzing Raman and photoluminescence (PL) spectroscopy data. It provides a complete workflow from data import through processing, fitting, and export, with a focus on user-friendly parameter tuning and high-quality visualization.
 
-**Current Version**: v2.2.3
-**Status**: Production Ready | Full Workflow Complete | Enhanced File Management ✅
+**Current Version**: v2.4.0
+**Status**: Production Ready | Full Workflow Complete | Batch Processing ✅
 **Repository**: [github.com/angyulu/Spectrum_Analyzer](https://github.com/angyulu/Spectrum_Analyzer)
 
 ---
 
 ## Key Features
 
-### 1. Folder Browser File Management ⭐ NEW in v2.2.3
+### 1. Batch Auto-Workflow ⭐ NEW in v2.4.0
+- **Run All Files**: One-click batch processing of all loaded files with selected material preset
+- **Progress tracking**: Real-time progress bar showing current file being processed
+- **Error handling**: Continues on failure, reports per-file success/failure summary
+- **Smart visibility**: After batch completes, previews are cleared and fit results are shown
+
+### 2. Smart File Navigation ⭐ NEW in v2.4.0
+- **Auto-show fit results**: Switching between files (prev/next/dropdown) automatically updates plot visibility
+- **Context-aware display**: Fitted files show fit + components + residuals; unfitted files show raw data
+- **Preview cleanup**: Stale despike/baseline previews are cleared on file switch
+
+### 3. Folder Browser File Management (v2.2.3)
 - **Browse File Folder**: Native OS folder selection dialog
 - **Automatic batch loading**: Loads all .txt files from selected folder
 - **Smart path persistence**: Remembers last selected folder location

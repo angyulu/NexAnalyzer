@@ -189,6 +189,54 @@ def render_sidebar():
                     # Trigger rerun to update UI
                     st.rerun()
 
+                # Batch auto-workflow button (only if multiple files loaded)
+                if len(files) > 1:
+                    if st.button("🚀 Run All Files", type="secondary", use_container_width=True,
+                                 help="Run auto-workflow on all loaded files"):
+                        from ..processing.auto_workflow import execute_auto_workflow, format_workflow_summary
+
+                        file_items = list(files.items())
+                        total = len(file_items)
+                        success_count = 0
+                        failed_files = []
+
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+
+                        for idx, (filename, spectrum) in enumerate(file_items):
+                            status_text.text(f"Processing {idx + 1}/{total}: {filename}")
+                            progress_bar.progress((idx + 1) / total)
+
+                            result = execute_auto_workflow(spectrum, preset)
+                            if result["success"]:
+                                success_count += 1
+                            else:
+                                failed_files.append((filename, result.get("error_message", "Unknown error")))
+
+                        progress_bar.empty()
+                        status_text.empty()
+
+                        if success_count == total:
+                            st.success(f"All {total} files processed successfully!")
+                        elif success_count > 0:
+                            st.warning(f"{success_count}/{total} files succeeded. {len(failed_files)} failed.")
+                        else:
+                            st.error("All files failed processing.")
+
+                        if failed_files:
+                            with st.expander("View Errors"):
+                                for fname, err in failed_files:
+                                    st.error(f"**{fname}**: {err}")
+
+                        st.session_state['show_fit'] = True
+                        st.session_state['show_components'] = True
+                        st.session_state['expanded_section'] = 'export'
+                        st.session_state['despike_preview'] = None
+                        st.session_state['baseline_preview'] = None
+                        st.session_state['despike_preview_toggle'] = False
+                        st.session_state['baseline_preview_toggle'] = False
+                        st.rerun()
+
             else:
                 st.session_state['selected_preset'] = None
 
@@ -363,18 +411,8 @@ print(selected_folder)
             st.session_state["current_file"] = filenames[0]
             current_file = filenames[0]
 
-        # Dropdown selector
-        selected = st.selectbox(
-            "Select file",
-            filenames,
-            index=filenames.index(current_file) if current_file in filenames else 0,
-            help="Select a spectrum file to process"
-        )
-
-        st.session_state["current_file"] = selected
-
-        # File info
-        spectrum = files[selected]
+        # File info (selection handled by navigation bar in plot area)
+        spectrum = files[current_file]
         st.caption(f"**Mode**: {spectrum.mode}")
         st.caption(f"**Points**: {len(spectrum.raw_data.X)}")
         st.caption(
@@ -382,8 +420,8 @@ print(selected_folder)
         )
 
         # Remove file button
-        if st.button("Remove File", key=f"remove_{selected}"):
-            remove_spectrum_file(selected)
+        if st.button("Remove File", key=f"remove_{current_file}"):
+            remove_spectrum_file(current_file)
             st.rerun()
 
     else:

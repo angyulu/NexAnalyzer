@@ -79,6 +79,18 @@ from ..processing.baseline import (  # Baseline correction algorithms
 # Local imports - Data models
 from ..models.spectrum import SpectrumData  # Dataclass for X/Y array pairs
 
+# Local imports - Export functions
+from ..io.export import (
+    export_master_csv,  # Export all fitted peaks from all files
+    export_single_spectrum_csv,  # Export single spectrum detailed data
+    export_figure_png,  # Export high-res PNG (requires kaleido)
+    export_figure_html,  # Export interactive HTML plot
+    create_filename  # Generate safe filenames
+)
+
+# Local imports - Visualization
+from ..visualization.plotter import plot_composite  # Create composite plot for export preview
+
 
 # ==================== VALIDATION FUNCTIONS ====================
 
@@ -1142,8 +1154,8 @@ def render_despike_section(is_expanded: bool):
         )
 
         # ========== REAL-TIME PREVIEW COMPUTATION ==========
-        # Only compute preview if checkbox is enabled
-        if show_preview:
+        # Only compute preview if checkbox is enabled and fit not already done
+        if show_preview and not spectrum.fit_done:
             try:
                 # ========== STEP 1: RUN DESPIKE ALGORITHM ==========
                 # Call remove_spikes() from processing.despiking module
@@ -1534,7 +1546,8 @@ def render_baseline_section(is_expanded: bool):
             show_preview = st.checkbox(
                 "Show Real-Time Preview",
                 value=True,  # Default: enabled
-                help="Update plot preview as you adjust parameters"
+                help="Update plot preview as you adjust parameters",
+                key="baseline_preview_toggle"
             )
         else:
             show_preview = False  # No preview needed when skipping
@@ -1795,7 +1808,7 @@ def render_baseline_section(is_expanded: bool):
             st.success(f"✓ {len(exclusions)} exclusion region(s) defined")
 
         # ========== REAL-TIME PREVIEW COMPUTATION ==========
-        if show_preview:
+        if show_preview and not spectrum.fit_done:
             try:
                 # Import all baseline algorithms (only imports used ones)
                 from ..processing.baseline import (
@@ -2397,7 +2410,15 @@ def render_peak_fit_section(is_expanded: bool, is_enabled: bool):
 # ==================== SECTION 5: EXPORT ====================
 
 def render_export_section(is_expanded: bool):
-    """Render Export section (placeholder - full implementation in Phase 4.1)."""
+    """
+    Render Export section with plot preview and export buttons.
+
+    Features:
+    - Plot preview with composite visualization
+    - PNG/CSV/HTML export buttons (3-column layout)
+    - Single-file detailed CSV export (Advanced Options)
+    - Batch export section (Master CSV for all files)
+    """
     with st.expander("5️⃣ Export", expanded=is_expanded):
         spectrum = get_current_spectrum()
 
@@ -2405,8 +2426,182 @@ def render_export_section(is_expanded: bool):
             st.info("Load and process files to export results")
             return
 
-        st.info("Export controls will be fully integrated in next update")
-        st.caption("For now, use the old Export tab if needed")
+        # Check if fit is done (required for most exports)
+        if not spectrum.fit_done:
+            st.info("Complete peak fitting to export results")
+            st.caption("Fit your peaks in the Peak Fitting section above")
+            return
+
+        # ========== PLOT PREVIEW ==========
+        st.subheader("Preview")
+
+        # Get plot width preset from session state
+        width_preset = st.session_state.get('plot_width_preset', 'Standard')
+
+        # Generate composite plot
+        try:
+            fig = plot_composite(
+                x=spectrum.processed_data.X,
+                y_data=spectrum.processed_data.Y,
+                fit_result=spectrum.fit_result,
+                mode=spectrum.mode,
+                title=f"{spectrum.filename} - Fit Results",
+                show_components=True,
+                width_preset=width_preset,
+                x_range_enabled=spectrum.x_range_enabled,
+                x_min=spectrum.x_min,
+                x_max=spectrum.x_max
+            )
+
+            # Display plot
+            st.plotly_chart(fig, use_container_width=True)
+
+        except Exception as e:
+            st.error(f"Failed to generate preview: {e}")
+            return
+
+        st.markdown("---")
+
+        # ========== QUICK EXPORT BUTTONS (3-COLUMN LAYOUT) ==========
+        st.subheader("Quick Export")
+
+        col1, col2, col3 = st.columns(3)
+
+        # Column 1: PNG Export
+        with col1:
+            st.caption("📷 Static Image")
+            try:
+                png_bytes = export_figure_png(fig, width=1200, height=600, scale=2.0)
+                filename_png = create_filename(spectrum.filename, "fit", "png")
+                st.download_button(
+                    label="Download PNG",
+                    data=png_bytes,
+                    file_name=filename_png,
+                    mime="image/png",
+                    use_container_width=True
+                )
+            except RuntimeError as e:
+                st.error("PNG export requires kaleido")
+                st.caption("Install: `pip install kaleido`")
+
+        # Column 2: HTML Export
+        with col2:
+            st.caption("🌐 Interactive Plot")
+            try:
+                html_string = export_figure_html(fig)
+                filename_html = create_filename(spectrum.filename, "fit", "html")
+                st.download_button(
+                    label="Download HTML",
+                    data=html_string,
+                    file_name=filename_html,
+                    mime="text/html",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"HTML export failed: {e}")
+
+        # Column 3: Quick CSV (fit parameters only)
+        with col3:
+            st.caption("📊 Fit Parameters")
+            # Create single-row CSV for current file
+            rows = []
+            for peak in spectrum.fit_result.fitted_peaks:
+                rows.append({
+                    "Filename": spectrum.filename,
+                    "Mode": spectrum.mode,
+                    "Peak_Label": peak.label,
+                    "Center": peak.center,
+                    "Center_Stderr": peak.center_stderr,
+                    "Amplitude": peak.amplitude,
+                    "Amplitude_Stderr": peak.amplitude_stderr,
+                    "FWHM": peak.width_fwhm,
+                    "FWHM_Stderr": peak.width_stderr,
+                    "Shape": peak.shape,
+                    "R_Squared": spectrum.fit_result.r_squared,
+                    "Chi_Squared": spectrum.fit_result.chi_squared
+                })
+
+            import pandas as pd
+            df = pd.DataFrame(rows)
+            csv_quick = df.to_csv(index=False)
+            filename_csv_quick = create_filename(spectrum.filename, "fit_params", "csv")
+
+            st.download_button(
+                label="Download CSV",
+                data=csv_quick,
+                file_name=filename_csv_quick,
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        st.markdown("---")
+
+        # ========== ADVANCED OPTIONS (SINGLE-FILE DETAILED CSV) ==========
+        with st.expander("🔧 Advanced Options", expanded=False):
+            st.subheader("Detailed Data Export")
+            st.caption("Export full X/Y arrays with fit decomposition")
+
+            # Export single spectrum detailed CSV
+            try:
+                csv_detailed = export_single_spectrum_csv(spectrum, include_fit=True)
+                filename_csv_detailed = create_filename(spectrum.filename, "detailed", "csv")
+
+                st.download_button(
+                    label="📄 Download Detailed CSV",
+                    data=csv_detailed,
+                    file_name=filename_csv_detailed,
+                    mime="text/csv",
+                    help="Includes: X, Y_Raw, Y_Processed, Y_Fit, Residuals, and individual peak components",
+                    use_container_width=True
+                )
+
+                # Show preview of CSV structure
+                st.caption("**CSV Columns:**")
+                st.caption("X | Y_Raw | Y_Processed | Y_Fit | Residuals | Peak_1 | Peak_2 | ...")
+
+            except Exception as e:
+                st.error(f"Failed to generate detailed CSV: {e}")
+
+        st.markdown("---")
+
+        # ========== BATCH EXPORT (MASTER CSV FOR ALL FILES) ==========
+        files = st.session_state.get('files', {})
+
+        # Count files with successful fits
+        fitted_files = [f for f in files.values() if f.fit_done and f.fit_result and f.fit_result.success]
+
+        if len(fitted_files) > 1:
+            st.subheader("Batch Export")
+            st.caption(f"Export data from all {len(fitted_files)} fitted files")
+
+            try:
+                # Generate master CSV
+                master_csv = export_master_csv(files)
+
+                col1, col2 = st.columns([2, 1])
+
+                with col1:
+                    st.download_button(
+                        label="📦 Download Master CSV (All Files)",
+                        data=master_csv,
+                        file_name="spectralfit_master_results.csv",
+                        mime="text/csv",
+                        help="One row per peak per file with all fit parameters",
+                        use_container_width=True
+                    )
+
+                with col2:
+                    st.metric("Files", len(fitted_files))
+
+                st.caption("**Master CSV includes:** Filename, Mode, Peak_Label, Center, Amplitude, FWHM, Shape, R², χ², and standard errors")
+
+            except Exception as e:
+                st.error(f"Failed to generate master CSV: {e}")
+
+        elif len(fitted_files) == 1:
+            st.caption("Load and fit multiple files to enable batch export")
+        else:
+            st.caption("No fitted files available for batch export")
 
 
 # ==================== MAIN CONTROL PANEL RENDERER ====================

@@ -229,31 +229,31 @@ def plot_preview(
     # Color: #d62728 (Plotly red) - indicates warning/preview state
     # Dash style: dashed to indicate temporary/preview state
     # WHY: User sees baseline curve shape before clicking "Apply"
-    # if baseline_preview is not None:
-    #     fig.add_trace(go.Scatter(
-    #         x=x,  # Same X values
-    #         y=baseline_preview,  # Baseline curve Y values (to be subtracted)
-    #         mode='lines',  # Connected line
-    #         name='Preview Baseline',  # Legend label shows this is preview
-    #         line=dict(width=2, color='#d62728', dash='dash'),  # Red dashed line
-    #         hovertemplate=f'{x_label}: %{{x:.2f}}<br>Baseline: %{{y:.1f}}<extra></extra>'  # Custom tooltip
-    #     ))
+    if baseline_preview is not None:
+        fig.add_trace(go.Scatter(
+            x=x,  # Same X values
+            y=baseline_preview,  # Baseline curve Y values (to be subtracted)
+            mode='lines',  # Connected line
+            name='Preview Baseline',  # Legend label shows this is preview
+            line=dict(width=2, color='#d62728', dash='dash'),  # Red dashed line
+            hovertemplate=f'{x_label}: %{{x:.2f}}<br>Baseline: %{{y:.1f}}<extra></extra>'  # Custom tooltip
+        ))
 
-    # # ========== TRACE 4: CORRECTED PREVIEW (OPTIONAL) ==========
-    # # Add corrected preview if provided (v2.1+ real-time preview)
-    # # Color: #2ca02c (Plotly green) - indicates corrected/processed state
-    # # Opacity: 0.6 (semi-transparent to avoid cluttering plot)
-    # # NOTE: This trace was REMOVED in v2.2 per user request, but code kept for backward compatibility
-    # if y_corrected_preview is not None:
-    #     fig.add_trace(go.Scatter(
-    #         x=x,  # Same X values
-    #         y=y_corrected_preview,  # Baseline-corrected intensity values (preview)
-    #         mode='lines',  # Connected line
-    #         name='Preview Corrected',  # Legend label
-    #         line=dict(width=2, color='#2ca02c'),  # Green line
-    #         opacity=0.6,  # Semi-transparent (60% opacity)
-    #         hovertemplate=f'{x_label}: %{{x:.2f}}<br>Corrected: %{{y:.1f}}<extra></extra>'  # Custom tooltip
-    #     ))
+    # ========== TRACE 4: CORRECTED PREVIEW (OPTIONAL) ==========
+    # Add corrected preview if provided (v2.1+ real-time preview)
+    # Color: #2ca02c (Plotly green) - indicates corrected/processed state
+    # Opacity: 0.6 (semi-transparent to avoid cluttering plot)
+    # NOTE: This trace was REMOVED in v2.2 per user request, but code kept for backward compatibility
+    if y_corrected_preview is not None:
+        fig.add_trace(go.Scatter(
+            x=x,  # Same X values
+            y=y_corrected_preview,  # Baseline-corrected intensity values (preview)
+            mode='lines',  # Connected line
+            name='Preview Corrected',  # Legend label
+            line=dict(width=2, color='#2ca02c'),  # Green line
+            opacity=0.6,  # Semi-transparent (60% opacity)
+            hovertemplate=f'{x_label}: %{{x:.2f}}<br>Corrected: %{{y:.1f}}<extra></extra>'  # Custom tooltip
+        ))
 
     # ========== CONFIGURE PLOT LAYOUT ==========
     # Set title, axis labels, interactivity, styling, legend position
