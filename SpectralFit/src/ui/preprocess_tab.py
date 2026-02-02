@@ -297,7 +297,7 @@ def render_preprocess_tab():
         from ..visualization.plotter import plot_preview
 
         # Get plot width from session state (v2.1+)
-        width_preset = st.session_state.get("plot_width_preset", "Standard")
+        width_preset = st.session_state.get("plot_width_preset", "Full")
 
         fig = plot_preview(
             x=spectrum.raw_data.X,
@@ -314,7 +314,8 @@ def render_preprocess_tab():
             y_corrected_preview=y_corrected_preview
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        from ..visualization.plotter import render_plot
+        render_plot(fig)
 
         # Add helpful caption if no preview yet
         if preview is None:

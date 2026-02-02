@@ -53,7 +53,8 @@ def render_export_tab():
             # Note: Full styling integration would require updating plot_composite
             # This is a simplified version for Phase 5
 
-            st.plotly_chart(fig, use_container_width=True, key="export_plot")
+            from ..visualization.plotter import render_plot
+            render_plot(fig, key="export_plot")
 
         except Exception as e:
             st.error(f"❌ Plot failed: {e}")

@@ -555,7 +555,23 @@ def render_unified_plot():
     # Add HTML anchor for mobile "Jump to Plot" link (allows mobile users to skip controls)
     st.markdown('<div id="plot-anchor"></div>', unsafe_allow_html=True)
 
-    # Render Plotly figure using Streamlit's plotly_chart widget
-    # use_container_width=True makes plot fill the 70% center column width
-    # key="unified_plot" gives this widget a unique identifier for Streamlit state
-    st.plotly_chart(fig, use_container_width=True, key="unified_plot")
+    # Render Plotly figure using width-aware helper (respects Display Settings)
+    from .plotter import render_plot
+    render_plot(fig, key="unified_plot")
+
+    # Display fit results table below the plot
+    if spectrum is not None and getattr(spectrum, 'fit_result', None) is not None and spectrum.fit_result.success:
+        import pandas as pd
+        st.markdown("**Fit Results**")
+        results_data = []
+        for peak in spectrum.fit_result.fitted_peaks:
+            results_data.append({
+                "Label": peak.label,
+                "Center": f"{peak.center:.2f}",
+                "±": f"{peak.center_stderr:.2f}",
+                "Amp": f"{peak.amplitude:.0f}",
+                "FWHM": f"{peak.width_fwhm:.2f}"
+            })
+        df_results = pd.DataFrame(results_data)
+        st.dataframe(df_results, hide_index=True, use_container_width=True)
+        st.caption(f"✓ R² = {spectrum.fit_result.r_squared:.4f}, χ² = {spectrum.fit_result.chi_squared:.2e}")

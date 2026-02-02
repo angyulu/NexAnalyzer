@@ -5,6 +5,16 @@ All notable changes to SpectralFit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-02-02
+
+### Changed
+- **Removed Display Settings UI** from sidebar - plot width now defaults to Full (100%) everywhere
+- **Moved Fit Results table** from right-side control panel to below the spectrum plot in center column
+- **Removed "Residuals" subplot title** that overlapped with x-axis labels (y-axis label retained)
+
+### Fixed
+- All `plot_width_preset` defaults updated from "Standard" to "Full" across codebase
+
 ## [2.2.1] - 2025-12-23
 
 ### Added

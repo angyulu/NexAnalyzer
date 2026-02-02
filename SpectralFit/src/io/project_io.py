@@ -18,7 +18,7 @@ def save_project(
     files: Dict[str, SpectrumFile],
     filepath: str,
     include_arrays: bool = True,
-    plot_width_preset: str = "Standard"
+    plot_width_preset: str = "Full"
 ) -> None:
     """
     Save project state to JSON file.

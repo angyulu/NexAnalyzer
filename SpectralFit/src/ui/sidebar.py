@@ -48,21 +48,6 @@ def render_sidebar():
 
     st.markdown("---")
 
-    # v2.1+ (FR-14): Plot Width Control
-    st.subheader("Display Settings")
-    plot_width = st.selectbox(
-        "Plot Width",
-        options=["Compact", "Standard", "Wide", "Full"],
-        index=1,  # Default to "Standard"
-        help=(
-            "Compact: 60% | Standard: 75% | Wide: 90% | Full: 100%\n\n"
-            "Applies to all plots across all tabs."
-        ),
-        key="plot_width_preset"  # Automatically saves to session_state
-    )
-
-    st.markdown("---")
-
     # v2.3: Material Presets
     st.subheader("Material Presets")
 
@@ -72,14 +57,61 @@ def render_sidebar():
     if 'selected_preset' not in st.session_state:
         st.session_state['selected_preset'] = None
 
-    # Preset file path input
-    preset_path = st.text_input(
-        "Preset File Path",
-        value=st.session_state.get('preset_file_path', ''),
-        placeholder="Path to material_presets.xlsx",
-        help="Path to Excel file containing material presets"
-    )
-    st.session_state['preset_file_path'] = preset_path
+    # Preset file path - browse button
+    preset_path = st.session_state.get('preset_file_path', '')
+    if preset_path:
+        st.caption(f"📁 {preset_path}")
+    else:
+        st.caption("No preset file selected")
+
+    if st.button("Browse Preset File", use_container_width=True):
+        try:
+            import subprocess
+            import sys
+            import os
+            import tempfile
+            from pathlib import Path
+
+            dialog_script = """
+import tkinter as tk
+from tkinter import filedialog
+import sys
+
+root = tk.Tk()
+root.withdraw()
+root.wm_attributes('-topmost', 1)
+
+initial_dir = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else ""
+selected_file = filedialog.askopenfilename(
+    title="Select Material Preset File",
+    initialdir=initial_dir,
+    filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+)
+
+root.destroy()
+print(selected_file)
+"""
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py') as f:
+                f.write(dialog_script)
+                script_path = f.name
+
+            # Default to presets folder
+            initial_dir = str(Path(preset_path).parent) if preset_path and Path(preset_path).parent.exists() else str(Path(__file__).resolve().parent.parent.parent / "presets")
+            result = subprocess.run(
+                [sys.executable, script_path, initial_dir],
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            os.unlink(script_path)
+
+            selected_file = result.stdout.strip()
+            if selected_file:
+                st.session_state['preset_file_path'] = selected_file
+                st.rerun()
+
+        except Exception as e:
+            st.error(f"❌ Failed to open file browser: {e}")
 
     # Reload presets button
     col1, col2 = st.columns([3, 1])

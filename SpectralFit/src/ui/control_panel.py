@@ -2382,27 +2382,6 @@ def render_peak_fit_section(is_expanded: bool, is_enabled: bool):
                         print("="*80 + "\n")
                         st.error(f"❌ Fitting failed: {e}")
 
-        # Display fit results if available
-        if spectrum.fit_result is not None and spectrum.fit_result.success:
-            st.markdown("---")
-            st.markdown("**Fit Results**")
-
-            import pandas as pd
-            results_data = []
-            for peak in spectrum.fit_result.fitted_peaks:
-                results_data.append({
-                    "Label": peak.label,
-                    "Center": f"{peak.center:.2f}",
-                    "±": f"{peak.center_stderr:.2f}",
-                    "Amp": f"{peak.amplitude:.0f}",
-                    "FWHM": f"{peak.width_fwhm:.2f}"
-                })
-
-            df_results = pd.DataFrame(results_data)
-            st.dataframe(df_results, hide_index=True, use_container_width=True, height=150)
-
-            st.caption(f"✓ R² = {spectrum.fit_result.r_squared:.4f}, χ² = {spectrum.fit_result.chi_squared:.2e}")
-
         if spectrum.fit_done:
             st.caption("✓ Peak fitting completed")
 
@@ -2436,7 +2415,7 @@ def render_export_section(is_expanded: bool):
         st.subheader("Preview")
 
         # Get plot width preset from session state
-        width_preset = st.session_state.get('plot_width_preset', 'Standard')
+        width_preset = st.session_state.get('plot_width_preset', 'Full')
 
         # Generate composite plot
         try:
@@ -2454,7 +2433,8 @@ def render_export_section(is_expanded: bool):
             )
 
             # Display plot
-            st.plotly_chart(fig, use_container_width=True)
+            from ..visualization.plotter import render_plot
+            render_plot(fig)
 
         except Exception as e:
             st.error(f"Failed to generate preview: {e}")

@@ -210,7 +210,7 @@ def render_fit_tab():
                 from ..visualization.plotter import plot_composite
 
                 # Get plot width from session state (v2.1+)
-                width_preset = st.session_state.get("plot_width_preset", "Standard")
+                width_preset = st.session_state.get("plot_width_preset", "Full")
 
                 fig = plot_composite(
                     spectrum.processed_data.X,
@@ -225,7 +225,8 @@ def render_fit_tab():
                     x_max=spectrum.x_max
                 )
 
-                st.plotly_chart(fig, use_container_width=True)
+                from ..visualization.plotter import render_plot
+                render_plot(fig)
 
             except Exception as e:
                 st.error(f"❌ Plot failed: {e}")

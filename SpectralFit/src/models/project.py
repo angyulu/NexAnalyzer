@@ -99,7 +99,7 @@ class ProjectState:
     timestamp: str
     files: dict
     global_styling: StylingPreferences = field(default_factory=StylingPreferences)
-    plot_width_preset: str = "Standard"
+    plot_width_preset: str = "Full"
 
     def __post_init__(self):
         """Validate attributes."""
@@ -161,7 +161,7 @@ class ProjectState:
         }
 
         # v2.1: Add default for plot_width_preset if missing (v2.0 compatibility)
-        plot_width_preset = data.get("plot_width_preset", "Standard")
+        plot_width_preset = data.get("plot_width_preset", "Full")
 
         return cls(
             version=data["version"],

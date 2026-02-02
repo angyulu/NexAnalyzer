@@ -102,7 +102,7 @@ def add_x_range_indicators(fig: go.Figure, x_min: float, x_max: float, row: int 
     )
 
 
-def apply_plot_width(fig: go.Figure, width_preset: str = "Standard"):
+def apply_plot_width(fig: go.Figure, width_preset: str = "Full"):
     """
     Apply plot width based on preset (v2.1+).
 
@@ -136,7 +136,7 @@ def apply_plot_width(fig: go.Figure, width_preset: str = "Standard"):
     }
 
     # Get fraction for requested preset (default to 0.75 if invalid preset)
-    width_fraction = width_map.get(width_preset, 0.75)
+    width_fraction = width_map.get(width_preset, 1.0)
 
     # Apply width to figure layout
     # Base width: 1200 pixels (chosen to work well on most screens)
@@ -145,6 +145,35 @@ def apply_plot_width(fig: go.Figure, width_preset: str = "Standard"):
         width=int(1200 * width_fraction),  # Convert to integer pixels
         autosize=True  # Enable automatic sizing for responsive behavior
     )
+
+
+# Width fraction map shared between render_plot and apply_plot_width
+_WIDTH_MAP = {
+    "Compact": 0.60,
+    "Standard": 0.75,
+    "Wide": 0.90,
+    "Full": 1.0,
+}
+
+
+def render_plot(fig: go.Figure, key: Optional[str] = None):
+    """Render a Plotly figure respecting the plot_width_preset session setting.
+
+    Wraps the chart in a proportionally-sized ``st.columns`` container so the
+    Streamlit ``use_container_width=True`` flag fills the correct fraction of
+    the page rather than the full width.
+    """
+    import streamlit as st
+
+    preset = st.session_state.get("plot_width_preset", "Full")
+    frac = _WIDTH_MAP.get(preset, 1.0)
+
+    if frac >= 1.0:
+        st.plotly_chart(fig, use_container_width=True, key=key)
+    else:
+        col_plot, _ = st.columns([frac, 1.0 - frac])
+        with col_plot:
+            st.plotly_chart(fig, use_container_width=True, key=key)
 
 
 def plot_preview(
@@ -272,10 +301,6 @@ def plot_preview(
         )
     )
 
-    # ========== APPLY WIDTH PRESET ==========
-    # Apply user-selected width preset (Compact/Standard/Wide/Full)
-    apply_plot_width(fig, width_preset)
-
     # ========== ADD X-RANGE INDICATORS (OPTIONAL) ==========
     # Add visual markers for X-range cropping if enabled
     # NOTE: This feature is DEPRECATED in v2.2 (data arrays are cropped directly now)
@@ -393,10 +418,6 @@ def plot_with_baseline(
         )
     )
 
-    # ========== APPLY WIDTH PRESET ==========
-    # Apply user-selected width (Compact/Standard/Wide/Full)
-    apply_plot_width(fig, width_preset)
-
     # ========== ADD X-RANGE INDICATORS (OPTIONAL) ==========
     # Add X-range markers if enabled (DEPRECATED in v2.2)
     if x_range_enabled and x_min is not None and x_max is not None:
@@ -456,7 +477,7 @@ def plot_composite(
         rows=2, cols=1,  # 2 rows, 1 column
         row_heights=[0.75, 0.25],  # Row 1 gets 75% of height, Row 2 gets 25%
         vertical_spacing=0.05,  # 5% gap between subplots
-        subplot_titles=("Data & Fit", "Residuals")  # Titles for each subplot
+        subplot_titles=("Data & Fit", "")  # Titles for each subplot
     )
 
     # ========== DETERMINE AXIS LABEL ==========
@@ -566,10 +587,6 @@ def plot_composite(
             bgcolor='rgba(255,255,255,0.8)'  # Semi-transparent white background
         )
     )
-
-    # ========== APPLY WIDTH PRESET ==========
-    # Apply user-selected width (Compact/Standard/Wide/Full)
-    apply_plot_width(fig, width_preset)
 
     # ========== ADD X-RANGE INDICATORS (OPTIONAL) ==========
     # Add X-range markers to main plot (row 1) if enabled

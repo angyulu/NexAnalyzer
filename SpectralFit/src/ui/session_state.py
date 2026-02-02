@@ -58,7 +58,7 @@ def initialize_session_state():
 
     # v2.1+ (FR-14): Plot width control
     if "plot_width_preset" not in st.session_state:
-        st.session_state["plot_width_preset"] = "Standard"  # Default: 75% width
+        st.session_state["plot_width_preset"] = "Full"  # Default: 100% width
 
     # v2.3: Material preset system
     if "preset_library" not in st.session_state:
