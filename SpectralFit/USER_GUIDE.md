@@ -143,9 +143,72 @@ Then just type `spectralfit` in any terminal to launch.
 
 ---
 
-## Using SpectralFit
+## Quick Start: Auto-Workflow with Material Presets
 
-SpectralFit is a browser-based tool for Raman and Photoluminescence spectrum analysis. The workflow follows these steps:
+The fastest way to process spectra is using the **auto-workflow** with a material preset file. This runs the entire pipeline (X-range crop, de-spiking, baseline correction, peak fitting) in a single click.
+
+### 1. Prepare a Preset File
+
+Create an Excel file (`.xlsx`) where **each sheet** defines one material-mode combination.
+
+**Sheet naming convention:** `Material_Mode` (e.g., `WSe2_Raman`, `MoS2_PL`)
+
+**Sheet layout:**
+
+| Row | Content |
+|-----|---------|
+| Row 1 | Setting headers: `x_min`, `x_max`, `despike_threshold`, `baseline_algo`, `baseline_param`, `exclusion_ranges`, `description` |
+| Row 2 | Setting values: e.g., `180`, `400`, `6`, `ALS`, `10000`, `240-270`, `Low-freq Raman` |
+| Row 3 | *(empty — separator)* |
+| Row 4 | Peak headers: `label`, `center`, `tolerance` |
+| Row 5+ | Peak data: e.g., `E2g`, `249`, `5` |
+
+An example preset file is included at `presets/material_presets.xlsx`.
+
+### 2. Load the Preset File
+
+1. Open the **sidebar** (click the `>` arrow at the top-left)
+2. Under **Material Presets**, click **"Browse Preset File"**
+3. Select your `.xlsx` file — the presets will load automatically
+4. If the file updates, click **"Reload"** to refresh
+
+### 3. Load Your Spectrum Files
+
+1. In the sidebar under **Load Spectra**, click **"Browse File Folder"**
+2. Select the folder containing your `.txt` spectrum files
+3. All `.txt` files in the folder will be loaded automatically
+4. The mode (Raman/PL) is auto-detected from filename patterns (e.g., `RM*` → Raman, `PL*` → PL)
+
+### 4. Select a Material
+
+1. In the sidebar under **Material Presets**, use the **material dropdown** to select the target material
+2. Only materials matching the current mode (Raman or PL) are shown
+3. A summary of the preset settings (baseline algorithm, peak count, notes) appears below
+
+### 5. Run the Workflow
+
+**Single file:**
+- Click **"Run Auto-Workflow"** to process the currently selected spectrum
+- The pipeline executes: X-range crop → De-spike → Baseline correction → Peak fitting
+- Results appear in the plot and fit results table below it
+
+**All files (batch):**
+- If multiple files are loaded, a **"Run All Files"** button appears
+- Click it to process every loaded file using the selected preset
+- A progress bar shows the batch status
+- After completion, a summary shows how many files succeeded
+
+### 6. Review and Export
+
+- Use the **file navigation arrows** (above the plot) to browse through processed files
+- Check the **fit results table** below each plot for peak parameters and R² values
+- Go to the **Export** section in the control panel to save results as CSV, PNG, or HTML
+
+---
+
+## Using SpectralFit (Manual Workflow)
+
+SpectralFit is a browser-based tool for Raman and Photoluminescence spectrum analysis. The manual workflow follows these steps:
 
 ### 1. Load Data
 - Click the **sidebar** (left edge) to expand it
