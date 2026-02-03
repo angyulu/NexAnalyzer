@@ -1,6 +1,6 @@
-# SpectralFit v2.4.0 - Project Summary
+# SpectralFit v2.4.1 - Project Summary
 
-**Last Updated:** 2026-02-02
+**Last Updated:** 2026-02-03
 **Status:** Fully Functional
 
 ---
@@ -98,6 +98,9 @@ Seven accordion sections in workflow order:
 ```
 SpectralFit/
 ├── app.py                          # Main entry point
+├── requirements.txt                # Python dependencies (auto-installed by start scripts)
+├── start.bat                       # Windows launcher (creates venv, installs deps, runs app)
+├── start.sh                        # macOS/Linux launcher
 ├── presets/material_presets.xlsx    # Example preset file
 ├── src/
 │   ├── models/
@@ -133,6 +136,7 @@ SpectralFit/
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| v2.4.1 | 2026-02-03 | Full-width plots, fit results below plot, auto-install deps |
 | v2.4.0 | 2025-12-25 | Batch auto-workflow, smart file navigation |
 | v2.3.0 | 2025-12-24 | Material preset system, exclusion ranges |
 | v2.2.3 | 2025-12-23 | Folder browser with batch loading |
@@ -146,8 +150,13 @@ SpectralFit/
 
 ## Running the App
 
+**Recommended:** Double-click `start.bat` (Windows) or run `./start.sh` (macOS/Linux).
+This automatically creates a virtual environment, installs all dependencies, and launches the app.
+
+**Manual:**
 ```bash
 cd SpectralFit
+pip install -r requirements.txt
 streamlit run app.py
 ```
 
