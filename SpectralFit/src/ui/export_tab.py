@@ -56,6 +56,9 @@ def render_export_tab():
             from ..visualization.plotter import render_plot
             render_plot(fig, key="export_plot")
 
+            from .components import render_peak_results_table
+            render_peak_results_table(spectrum.fit_result)
+
         except Exception as e:
             st.error(f"❌ Plot failed: {e}")
 

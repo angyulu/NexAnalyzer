@@ -26,7 +26,8 @@ def fit_voigt_peaks(
     x: np.ndarray,
     y: np.ndarray,
     peak_table: List[PeakDefinition],
-    mode: str = "Raman"
+    mode: str = "Raman",
+    max_iterations: int = 2000
 ) -> FitResult:
     """
     Fit multiple Voigt profiles to spectrum data.
@@ -131,11 +132,13 @@ def fit_voigt_peaks(
         sigma_guess = max(sigma_guess, sigma_min)
         gamma_guess = max(gamma_guess, gamma_min)
 
-        # Convert user-provided amplitude (peak height) to lmfit amplitude (integrated intensity)
-        # For Voigt profile: amplitude ≈ height × FWHM × sqrt(π/ln(2)) ≈ height × FWHM × 1.064
-        # This is critical: lmfit VoigtModel expects integrated intensity, not peak height!
+        # Auto-estimate amplitude (peak height) from the data at peak.center.
+        # Position + FWHM come from the preset (material properties); amplitude
+        # depends on measurement conditions, so we always init from the data.
+        idx = int(np.argmin(np.abs(x - peak.center)))
+        height_guess = max(float(y[idx]), 1e-6)
         fwhm_eff = peak.width_fwhm
-        amplitude_lmfit = peak.amplitude * fwhm_eff * 1.064
+        amplitude_lmfit = height_guess * fwhm_eff * 1.064
         amplitude_max_lmfit = peak.amplitude_max * fwhm_eff * 1.064
 
         # Add parameters with bounds
@@ -155,7 +158,7 @@ def fit_voigt_peaks(
         result = composite_model.fit(
             y, params, x=x,
             method='leastsq',
-            max_nfev=2000,
+            max_nfev=max_iterations,
             fit_kws={'ftol': 1e-6, 'xtol': 1e-6}  # Increased tolerance for stability
         )
         convergence_time = time.time() - start_time

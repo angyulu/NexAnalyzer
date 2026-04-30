@@ -125,9 +125,16 @@ def render_fit_tab():
         with st.expander("Advanced Options", expanded=False):
             st.caption(
                 f"Auto-bounds: Center ±{'5 cm⁻¹' if spectrum.mode == 'Raman' else '30 nm'}, "
-                f"Width 2.5×resolution to 50% of range, Amplitude 0 to 2×max"
+                f"Width 2.5×resolution to 50% of range, Amplitude 0 to 5×max"
             )
-            st.caption("Manual bounds override will be implemented in future update")
+            max_iter = st.slider(
+                "Max iterations (max_nfev)",
+                min_value=500, max_value=20000,
+                value=st.session_state.get("max_iterations", 2000),
+                step=500,
+                help="Higher = more attempts to converge for difficult fits"
+            )
+            st.session_state["max_iterations"] = max_iter
 
         if st.button("Run Voigt Fit"):
             if len(spectrum.peak_table) > 10:
@@ -156,7 +163,8 @@ def render_fit_tab():
                             X_fit,
                             Y_fit,
                             spectrum.peak_table,
-                            mode=spectrum.mode
+                            mode=spectrum.mode,
+                            max_iterations=st.session_state.get("max_iterations", 2000)
                         )
 
                         spectrum.fit_result = fit_result
@@ -189,21 +197,7 @@ def render_fit_tab():
                 f"Time: {spectrum.fit_result.convergence_time:.2f}s"
             )
 
-            # Results table
-            results_data = []
-            for peak in spectrum.fit_result.fitted_peaks:
-                results_data.append({
-                    "Label": peak.label,
-                    "Center": f"{peak.center:.2f} ± {peak.center_stderr:.2f}",
-                    "Amplitude": f"{peak.amplitude:.1f} ± {peak.amplitude_stderr:.1f}",
-                    "FWHM": f"{peak.width_fwhm:.2f} ± {peak.width_stderr:.2f}",
-                    "Shape": f"{peak.shape:.3f}",
-                })
-
-            df_results = pd.DataFrame(results_data)
-            st.dataframe(df_results, hide_index=True, use_container_width=True)
-
-            # Plot preview
+            # Plot first, results table directly below
             st.caption("Full visualization available in Export tab")
 
             try:
@@ -227,6 +221,9 @@ def render_fit_tab():
 
                 from ..visualization.plotter import render_plot
                 render_plot(fig)
+
+                from .components import render_peak_results_table
+                render_peak_results_table(spectrum.fit_result)
 
             except Exception as e:
                 st.error(f"❌ Plot failed: {e}")

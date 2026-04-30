@@ -28,7 +28,8 @@ class WorkflowExecutionError(Exception):
 
 def execute_auto_workflow(
     spectrum: SpectrumFile,
-    preset: MaterialPreset
+    preset: MaterialPreset,
+    max_iterations: int = 2000
 ) -> Dict[str, Any]:
     """
     Execute full automated workflow using preset.
@@ -281,7 +282,10 @@ def execute_auto_workflow(
 
         # Execute fitting (matches manual workflow)
         try:
-            fit_result = fit_voigt_peaks(X, Y_corrected, peak_definitions, mode=preset.mode)
+            fit_result = fit_voigt_peaks(
+                X, Y_corrected, peak_definitions,
+                mode=preset.mode, max_iterations=max_iterations
+            )
         except Exception as e:
             raise WorkflowExecutionError(
                 f"Peak fitting failed: {e}. "

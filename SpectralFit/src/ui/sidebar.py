@@ -15,7 +15,6 @@ from .session_state import (
     initialize_session_state,
     add_spectrum_file,
     remove_spectrum_file,
-    get_mode,
     set_mode
 )
 
@@ -36,19 +35,9 @@ def render_sidebar():
     # Initialize session state
     initialize_session_state()
 
-    # Mode toggle
     st.header("Settings")
-    mode = st.radio(
-        "Mode",
-        ["Raman", "PL"],
-        index=0 if get_mode() == "Raman" else 1,
-        help="Raman: cm⁻¹ units, ±5 cm⁻¹ fit bounds\nPL: nm units, ±30 nm fit bounds"
-    )
-    set_mode(mode)
 
-    st.markdown("---")
-
-    # v2.3: Material Presets
+    # v2.3: Material Presets (preset's own mode field drives spectrum.mode)
     st.subheader("Material Presets")
 
     # Initialize preset-related session state (redundant with session_state.py but kept for safety)
@@ -144,17 +133,15 @@ print(selected_file)
         st.session_state['selected_preset'] = None
         st.rerun()
 
-    # Material selector (only show if presets are loaded and files exist)
+    # Material selector (visible as soon as a preset library is loaded)
     preset_library = st.session_state.get('preset_library')
     files = st.session_state.get("files", {})
     current_file = st.session_state.get("current_file")
+    current_spectrum = files[current_file] if (files and current_file) else None
 
-    if preset_library and files and current_file:
-        current_spectrum = files[current_file]
-        current_mode = current_spectrum.mode
-
-        # Get materials for current mode
-        available_materials = preset_library.list_materials(mode=current_mode)
+    if preset_library:
+        # All materials across modes (preset.mode drives spectrum.mode below)
+        available_materials = preset_library.list_materials()
 
         if available_materials:
             # Material dropdown
@@ -162,7 +149,7 @@ print(selected_file)
                 "Select Material",
                 options=["(None)"] + available_materials,
                 index=0,
-                help=f"Materials for {current_mode} mode"
+                help="Materials from the loaded preset file (Raman + PL)"
             )
 
             if selected_material != "(None)":
@@ -170,19 +157,32 @@ print(selected_file)
                 preset = preset_library.get_preset(selected_material)
                 st.session_state['selected_preset'] = preset
 
+                # Sync spectrum mode from preset (drives axis labels and center tolerance)
+                if current_spectrum is not None and current_spectrum.mode != preset.mode:
+                    current_spectrum.mode = preset.mode
+
                 # Display preset info
+                st.caption(f"**Mode**: {preset.mode}")
                 st.caption(f"**Baseline**: {preset.baseline_algorithm}")
                 st.caption(f"**Peaks**: {len(preset.peak_templates)}")
                 if preset.description:
                     st.caption(f"**Notes**: {preset.description}")
 
-                # Run Auto-Workflow button
-                if st.button("🚀 Run Auto-Workflow", type="primary", use_container_width=True):
+                if current_spectrum is None:
+                    st.caption("Load spectrum files below to enable Auto-Workflow")
+
+                # Run Auto-Workflow button (requires a loaded file)
+                run_clicked = st.button(
+                    "🚀 Run Auto-Workflow", type="primary", use_container_width=True,
+                    disabled=current_spectrum is None
+                )
+                if run_clicked and current_spectrum is not None:
                     # Execute auto-workflow immediately (single-click behavior)
                     from ..processing.auto_workflow import execute_auto_workflow, format_workflow_summary, get_workflow_suggestions
 
+                    max_iter = st.session_state.get("max_iterations", 2000)
                     with st.spinner("🚀 Executing automated workflow..."):
-                        result = execute_auto_workflow(current_spectrum, preset)
+                        result = execute_auto_workflow(current_spectrum, preset, max_iterations=max_iter)
 
                     if result["success"]:
                         # Show success message with summary
@@ -235,11 +235,12 @@ print(selected_file)
                         progress_bar = st.progress(0)
                         status_text = st.empty()
 
+                        max_iter = st.session_state.get("max_iterations", 2000)
                         for idx, (filename, spectrum) in enumerate(file_items):
                             status_text.text(f"Processing {idx + 1}/{total}: {filename}")
                             progress_bar.progress((idx + 1) / total)
 
-                            result = execute_auto_workflow(spectrum, preset)
+                            result = execute_auto_workflow(spectrum, preset, max_iterations=max_iter)
                             if result["success"]:
                                 success_count += 1
                             else:
@@ -273,11 +274,9 @@ print(selected_file)
                 st.session_state['selected_preset'] = None
 
         else:
-            st.info(f"ℹ️ No {current_mode} presets found. Add a '{current_mode}' sheet to Excel file.")
+            st.info("ℹ️ No presets found in the loaded file.")
 
-    elif preset_library and not files:
-        st.caption("Load spectrum files to use presets")
-    elif not preset_library:
+    else:
         st.caption("Click 'Reload' to load presets")
 
     st.markdown("---")
@@ -391,10 +390,11 @@ print(selected_folder)
                             # Use detected mode and mark as auto-detected
                             file_mode = detected_mode
                             auto_detected = True
-                            set_mode(detected_mode)  # Update global mode
+                            set_mode(detected_mode)  # Keep legacy global state in sync
                         else:
-                            # Use current mode setting
-                            file_mode = mode
+                            # No filename prefix; default to Raman.
+                            # Will be overwritten when a preset is selected.
+                            file_mode = "Raman"
                             auto_detected = False
 
                         # Create SpectrumFile

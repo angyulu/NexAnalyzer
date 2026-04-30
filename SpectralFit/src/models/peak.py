@@ -22,7 +22,9 @@ class PeakDefinition:
     center : float
         Peak center position (cm⁻¹ or nm).
     amplitude : float
-        Initial amplitude guess (raw units, must be > 0).
+        Legacy field, must be > 0. The runtime initial guess is auto-estimated
+        from the data at peak.center; this value only feeds the amplitude_max
+        bound (5× y_max) for stability.
     width_fwhm : float
         Full-width-at-half-maximum (cm⁻¹ or nm, must be > 0).
     label : str

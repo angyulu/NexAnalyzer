@@ -562,15 +562,49 @@ def render_unified_plot():
     # Display fit results table below the plot
     if spectrum is not None and getattr(spectrum, 'fit_result', None) is not None and spectrum.fit_result.success:
         import pandas as pd
+        import numpy as np
+
+        x_data = spectrum.processed_data.X
+        y_data = spectrum.processed_data.Y
+
         st.markdown("**Fit Results**")
         results_data = []
         for peak in spectrum.fit_result.fitted_peaks:
+            # Raw stats from processed_data within ±FWHM of fitted center
+            half_window = max(peak.width_fwhm, 1e-6)
+            mask = (x_data >= peak.center - half_window) & (x_data <= peak.center + half_window)
+            if np.any(mask):
+                xw = x_data[mask]
+                yw = y_data[mask]
+                imax = int(np.argmax(yw))
+                raw_intensity = float(yw[imax])
+                raw_position = float(xw[imax])
+                # Empirical FWHM: width where y crosses half of raw_intensity
+                half = raw_intensity / 2.0
+                above = yw >= half
+                if above.any() and raw_intensity > 0:
+                    idxs = np.where(above)[0]
+                    raw_fwhm = float(xw[idxs[-1]] - xw[idxs[0]])
+                else:
+                    raw_fwhm = float("nan")
+            else:
+                raw_position = float("nan")
+                raw_intensity = float("nan")
+                raw_fwhm = float("nan")
+
             results_data.append({
                 "Label": peak.label,
+                "Source": "Fit",
+                "Intensity": f"{peak.amplitude:.0f}",
                 "Center": f"{peak.center:.2f}",
-                "±": f"{peak.center_stderr:.2f}",
-                "Amp": f"{peak.amplitude:.0f}",
-                "FWHM": f"{peak.width_fwhm:.2f}"
+                "FWHM": f"{peak.width_fwhm:.2f}",
+            })
+            results_data.append({
+                "Label": "",
+                "Source": "Raw",
+                "Intensity": f"{raw_intensity:.0f}" if not np.isnan(raw_intensity) else "—",
+                "Center": f"{raw_position:.2f}" if not np.isnan(raw_position) else "—",
+                "FWHM": f"{raw_fwhm:.2f}" if not np.isnan(raw_fwhm) else "—",
             })
         df_results = pd.DataFrame(results_data)
         st.dataframe(df_results, hide_index=True, use_container_width=True)

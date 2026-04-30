@@ -2314,6 +2314,18 @@ def render_peak_fit_section(is_expanded: bool, is_enabled: bool):
         # Run Fitting button
         if len(spectrum.peak_table) > 0:
             st.markdown("---")
+
+            # Max iterations slider (also applies to Auto-Workflow via session state)
+            max_iter = st.slider(
+                "Max iterations (max_nfev)",
+                min_value=500, max_value=20000,
+                value=st.session_state.get("max_iterations", 2000),
+                step=500,
+                key="max_iter_slider",
+                help="Higher = more attempts to converge for difficult fits. Applies to manual fit and Auto-Workflow."
+            )
+            st.session_state["max_iterations"] = max_iter
+
             if st.button("🚀 Run Voigt Fit", key="run_fit"):
                 if len(spectrum.peak_table) > 10:
                     st.error("❌ Maximum 10 peaks allowed")
@@ -2335,7 +2347,8 @@ def render_peak_fit_section(is_expanded: bool, is_enabled: bool):
                                 X_fit,
                                 Y_fit,
                                 spectrum.peak_table,
-                                mode=spectrum.mode
+                                mode=spectrum.mode,
+                                max_iterations=st.session_state.get("max_iterations", 2000)
                             )
 
                             spectrum.fit_result = fit_result
