@@ -9,8 +9,90 @@ This module provides functions to:
 
 import numpy as np
 import pandas as pd
-from typing import Tuple, Optional, Literal
+from typing import Tuple, Optional, Literal, List
 from ..models.spectrum import SpectrumData
+
+
+def _read_spectrum_dataframe(filepath: str) -> pd.DataFrame:
+    """
+    Read a spectrum .txt file into a DataFrame, sniffing the delimiter.
+
+    Tries tab first (most common for scientific data), then comma, then
+    falls back to whitespace-delimited. Returns a numeric DataFrame.
+    """
+    # Try tab; if it produces a single column, fall through to other delimiters
+    df = None
+    for sep, kwargs in [
+        ('\t', {}),
+        (',', {}),
+        (None, {'delim_whitespace': True}),  # whitespace fallback covers files with leading spaces
+    ]:
+        try:
+            candidate = pd.read_csv(filepath, sep=sep, header=None, engine='python', **kwargs)
+        except Exception:
+            continue
+        if candidate.shape[1] >= 2:
+            df = candidate
+            break
+
+    if df is None or df.shape[1] < 2:
+        raise ValueError(
+            "File must have at least 2 columns (X plus 1+ Y columns). "
+            "Expected delimiter: tab, comma, or whitespace."
+        )
+
+    return df
+
+
+def parse_spectrum_multi(filepath: str) -> List[SpectrumData]:
+    """
+    Parse a .txt spectrum file with one X column and 1+ Y columns.
+
+    Returns one SpectrumData per Y column (all sharing the same X).
+    Two-column files yield a list of length 1.
+
+    Raises
+    ------
+    ValueError
+        If the file cannot be parsed or every Y column fails validation.
+    FileNotFoundError
+        If the file does not exist.
+    """
+    try:
+        df = _read_spectrum_dataframe(filepath)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Spectrum file not found: {filepath}")
+    except pd.errors.EmptyDataError:
+        raise ValueError(f"File is empty: {filepath}")
+    except Exception as e:
+        raise ValueError(
+            f"Failed to parse spectrum file '{filepath}': {e}. "
+            f"Ensure file is X<delimiter>Y[<delimiter>Y...] with no header."
+        )
+
+    try:
+        X = df.iloc[:, 0].values.astype(np.float64)
+    except ValueError as e:
+        raise ValueError(
+            f"Failed to convert X column to numeric values: {e}. "
+            f"Ensure file contains only numeric data with no header row."
+        )
+
+    spectra: List[SpectrumData] = []
+    errors: List[str] = []
+    for col_idx in range(1, df.shape[1]):
+        try:
+            Y = df.iloc[:, col_idx].values.astype(np.float64)
+            spectra.append(SpectrumData(X=X, Y=Y))
+        except Exception as e:
+            errors.append(f"column {col_idx + 1}: {e}")
+
+    if not spectra:
+        raise ValueError(
+            f"No usable Y columns in '{filepath}'. Errors: {'; '.join(errors)}"
+        )
+
+    return spectra
 
 
 def parse_spectrum(filepath: str) -> SpectrumData:
@@ -49,53 +131,13 @@ def parse_spectrum(filepath: str) -> SpectrumData:
     >>> print(data.X.shape, data.Y.shape)
     (1000,) (1000,)
     """
-    try:
-        # Try to auto-detect delimiter using pandas
-        # Try tab first (most common for scientific data)
-        try:
-            df = pd.read_csv(filepath, sep='\t', header=None, engine='python')
-            if df.shape[1] != 2:
-                # If not 2 columns, try comma
-                df = pd.read_csv(filepath, sep=',', header=None, engine='python')
-        except Exception:
-            # If tab fails, try comma
-            df = pd.read_csv(filepath, sep=',', header=None, engine='python')
-
-        # Validate column count
-        if df.shape[1] != 2:
-            raise ValueError(
-                f"File must have exactly 2 columns (got {df.shape[1]}). "
-                f"Expected format: X<delimiter>Y with tab or comma delimiter."
-            )
-
-        # Extract X and Y
-        X = df.iloc[:, 0].values
-        Y = df.iloc[:, 1].values
-
-        # Convert to float64
-        try:
-            X = X.astype(np.float64)
-            Y = Y.astype(np.float64)
-        except ValueError as e:
-            raise ValueError(
-                f"Failed to convert columns to numeric values: {e}. "
-                f"Ensure file contains only numeric data with no header row."
-            )
-
-        # Create SpectrumData (validation happens in __post_init__)
-        return SpectrumData(X=X, Y=Y)
-
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Spectrum file not found: {filepath}")
-
-    except pd.errors.EmptyDataError:
-        raise ValueError(f"File is empty: {filepath}")
-
-    except Exception as e:
+    spectra = parse_spectrum_multi(filepath)
+    if len(spectra) > 1:
         raise ValueError(
-            f"Failed to parse spectrum file '{filepath}': {e}. "
-            f"Ensure file is two-column format (X<tab|comma>Y) with no header."
+            f"File has {len(spectra) + 1} columns (1 X + {len(spectra)} Y). "
+            f"Use parse_spectrum_multi() for multi-Y files."
         )
+    return spectra[0]
 
 
 def validate_spectrum_file(filepath: str) -> Tuple[bool, str]:

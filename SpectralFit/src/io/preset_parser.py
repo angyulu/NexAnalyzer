@@ -204,9 +204,12 @@ def parse_preset_excel(file_path: str) -> PresetLibrary:
             peak_headers_clean = [str(h).strip() if pd.notna(h) else None for h in peak_headers]
 
             # Validate required peak columns
+            # Note: 'amplitude' is intentionally NOT required. The fitter
+            # auto-estimates amplitude from data and derives bounds from y_max,
+            # so the preset value is unused. Tolerated if present (see below).
             required_peak_cols = [
                 'peak_label', 'center', 'center_tolerance',
-                'amplitude', 'width_fwhm', 'shape', 'color'
+                'width_fwhm', 'shape', 'color'
             ]
             missing_peak_cols = [col for col in required_peak_cols if col not in peak_headers_clean]
             if missing_peak_cols:
@@ -227,11 +230,17 @@ def parse_preset_excel(file_path: str) -> PresetLibrary:
                     continue
 
                 try:
+                    # Amplitude is optional: column may be missing entirely,
+                    # or present with a blank cell. Use 1.0 as a placeholder —
+                    # the fitter ignores it and derives bounds from y_max.
+                    amp_raw = row.get('amplitude') if 'amplitude' in peak_headers_clean else None
+                    amplitude = float(amp_raw) if pd.notna(amp_raw) else 1.0
+
                     template = PeakTemplate(
                         peak_label=str(row['peak_label']).strip(),
                         center=float(row['center']),
                         center_tolerance=float(row['center_tolerance']),
-                        amplitude=float(row['amplitude']),
+                        amplitude=amplitude,
                         width_fwhm=float(row['width_fwhm']),
                         shape=float(row['shape']),
                         color=str(row['color']).strip()
@@ -398,9 +407,10 @@ def validate_preset_schema(file_path: str) -> List[str]:
         peak_headers = df.iloc[3].tolist()
         peak_headers_clean = [str(h).strip() for h in peak_headers if pd.notna(h)]
 
+        # 'amplitude' intentionally omitted — see parse_preset_excel().
         required_peaks = [
             'peak_label', 'center', 'center_tolerance',
-            'amplitude', 'width_fwhm', 'shape', 'color'
+            'width_fwhm', 'shape', 'color'
         ]
         missing_peaks = [col for col in required_peaks if col not in peak_headers_clean]
         if missing_peaks:

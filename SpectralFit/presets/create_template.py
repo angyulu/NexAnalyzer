@@ -49,9 +49,11 @@ def create_material_sheet(wb, sheet_name, settings_data, peak_data):
     # Row 3: Blank separator
 
     # Row 4: Peak Template Headers
+    # 'amplitude' is intentionally omitted — it's optional and ignored by the fitter
+    # (initial guess auto-estimated from data; bounds derived from y_max).
     peak_headers = [
         'peak_label', 'center', 'center_tolerance',
-        'amplitude', 'width_fwhm', 'shape', 'color'
+        'width_fwhm', 'shape', 'color'
     ]
 
     for col_idx, header in enumerate(peak_headers, start=1):
@@ -97,7 +99,6 @@ def create_presets_excel():
             'peak_label': 'D-band',
             'center': 1350,
             'center_tolerance': 20,
-            'amplitude': 5000,
             'width_fwhm': 50,
             'shape': 0.5,
             'color': '#1f77b4'
@@ -106,7 +107,6 @@ def create_presets_excel():
             'peak_label': 'G-band',
             'center': 1580,
             'center_tolerance': 10,
-            'amplitude': 8000,
             'width_fwhm': 60,
             'shape': 0.5,
             'color': '#ff7f0e'
@@ -115,7 +115,6 @@ def create_presets_excel():
             'peak_label': '2D-band',
             'center': 2700,
             'center_tolerance': 50,
-            'amplitude': 6000,
             'width_fwhm': 80,
             'shape': 0.5,
             'color': '#2ca02c'
@@ -143,7 +142,6 @@ def create_presets_excel():
             'peak_label': 'E2g',
             'center': 383,
             'center_tolerance': 5,
-            'amplitude': 10000,
             'width_fwhm': 10,
             'shape': 0.3,
             'color': '#d62728'
@@ -152,7 +150,6 @@ def create_presets_excel():
             'peak_label': 'A1g',
             'center': 408,
             'center_tolerance': 5,
-            'amplitude': 12000,
             'width_fwhm': 12,
             'shape': 0.3,
             'color': '#9467bd'
@@ -180,7 +177,6 @@ def create_presets_excel():
             'peak_label': 'Si',
             'center': 520,
             'center_tolerance': 3,
-            'amplitude': 15000,
             'width_fwhm': 8,
             'shape': 0.2,
             'color': '#2ca02c'

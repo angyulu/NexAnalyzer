@@ -79,7 +79,7 @@ Exclusion ranges allow you to exclude specific X-ranges (typically peak regions)
 | `peak_label` | string | Yes | Peak name | "D-band", "G-band", "E2g" |
 | `center` | float | Yes | Peak center position | 1350, 1580, 2700 |
 | `center_tolerance` | float | Yes | ± tolerance for center bounds | 20, 10, 50 |
-| `amplitude` | float | Yes | Initial amplitude guess | 5000, 8000, 10000 |
+| `amplitude` | float | No (optional) | Ignored by fitter — initial guess is auto-estimated from data; kept for backward compatibility | 5000, 8000, 10000 |
 | `width_fwhm` | float | Yes | Full-width-half-max | 50, 60, 10 |
 | `shape` | float | Yes | Voigt mixing [0=Gaussian, 1=Lorentzian] | 0.5, 0.3, 0.7 |
 | `color` | string | Yes | Hex color for plot | #1f77b4, #ff7f0e |
@@ -173,7 +173,7 @@ baseline_degree = 5
 6. **Row 3:** Leave blank
 7. **Row 4:** Copy peak headers from existing sheet
    ```
-   peak_label | center | center_tolerance | amplitude | ...
+   peak_label | center | center_tolerance | width_fwhm | shape | color
    ```
 8. **Row 5+:** Enter your peak data (one row per peak)
 9. Save file
@@ -226,7 +226,7 @@ Solution: Select a PL preset or change file mode.
 
 - At least 1 peak required, maximum 10 peaks
 - `center_tolerance` > 0
-- `amplitude` > 0
+- `amplitude` > 0 (only checked if column is present)
 - `width_fwhm` > 0
 - `shape` in range [0.0, 1.0]
 - `color` must match format `#RRGGBB`

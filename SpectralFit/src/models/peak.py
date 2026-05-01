@@ -22,9 +22,11 @@ class PeakDefinition:
     center : float
         Peak center position (cm⁻¹ or nm).
     amplitude : float
-        Legacy field, must be > 0. The runtime initial guess is auto-estimated
-        from the data at peak.center; this value only feeds the amplitude_max
-        bound (5× y_max) for stability.
+        Placeholder field; required > 0 for backward-compatible serialization.
+        The runtime initial guess is auto-estimated from data at fit time, and
+        ``amplitude_max`` is derived from ``y_max`` (5× max intensity), so this
+        value is not consulted by the fitter. Optional in the Excel preset
+        format (defaults to 1.0 when absent).
     width_fwhm : float
         Full-width-at-half-maximum (cm⁻¹ or nm, must be > 0).
     label : str

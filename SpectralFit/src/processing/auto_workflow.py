@@ -64,6 +64,12 @@ def execute_auto_workflow(
     }
 
     try:
+        # Sync spectrum mode from preset (axis labels, center tolerance,
+        # PL-only Raw row in Fit Results). Defensive: callers may pass
+        # spectra with stale modes (e.g. batch path).
+        if spectrum.mode != preset.mode:
+            spectrum.mode = preset.mode
+
         # ========== STAGE 1: X-RANGE CROPPING ==========
         # Match manual workflow: replicate what happens when user clicks "Apply X-Range"
         if preset.x_range_enabled:

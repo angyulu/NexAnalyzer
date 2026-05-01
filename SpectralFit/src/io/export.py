@@ -47,6 +47,20 @@ def export_master_csv(files: Dict) -> str:
             continue
 
         for peak in spectrum.fit_result.fitted_peaks:
+            # Peak height (Amplitude in this CSV) = max of the fitted component curve.
+            # peak.amplitude from lmfit is integrated intensity (height × FWHM × 1.064);
+            # users want height, so we sample the component curve directly.
+            if peak.component_curve is not None and len(peak.component_curve) > 0:
+                height = float(np.max(peak.component_curve))
+                # Scale stderr by the same height/integrated ratio (linear approximation).
+                if peak.amplitude > 0:
+                    height_stderr = float(peak.amplitude_stderr) * (height / peak.amplitude)
+                else:
+                    height_stderr = 0.0
+            else:
+                height = float(peak.amplitude)
+                height_stderr = float(peak.amplitude_stderr)
+
             rows.append({
                 "Filename": filename,
                 "Mode": spectrum.mode,
@@ -59,8 +73,8 @@ def export_master_csv(files: Dict) -> str:
                 "Peak_Label": peak.label,
                 "Center": peak.center,
                 "Center_Stderr": peak.center_stderr,
-                "Amplitude": peak.amplitude,
-                "Amplitude_Stderr": peak.amplitude_stderr,
+                "Amplitude": height,
+                "Amplitude_Stderr": height_stderr,
                 "FWHM": peak.width_fwhm,
                 "FWHM_Stderr": peak.width_stderr,
                 "Shape": peak.shape,
@@ -68,6 +82,45 @@ def export_master_csv(files: Dict) -> str:
                 "Chi_Squared": spectrum.fit_result.chi_squared,
                 "Convergence_Time_s": spectrum.fit_result.convergence_time
             })
+
+        # PL mode only: append one extra row per file with Peak_Label="Raw"
+        # holding the raw spectrum stats (max Y, its x, and FWHM at half-max).
+        if spectrum.mode == "PL":
+            y_data = spectrum.processed_data.Y
+            x_data = spectrum.processed_data.X
+            if len(y_data) > 0:
+                imax = int(np.argmax(y_data))
+                raw_intensity = float(y_data[imax])
+                raw_center = float(x_data[imax])
+                if raw_intensity > 0:
+                    above = y_data >= raw_intensity / 2.0
+                    if above.any():
+                        idxs = np.where(above)[0]
+                        raw_fwhm: object = float(x_data[idxs[-1]] - x_data[idxs[0]])
+                    else:
+                        raw_fwhm = ""
+                else:
+                    raw_fwhm = ""
+
+                rows.append({
+                    "Filename": filename,
+                    "Mode": spectrum.mode,
+                    "Auto_Detected": spectrum.auto_detected,
+                    "X_Range_Limited": spectrum.x_range_enabled,
+                    "X_Min": spectrum.x_min if spectrum.x_range_enabled else "",
+                    "X_Max": spectrum.x_max if spectrum.x_range_enabled else "",
+                    "Peak_Label": "Raw",
+                    "Center": raw_center,
+                    "Center_Stderr": "",
+                    "Amplitude": raw_intensity,
+                    "Amplitude_Stderr": "",
+                    "FWHM": raw_fwhm,
+                    "FWHM_Stderr": "",
+                    "Shape": "",
+                    "R_Squared": "",
+                    "Chi_Squared": "",
+                    "Convergence_Time_s": ""
+                })
 
     if len(rows) == 0:
         return "# No fit results to export\n"

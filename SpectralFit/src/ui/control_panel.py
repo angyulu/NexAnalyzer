@@ -2499,14 +2499,24 @@ def render_export_section(is_expanded: bool):
             # Create single-row CSV for current file
             rows = []
             for peak in spectrum.fit_result.fitted_peaks:
+                # Amplitude reported as peak height (max of component curve), not integrated.
+                if peak.component_curve is not None and len(peak.component_curve) > 0:
+                    height = float(np.max(peak.component_curve))
+                    if peak.amplitude > 0:
+                        height_stderr = float(peak.amplitude_stderr) * (height / peak.amplitude)
+                    else:
+                        height_stderr = 0.0
+                else:
+                    height = float(peak.amplitude)
+                    height_stderr = float(peak.amplitude_stderr)
                 rows.append({
                     "Filename": spectrum.filename,
                     "Mode": spectrum.mode,
                     "Peak_Label": peak.label,
                     "Center": peak.center,
                     "Center_Stderr": peak.center_stderr,
-                    "Amplitude": peak.amplitude,
-                    "Amplitude_Stderr": peak.amplitude_stderr,
+                    "Amplitude": height,
+                    "Amplitude_Stderr": height_stderr,
                     "FWHM": peak.width_fwhm,
                     "FWHM_Stderr": peak.width_stderr,
                     "Shape": peak.shape,

@@ -570,42 +570,38 @@ def render_unified_plot():
         st.markdown("**Fit Results**")
         results_data = []
         for peak in spectrum.fit_result.fitted_peaks:
-            # Raw stats from processed_data within ±FWHM of fitted center
-            half_window = max(peak.width_fwhm, 1e-6)
-            mask = (x_data >= peak.center - half_window) & (x_data <= peak.center + half_window)
-            if np.any(mask):
-                xw = x_data[mask]
-                yw = y_data[mask]
-                imax = int(np.argmax(yw))
-                raw_intensity = float(yw[imax])
-                raw_position = float(xw[imax])
-                # Empirical FWHM: width where y crosses half of raw_intensity
-                half = raw_intensity / 2.0
-                above = yw >= half
-                if above.any() and raw_intensity > 0:
-                    idxs = np.where(above)[0]
-                    raw_fwhm = float(xw[idxs[-1]] - xw[idxs[0]])
-                else:
-                    raw_fwhm = float("nan")
+            # Show peak height (max of component curve), not integrated intensity
+            if peak.component_curve is not None and len(peak.component_curve) > 0:
+                height = float(np.max(peak.component_curve))
             else:
-                raw_position = float("nan")
-                raw_intensity = float("nan")
-                raw_fwhm = float("nan")
-
+                height = float(peak.amplitude)
             results_data.append({
                 "Label": peak.label,
-                "Source": "Fit",
-                "Intensity": f"{peak.amplitude:.0f}",
+                "Intensity": f"{height:.0f}",
                 "Center": f"{peak.center:.2f}",
                 "FWHM": f"{peak.width_fwhm:.2f}",
             })
+
+        # PL mode only: one Raw row at the bottom, computed across the full processed spectrum
+        if spectrum.mode == "PL" and len(y_data) > 0:
+            imax = int(np.argmax(y_data))
+            raw_intensity = float(y_data[imax])
+            raw_position = float(x_data[imax])
+            half = raw_intensity / 2.0
+            above = y_data >= half
+            if above.any() and raw_intensity > 0:
+                idxs = np.where(above)[0]
+                raw_fwhm = float(x_data[idxs[-1]] - x_data[idxs[0]])
+            else:
+                raw_fwhm = float("nan")
+
             results_data.append({
-                "Label": "",
-                "Source": "Raw",
-                "Intensity": f"{raw_intensity:.0f}" if not np.isnan(raw_intensity) else "—",
-                "Center": f"{raw_position:.2f}" if not np.isnan(raw_position) else "—",
+                "Label": "Raw",
+                "Intensity": f"{raw_intensity:.0f}",
+                "Center": f"{raw_position:.2f}",
                 "FWHM": f"{raw_fwhm:.2f}" if not np.isnan(raw_fwhm) else "—",
             })
+
         df_results = pd.DataFrame(results_data)
         st.dataframe(df_results, hide_index=True, use_container_width=True)
         st.caption(f"✓ R² = {spectrum.fit_result.r_squared:.4f}, χ² = {spectrum.fit_result.chi_squared:.2e}")

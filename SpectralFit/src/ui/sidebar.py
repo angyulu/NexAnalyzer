@@ -10,7 +10,7 @@ This module provides the render_sidebar() function that displays:
 
 import streamlit as st
 from ..models.spectrum import SpectrumFile, ProcessingSettings
-from ..processing.parser import parse_spectrum, detect_mode_from_filename
+from ..processing.parser import parse_spectrum_multi, detect_mode_from_filename
 from .session_state import (
     initialize_session_state,
     add_spectrum_file,
@@ -157,9 +157,12 @@ print(selected_file)
                 preset = preset_library.get_preset(selected_material)
                 st.session_state['selected_preset'] = preset
 
-                # Sync spectrum mode from preset (drives axis labels and center tolerance)
-                if current_spectrum is not None and current_spectrum.mode != preset.mode:
-                    current_spectrum.mode = preset.mode
+                # Sync mode on all loaded files (drives axis labels, tolerance, and the
+                # PL-only Raw row in the Fit Results table). Without this, files other
+                # than the current one keep their load-time mode after "Run All Files".
+                for _spec in files.values():
+                    if _spec.mode != preset.mode:
+                        _spec.mode = preset.mode
 
                 # Display preset info
                 st.caption(f"**Mode**: {preset.mode}")
@@ -170,6 +173,18 @@ print(selected_file)
 
                 if current_spectrum is None:
                     st.caption("Load spectrum files below to enable Auto-Workflow")
+
+                # Max iterations slider — applies to Run Auto-Workflow and Run All Files
+                # (shared with the manual fit slider in the Peak Fitting control panel)
+                max_iter_sidebar = st.slider(
+                    "Max iterations",
+                    min_value=500, max_value=20000,
+                    value=st.session_state.get("max_iterations", 2000),
+                    step=500,
+                    key="max_iter_sidebar_slider",
+                    help="Higher = more attempts to converge for difficult fits"
+                )
+                st.session_state["max_iterations"] = max_iter_sidebar
 
                 # Run Auto-Workflow button (requires a loaded file)
                 run_clicked = st.button(
@@ -374,43 +389,44 @@ print(selected_folder)
                 for file_path in txt_files:
                     filename = os.path.basename(file_path)
 
-                    # Check if already loaded
-                    if filename in st.session_state.get("files", {}):
-                        skipped_count += 1
-                        continue
-
                     try:
-                        # Parse spectrum
-                        spectrum_data = parse_spectrum(file_path)
+                        # Parse spectrum (returns list; len > 1 for multi-Y files)
+                        spectra = parse_spectrum_multi(file_path)
 
                         # v2.1+ (FR-12): Auto-detect mode from filename
                         detected_mode = detect_mode_from_filename(filename)
 
                         if detected_mode is not None:
-                            # Use detected mode and mark as auto-detected
                             file_mode = detected_mode
                             auto_detected = True
-                            set_mode(detected_mode)  # Keep legacy global state in sync
+                            set_mode(detected_mode)
                         else:
-                            # No filename prefix; default to Raman.
-                            # Will be overwritten when a preset is selected.
                             file_mode = "Raman"
                             auto_detected = False
 
-                        # Create SpectrumFile
-                        spectrum_file = SpectrumFile(
-                            filename=filename,
-                            mode=file_mode,
-                            original_data=spectrum_data,
-                            raw_data=spectrum_data,
-                            processed_data=spectrum_data,
-                            processing_settings=ProcessingSettings(),
-                            auto_detected=auto_detected
-                        )
+                        # Build per-spectrum entries. For multi-Y files, suffix the
+                        # filename with __1, __2, … so each Y column appears as a
+                        # separate file entry in the sidebar list.
+                        base, ext = os.path.splitext(filename)
+                        n = len(spectra)
+                        for i, spectrum_data in enumerate(spectra, start=1):
+                            entry_name = filename if n == 1 else f"{base}__{i}{ext}"
 
-                        # Add to session state
-                        add_spectrum_file(spectrum_file)
-                        loaded_count += 1
+                            if entry_name in st.session_state.get("files", {}):
+                                skipped_count += 1
+                                continue
+
+                            spectrum_file = SpectrumFile(
+                                filename=entry_name,
+                                mode=file_mode,
+                                original_data=spectrum_data,
+                                raw_data=spectrum_data,
+                                processed_data=spectrum_data,
+                                processing_settings=ProcessingSettings(),
+                                auto_detected=auto_detected
+                            )
+                            add_spectrum_file(spectrum_file)
+                            loaded_count += 1
 
                     except Exception as e:
                         st.error(f"❌ Failed to load {filename}: {e}")
