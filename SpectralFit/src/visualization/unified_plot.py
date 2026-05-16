@@ -569,20 +569,8 @@ def render_unified_plot():
 
         st.markdown("**Fit Results**")
         results_data = []
-        for peak in spectrum.fit_result.fitted_peaks:
-            # Show peak height (max of component curve), not integrated intensity
-            if peak.component_curve is not None and len(peak.component_curve) > 0:
-                height = float(np.max(peak.component_curve))
-            else:
-                height = float(peak.amplitude)
-            results_data.append({
-                "Label": peak.label,
-                "Intensity": f"{height:.0f}",
-                "Center": f"{peak.center:.2f}",
-                "FWHM": f"{peak.width_fwhm:.2f}",
-            })
 
-        # PL mode only: one Raw row at the bottom, computed across the full processed spectrum
+        # PL mode only: prepend a Raw row at the top, computed across the full processed spectrum
         if spectrum.mode == "PL" and len(y_data) > 0:
             imax = int(np.argmax(y_data))
             raw_intensity = float(y_data[imax])
@@ -600,6 +588,19 @@ def render_unified_plot():
                 "Intensity": f"{raw_intensity:.0f}",
                 "Center": f"{raw_position:.2f}",
                 "FWHM": f"{raw_fwhm:.2f}" if not np.isnan(raw_fwhm) else "—",
+            })
+
+        for peak in spectrum.fit_result.fitted_peaks:
+            # Show peak height (max of component curve), not integrated intensity
+            if peak.component_curve is not None and len(peak.component_curve) > 0:
+                height = float(np.max(peak.component_curve))
+            else:
+                height = float(peak.amplitude)
+            results_data.append({
+                "Label": peak.label,
+                "Intensity": f"{height:.0f}",
+                "Center": f"{peak.center:.2f}",
+                "FWHM": f"{peak.width_fwhm:.2f}",
             })
 
         df_results = pd.DataFrame(results_data)

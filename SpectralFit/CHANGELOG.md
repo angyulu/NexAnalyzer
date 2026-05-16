@@ -5,6 +5,22 @@ All notable changes to SpectralFit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-05-16
+
+### Added
+- **Multi-select file picker** for spectrum input: the sidebar now exposes a **"Browse Spectrum Files"** button that opens a native OS multi-select dialog (`tkinter.filedialog.askopenfilenames`), filtered to `.txt` with an "All files" fallback. Ctrl-click / Cmd-click to pick multiple files in one dialog session.
+- Last-picked directory is remembered as the next dialog's starting location (session-state key `'last_picked_dir'`).
+- Pop-based reload guard via a transient `'pending_files_to_load'` session-state queue — picked files are parsed exactly once on the next rerun; no per-rerun re-parsing.
+
+### Changed
+- **Sidebar "Load Spectra" block fully replaced**: the "Folder Path" text input and "Browse File Folder" button are removed. The new picker preserves all downstream behavior (multi-Y `__1`/`__2` splitting, `detect_mode_from_filename` auto-detection, per-file duplicate skipping, per-file error isolation).
+- Subprocess output for the new picker is **JSON-serialized** (rather than bare `print()`) so picked paths with spaces, commas, or unicode round-trip safely.
+- **PL "Raw" summary row** in the fit-results table is now rendered **at the top** of the table instead of the bottom — applies to both the in-app table ([src/visualization/unified_plot.py](src/visualization/unified_plot.py)) and the exported master CSV ([src/io/export.py](src/io/export.py)). Easier raw-vs-fit comparison.
+- Sidebar success message reads `"Loaded N file(s)"` (dropped the "from folder" suffix).
+
+### Removed
+- Session-state keys `'last_folder_path'` and `'loaded_folder_path'` (replaced by `'last_picked_dir'` and `'pending_files_to_load'`). These keys were never written to project JSON, so existing saved projects load unchanged.
+
 ## [2.4.1] - 2026-02-02
 
 ### Changed
@@ -120,6 +136,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Version History Summary
 
+- **v2.5.0** (2026-05-16): Multi-select file picker replaces folder picker; PL Raw row moved to top of fit-results table
+- **v2.4.1** (2026-02-02): Display Settings removed (plot width defaults to Full); Fit Results moved below plot
+- **v2.4.0** (2026-01-XX): Batch auto-workflow ("Run All Files") + smart file navigation
+- **v2.3.0** (2026-01-08): Material Preset System (Excel-based auto-workflow)
 - **v2.2.1** (2025-12-23): Critical fitting algorithm improvements + UI refinements
 - **v2.2.0** (2025-12-20): Single-page accordion layout + real-time previews
 - **v2.1.0** (2025-12-19): Real-time baseline preview + auto mode detection

@@ -46,45 +46,8 @@ def export_master_csv(files: Dict) -> str:
         if spectrum.fit_result is None or not spectrum.fit_result.success:
             continue
 
-        for peak in spectrum.fit_result.fitted_peaks:
-            # Peak height (Amplitude in this CSV) = max of the fitted component curve.
-            # peak.amplitude from lmfit is integrated intensity (height × FWHM × 1.064);
-            # users want height, so we sample the component curve directly.
-            if peak.component_curve is not None and len(peak.component_curve) > 0:
-                height = float(np.max(peak.component_curve))
-                # Scale stderr by the same height/integrated ratio (linear approximation).
-                if peak.amplitude > 0:
-                    height_stderr = float(peak.amplitude_stderr) * (height / peak.amplitude)
-                else:
-                    height_stderr = 0.0
-            else:
-                height = float(peak.amplitude)
-                height_stderr = float(peak.amplitude_stderr)
-
-            rows.append({
-                "Filename": filename,
-                "Mode": spectrum.mode,
-                # v2.1 new columns
-                "Auto_Detected": spectrum.auto_detected,
-                "X_Range_Limited": spectrum.x_range_enabled,
-                "X_Min": spectrum.x_min if spectrum.x_range_enabled else "",
-                "X_Max": spectrum.x_max if spectrum.x_range_enabled else "",
-                # Existing columns
-                "Peak_Label": peak.label,
-                "Center": peak.center,
-                "Center_Stderr": peak.center_stderr,
-                "Amplitude": height,
-                "Amplitude_Stderr": height_stderr,
-                "FWHM": peak.width_fwhm,
-                "FWHM_Stderr": peak.width_stderr,
-                "Shape": peak.shape,
-                "R_Squared": spectrum.fit_result.r_squared,
-                "Chi_Squared": spectrum.fit_result.chi_squared,
-                "Convergence_Time_s": spectrum.fit_result.convergence_time
-            })
-
-        # PL mode only: append one extra row per file with Peak_Label="Raw"
-        # holding the raw spectrum stats (max Y, its x, and FWHM at half-max).
+        # PL mode only: prepend a Raw row holding raw spectrum stats
+        # (max Y, its x, and FWHM at half-max) before the peak rows.
         if spectrum.mode == "PL":
             y_data = spectrum.processed_data.Y
             x_data = spectrum.processed_data.X
@@ -121,6 +84,43 @@ def export_master_csv(files: Dict) -> str:
                     "Chi_Squared": "",
                     "Convergence_Time_s": ""
                 })
+
+        for peak in spectrum.fit_result.fitted_peaks:
+            # Peak height (Amplitude in this CSV) = max of the fitted component curve.
+            # peak.amplitude from lmfit is integrated intensity (height × FWHM × 1.064);
+            # users want height, so we sample the component curve directly.
+            if peak.component_curve is not None and len(peak.component_curve) > 0:
+                height = float(np.max(peak.component_curve))
+                # Scale stderr by the same height/integrated ratio (linear approximation).
+                if peak.amplitude > 0:
+                    height_stderr = float(peak.amplitude_stderr) * (height / peak.amplitude)
+                else:
+                    height_stderr = 0.0
+            else:
+                height = float(peak.amplitude)
+                height_stderr = float(peak.amplitude_stderr)
+
+            rows.append({
+                "Filename": filename,
+                "Mode": spectrum.mode,
+                # v2.1 new columns
+                "Auto_Detected": spectrum.auto_detected,
+                "X_Range_Limited": spectrum.x_range_enabled,
+                "X_Min": spectrum.x_min if spectrum.x_range_enabled else "",
+                "X_Max": spectrum.x_max if spectrum.x_range_enabled else "",
+                # Existing columns
+                "Peak_Label": peak.label,
+                "Center": peak.center,
+                "Center_Stderr": peak.center_stderr,
+                "Amplitude": height,
+                "Amplitude_Stderr": height_stderr,
+                "FWHM": peak.width_fwhm,
+                "FWHM_Stderr": peak.width_stderr,
+                "Shape": peak.shape,
+                "R_Squared": spectrum.fit_result.r_squared,
+                "Chi_Squared": spectrum.fit_result.chi_squared,
+                "Convergence_Time_s": spectrum.fit_result.convergence_time
+            })
 
     if len(rows) == 0:
         return "# No fit results to export\n"

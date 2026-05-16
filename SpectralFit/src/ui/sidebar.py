@@ -296,56 +296,51 @@ print(selected_file)
 
     st.markdown("---")
 
-    # Folder browser
+    # Load spectra
     st.subheader("Load Spectra")
 
-    # Initialize last folder path in session state if not exists
-    if 'last_folder_path' not in st.session_state:
-        st.session_state['last_folder_path'] = ""
+    # Remember the directory of the last picked file for the next dialog's initialdir
+    if 'last_picked_dir' not in st.session_state:
+        st.session_state['last_picked_dir'] = ""
 
-    # Text input for folder path
-    folder_path = st.text_input(
-        "Folder Path",
-        value=st.session_state.get('last_folder_path', ''),
-        placeholder="Enter or paste folder path here",
-        help="Enter the full path to a folder containing .txt spectrum files"
-    )
-
-    # Browse folder button
-    if st.button("Browse File Folder", use_container_width=True):
+    # Browse spectrum files button (multi-select)
+    if st.button("Browse Spectrum Files", use_container_width=True):
         try:
             import subprocess
             import sys
             import os
+            import tempfile
+            import json
 
-            # Create a separate Python script to run tkinter dialog
+            # NOTE: askopenfilenames returns a Tcl tuple of paths. Bare print()
+            # would mangle paths containing spaces/commas/unicode, so we serialize
+            # via json.dumps and parse with json.loads on this side.
             dialog_script = """
 import tkinter as tk
 from tkinter import filedialog
 import sys
+import json
 
 root = tk.Tk()
 root.withdraw()
 root.wm_attributes('-topmost', 1)
 
 initial_dir = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else ""
-selected_folder = filedialog.askdirectory(
-    title="Select Folder Containing Spectrum Files",
-    initialdir=initial_dir
+selected_files = filedialog.askopenfilenames(
+    title="Select Spectrum Files",
+    initialdir=initial_dir,
+    filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
 )
 
 root.destroy()
-print(selected_folder)
+print(json.dumps(list(selected_files)))
 """
 
-            # Write script to temp file
-            import tempfile
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py') as f:
                 f.write(dialog_script)
                 script_path = f.name
 
-            # Run dialog in separate process
-            initial_dir = st.session_state.get('last_folder_path', '')
+            initial_dir = st.session_state.get('last_picked_dir', '')
             result = subprocess.run(
                 [sys.executable, script_path, initial_dir],
                 capture_output=True,
@@ -353,96 +348,81 @@ print(selected_folder)
                 timeout=120
             )
 
-            # Clean up temp file
             os.unlink(script_path)
 
-            # Get selected folder from output
-            selected_folder = result.stdout.strip()
+            raw = result.stdout.strip()
+            picked = json.loads(raw) if raw else []
 
-            if selected_folder:
-                # Update folder path in session state and text input
-                st.session_state['last_folder_path'] = selected_folder
+            if picked:
+                st.session_state['pending_files_to_load'] = picked
+                st.session_state['last_picked_dir'] = os.path.dirname(picked[0])
                 st.rerun()
+            # cancel / empty selection -> no-op, no rerun
 
         except Exception as e:
-            st.error(f"❌ Failed to open folder browser: {e}")
+            st.error(f"❌ Failed to open file browser: {e}")
 
-    # Load files from folder when path is provided
-    if folder_path and folder_path != st.session_state.get('loaded_folder_path', ''):
-        try:
-            import os
-            import glob
+    # Process the pending-files queue populated by the Browse button on the previous rerun
+    files_to_load = st.session_state.pop('pending_files_to_load', None)
+    if files_to_load:
+        import os
 
-            # Store the loaded folder path to prevent reloading
-            st.session_state['loaded_folder_path'] = folder_path
+        loaded_count = 0
+        skipped_count = 0
 
-            # Find all .txt files in the folder
-            txt_files = glob.glob(os.path.join(folder_path, "*.txt"))
+        for file_path in files_to_load:
+            filename = os.path.basename(file_path)
 
-            if not txt_files:
-                st.warning(f"⚠️ No .txt files found in: {folder_path}")
-            else:
-                # Load each .txt file
-                loaded_count = 0
-                skipped_count = 0
+            try:
+                # Parse spectrum (returns list; len > 1 for multi-Y files)
+                spectra = parse_spectrum_multi(file_path)
 
-                for file_path in txt_files:
-                    filename = os.path.basename(file_path)
+                # v2.1+ (FR-12): Auto-detect mode from filename
+                detected_mode = detect_mode_from_filename(filename)
 
-                    try:
-                        # Parse spectrum (returns list; len > 1 for multi-Y files)
-                        spectra = parse_spectrum_multi(file_path)
+                if detected_mode is not None:
+                    file_mode = detected_mode
+                    auto_detected = True
+                    set_mode(detected_mode)
+                else:
+                    file_mode = "Raman"
+                    auto_detected = False
 
-                        # v2.1+ (FR-12): Auto-detect mode from filename
-                        detected_mode = detect_mode_from_filename(filename)
+                # Build per-spectrum entries. For multi-Y files, suffix the
+                # filename with __1, __2, … so each Y column appears as a
+                # separate file entry in the sidebar list.
+                base, ext = os.path.splitext(filename)
+                n = len(spectra)
+                for i, spectrum_data in enumerate(spectra, start=1):
+                    entry_name = filename if n == 1 else f"{base}__{i}{ext}"
 
-                        if detected_mode is not None:
-                            file_mode = detected_mode
-                            auto_detected = True
-                            set_mode(detected_mode)
-                        else:
-                            file_mode = "Raman"
-                            auto_detected = False
+                    if entry_name in st.session_state.get("files", {}):
+                        skipped_count += 1
+                        continue
 
-                        # Build per-spectrum entries. For multi-Y files, suffix the
-                        # filename with __1, __2, … so each Y column appears as a
-                        # separate file entry in the sidebar list.
-                        base, ext = os.path.splitext(filename)
-                        n = len(spectra)
-                        for i, spectrum_data in enumerate(spectra, start=1):
-                            entry_name = filename if n == 1 else f"{base}__{i}{ext}"
+                    spectrum_file = SpectrumFile(
+                        filename=entry_name,
+                        mode=file_mode,
+                        original_data=spectrum_data,
+                        raw_data=spectrum_data,
+                        processed_data=spectrum_data,
+                        processing_settings=ProcessingSettings(),
+                        auto_detected=auto_detected
+                    )
+                    add_spectrum_file(spectrum_file)
+                    loaded_count += 1
 
-                            if entry_name in st.session_state.get("files", {}):
-                                skipped_count += 1
-                                continue
+            except Exception as e:
+                st.error(f"❌ Failed to load {filename}: {e}")
 
-                            spectrum_file = SpectrumFile(
-                                filename=entry_name,
-                                mode=file_mode,
-                                original_data=spectrum_data,
-                                raw_data=spectrum_data,
-                                processed_data=spectrum_data,
-                                processing_settings=ProcessingSettings(),
-                                auto_detected=auto_detected
-                            )
-                            add_spectrum_file(spectrum_file)
-                            loaded_count += 1
-
-                    except Exception as e:
-                        st.error(f"❌ Failed to load {filename}: {e}")
-
-                # Show summary message
-                if loaded_count > 0:
-                    st.success(f"✅ Loaded {loaded_count} file(s) from folder")
-                    if skipped_count > 0:
-                        st.info(f"ℹ️ Skipped {skipped_count} already loaded file(s)")
-                    st.rerun()
-                elif skipped_count > 0:
-                    st.info(f"ℹ️ All {skipped_count} file(s) already loaded")
-
-        except Exception as e:
-            st.error(f"❌ Failed to load files from folder: {e}")
-            st.session_state['loaded_folder_path'] = ""  # Reset on error
+        # Show summary message
+        if loaded_count > 0:
+            st.success(f"✅ Loaded {loaded_count} file(s)")
+            if skipped_count > 0:
+                st.info(f"ℹ️ Skipped {skipped_count} already-loaded file(s)")
+            st.rerun()
+        elif skipped_count > 0:
+            st.info(f"ℹ️ All {skipped_count} file(s) already loaded")
 
     st.markdown("---")
 

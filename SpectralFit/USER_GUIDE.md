@@ -174,10 +174,12 @@ An example preset file is included at `presets/material_presets.xlsx`.
 
 ### 3. Load Your Spectrum Files
 
-1. In the sidebar under **Load Spectra**, click **"Browse File Folder"**
-2. Select the folder containing your `.txt` spectrum files
-3. All `.txt` files in the folder will be loaded automatically
-4. The mode (Raman/PL) is auto-detected from filename patterns (e.g., `RM*` → Raman, `PL*` → PL)
+1. In the sidebar under **Load Spectra**, click **"Browse Spectrum Files"**
+2. A native file dialog opens, filtered to `.txt` files (use the dropdown to switch to "All files" if needed)
+3. Pick one file, or Ctrl-click (Cmd-click on macOS) to pick multiple files at once
+4. Each file is parsed and added to the loaded-files list; files with multiple Y columns appear as separate entries named `file__1.txt`, `file__2.txt`, etc.
+5. The mode (Raman/PL) is auto-detected from filename patterns (e.g., `RM*` → Raman, `PL*` → PL)
+6. Re-picking a file that's already loaded is skipped silently (with a count); the dialog opens at the last-picked directory on subsequent uses
 
 ### 4. Select a Material
 
@@ -212,7 +214,7 @@ SpectralFit is a browser-based tool for Raman and Photoluminescence spectrum ana
 
 ### 1. Load Data
 - Click the **sidebar** (left edge) to expand it
-- Or use **"Browse Folder"** to load an entire folder of spectra
+- Under **Load Spectra**, click **"Browse Spectrum Files"** and pick one or more `.txt` files (Ctrl-click / Cmd-click for multi-select). Multi-Y files split into separate entries automatically.
 
 ### 2. Select a Spectrum
 - Use the **file dropdown** or **left/right arrows** at the top of the plot to switch between loaded files

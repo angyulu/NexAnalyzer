@@ -1,12 +1,41 @@
-# SpectralFit v2.3.0 - Project Summary
+# SpectralFit v2.5.0 - Project Summary
 
 ## Overview
 
-SpectralFit is a desktop web application for analyzing Raman and Photoluminescence (PL) spectroscopy data. Built with Streamlit and Python, it provides real-time previews, advanced peak fitting, and a streamlined single-page accordion workflow.
+SpectralFit is a desktop web application for analyzing Raman and Photoluminescence (PL) spectroscopy data. Built with Streamlit and Python, it provides real-time previews, advanced peak fitting, material-preset-driven automation, and a streamlined single-page accordion workflow.
 
 ---
 
-## Recent Updates (v2.3.0)
+## Recent Updates (v2.5.0)
+
+### New Features ⭐
+
+#### 1. Multi-Select File Picker (replaces folder picker)
+**What Changed:** The "Browse File Folder" button is gone. In its place, **"Browse Spectrum Files"** opens a native OS multi-select file dialog.
+
+**Why:** Loading a whole folder of `.txt` files was awkward when the user only wanted a subset, had files scattered across folders, or just wanted to drop in a single file to check.
+
+**Behavior:**
+- Multi-select dialog filtered to `.txt` by default, with "All files" fallback
+- Picked files are queued and parsed once on the next rerun (no per-rerun re-parsing)
+- Last-picked directory is remembered as the next dialog's `initialdir`
+- Cancel = clean no-op (no error, no rerun loop)
+- Re-picking already-loaded files is skipped silently with a count
+- Multi-Y files continue to split into `name__1.txt`, `name__2.txt`, ... entries
+- Multi-file paths are JSON-serialized across the subprocess boundary so paths with spaces, commas, or unicode survive intact
+
+**Files Modified:** [src/ui/sidebar.py](src/ui/sidebar.py) (`render_sidebar`, "Load Spectra" block)
+
+**Session State Changes:**
+- Removed: `'last_folder_path'`, `'loaded_folder_path'`
+- Added: `'last_picked_dir'` (str, seeds next dialog's start location), `'pending_files_to_load'` (transient queue, consumed once per pick)
+
+#### 2. Fit Results Table — Raw Row at Top (PL mode)
+The "Raw" summary row (max intensity, position, FWHM at half-max from the processed spectrum) now appears at the **top** of the fit-results table instead of the bottom, both in the in-app table ([src/visualization/unified_plot.py](src/visualization/unified_plot.py)) and in the exported master CSV ([src/io/export.py](src/io/export.py)). Makes the raw vs. fit comparison easier to scan at a glance.
+
+---
+
+## Previous Updates (v2.3.0)
 
 ### New Features ⭐
 
@@ -111,37 +140,6 @@ x_max_value = min(x_max_value, x_max_data)
 
 ---
 
-## Planned Features (Not Yet Implemented)
-
-### Local File Browser with Folder Memory 📋
-
-**User Request:** "Please only keep the browser file button and remove drag file function. For browser file, I want to remember the last open file address and read all the data from the selected folder."
-
-**Status:** Comprehensive plan created but implementation NOT started (user stopped planning process).
-
-**Technical Approach:**
-- Replace Streamlit's `st.file_uploader()` with native OS folder picker (`tkinter.filedialog.askdirectory()`)
-- Store last folder path in `~/.spectralfit_config.json` (persistent across sessions)
-- Scan selected folder for ALL .txt files and load automatically
-- Works only for local Streamlit installations (not cloud deployments)
-
-**Planned Implementation:**
-1. Create `src/utils/config.py` - Config file I/O (last folder path persistence)
-2. Create `src/utils/file_browser.py` - Native folder dialog using tkinter
-3. Create `src/utils/folder_scanner.py` - Scan folder and load all .txt files
-4. Modify `src/ui/sidebar.py` - Replace file_uploader with Browse Folder button
-
-**Expected User Experience:**
-- Click "Browse Folder" → native folder picker opens at last used location
-- Select folder → ALL .txt files auto-loaded instantly
-- Next session: folder picker remembers location
-
-**Detailed Plan:** See [plan file](C:\Users\Ang-Yu Lu\.claude\plans\resilient-tickling-gosling.md) for full technical specifications.
-
-**Estimated Effort:** 2-3 hours
-
----
-
 ## Core Features
 
 ### Data Processing
@@ -170,7 +168,7 @@ x_max_value = min(x_max_value, x_max_data)
 - **File Navigation**: Dropdown + Previous/Next buttons (recently fixed)
 - **Batch Processing**: Load and process multiple files independently
 - **Project Persistence**: Save/load full project state to JSON
-- **Folder Browser** ⭐ NEW in v2.3.0: Load all .txt files from folder with path memory
+- **Multi-Select File Picker** ⭐ NEW in v2.5.0: Native OS file dialog with multi-select, `.txt` filter, and last-picked-directory memory (replaces v2.3.0 folder picker)
 
 ### Plot Layer Visibility (Auto-Managed)
 - **Processing Range**: Only "Raw" data
@@ -232,7 +230,7 @@ SpectralFit/
 ## Workflow Guide
 
 ### 1. Load Data
-- Upload .txt files in sidebar (two-column format: X, Y)
+- Click **Browse Spectrum Files** in the sidebar and pick one or more `.txt` files (multi-select, two-column or multi-Y format)
 - Mode auto-detection from filename (RM* → Raman, PL* → PL)
 - Or manually select mode (Raman/PL)
 
@@ -374,9 +372,8 @@ class FitResult:
 ## Known Issues & Limitations
 
 ### Current Limitations:
-1. **Streamlit file uploader**: Cannot disable drag-and-drop UI, no path memory, manual file selection
-2. **No recursive folder scan**: Users must manually select individual files
-3. **Cloud deployment constraints**: Tkinter-based folder browser (planned) works only locally
+1. **No recursive folder scan**: Users pick individual files (or multi-select within one dialog session); subtree walking is not supported
+2. **Cloud deployment constraints**: The native tkinter file picker only works on local Streamlit installations (not Streamlit Cloud / headless servers)
 
 ### Resolved Issues (v2.2.1):
 - ✅ **Issue 1**: Peak deletion IndexError (iterrows() vs. iloc mismatch)
@@ -470,15 +467,37 @@ Example:
 - **[Baseline_Algo.md](Baseline_Algo.md)**: Baseline correction algorithms (Polynomial, ALS, Rolling Ball, Spline, airPLS)
 - **[Fitting_Algo.md](Fitting_Algo.md)**: Peak fitting theory (Voigt profile, Levenberg-Marquardt, initialization strategies)
 - **[FITTING_IMPROVEMENTS.md](FITTING_IMPROVEMENTS.md)**: v2.2.1 fitting algorithm enhancements (amplitude initialization, shape-aware bounds)
-- **[Plan: Local File Browser](C:\Users\Ang-Yu Lu\.claude\plans\resilient-tickling-gosling.md)**: Comprehensive plan for replacing file uploader (NOT YET IMPLEMENTED)
 
 ---
 
 ## Version History
 
-### v2.3.0 (2026-01-08) - Current Release
-**Release Date:** January 8, 2026
+### v2.5.0 (2026-05-16) - Current Release
 **Status:** Production Ready
+
+**New Features:**
+- **Multi-Select File Picker** ⭐: Native OS multi-select file dialog (`tkinter.filedialog.askopenfilenames`) replaces the v2.3.0 folder picker. Pick any subset of files across one or more folders; last-picked directory is remembered.
+- **Fit Results — Raw Row at Top (PL)**: PL "Raw" summary row moved to the top of both the in-app fit-results table and the exported master CSV for easier raw vs. fit comparison.
+
+**Files Modified:**
+- `src/ui/sidebar.py`: Replaced folder browser with multi-select file picker; JSON-serialized subprocess output for safe multi-path round-trip; pop-based reload guard (`pending_files_to_load` queue)
+- `src/visualization/unified_plot.py`: Reordered fit results table to prepend PL Raw row
+- `src/io/export.py`: Reordered master CSV rows to prepend PL Raw row
+- `presets/material_presets.xlsx`: Preset content tweaks
+
+**Breaking Changes:**
+- Removed session-state keys `'last_folder_path'` and `'loaded_folder_path'`. Projects saved on prior versions don't depend on these keys (they were sidebar-local), so no migration needed.
+
+### v2.4.1 (2026-02-02)
+- Removed Display Settings UI from sidebar (plot width now defaults to Full / 100%)
+- Moved Fit Results table from right-side control panel to below the spectrum plot
+- Removed overlapping "Residuals" subplot title
+
+### v2.4.0 (2026-01-XX)
+- Batch auto-workflow ("Run All Files") and smart file navigation (auto-show fit results on file switch)
+
+**Release Date:** January 8, 2026
+**Status:** Superseded
 
 **New Features:**
 - **Material Preset System** ⭐: Excel-based automation for common materials
@@ -591,6 +610,6 @@ Example:
 
 ---
 
-**Last Updated:** 2026-01-08
-**Project Version:** v2.3.0
-**Status:** Production-ready with Material Preset System
+**Last Updated:** 2026-05-16
+**Project Version:** v2.5.0
+**Status:** Production-ready with Multi-Select File Picker and Material Preset System
