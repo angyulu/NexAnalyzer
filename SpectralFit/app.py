@@ -50,7 +50,7 @@ st.markdown(
 )
 
 # Title
-st.title("📊 SpectralFit v2.2")
+st.title("📊 SpectralFit v2.6.0")
 st.markdown("**Raman & Photoluminescence Spectrum Analysis Tool**")
 
 # Sidebar (minimal - just file upload for v2.2)
@@ -80,7 +80,7 @@ else:
 # Footer
 st.markdown("---")
 st.markdown(
-    "SpectralFit v2.2 | "
+    "SpectralFit v2.6.0 | "
     "[Documentation](../specs/001-spectralfit/quickstart.md) | "
     "[Report Issues](https://github.com/your-repo/issues)"
 )
