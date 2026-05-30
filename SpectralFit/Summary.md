@@ -1,8 +1,27 @@
-# SpectralFit v2.6.0 - Project Summary
+# SpectralFit v2.7.0 - Project Summary
 
 ## Overview
 
 SpectralFit is a desktop web application for analyzing Raman and Photoluminescence (PL) spectroscopy data. Built with Streamlit and Python, it provides real-time previews, advanced peak fitting, material-preset-driven automation, and a streamlined single-page accordion workflow.
+
+---
+
+## Recent Updates (v2.7.0)
+
+### New Features ⭐
+
+#### Save Master CSV to the Raw-Data Folder
+**What Changed:** A **"Save Master CSV to folder"** button was added to the Export section's Batch Export block. It opens a native OS Save-As dialog pre-pointed at the folder the raw `.txt` data was loaded from, with the filename editable, and writes the master CSV directly there.
+
+**Why:** Streamlit's `st.download_button` always drops a fixed-name file into the browser's Downloads folder. Users wanted the master CSV saved alongside their source data, with a filename they choose.
+
+**Behavior:**
+- Dialog defaults to the current file's `source_dir` (falls back to the last-browsed folder, then the OS default)
+- Filename is pre-filled (`spectralfit_master_results.csv`) and fully editable
+- Cancel = clean no-op; the in-browser "Download Master CSV" button is retained as a fallback
+- New `source_dir` field on `SpectrumFile` (captured by the Browse picker) records each file's source folder; backward-compatible with old project JSON
+
+**Files Modified:** [src/models/spectrum.py](src/models/spectrum.py) (`source_dir` field + serialization), [src/ui/sidebar.py](src/ui/sidebar.py) (capture `source_dir` on load), [src/io/export.py](src/io/export.py) (`prompt_save_path` Save-As helper), [src/ui/control_panel.py](src/ui/control_panel.py) (the new button)
 
 ---
 
@@ -626,5 +645,5 @@ Example:
 ---
 
 **Last Updated:** 2026-05-16
-**Project Version:** v2.6.0
+**Project Version:** v2.7.0
 **Status:** Production-ready with Multi-Select File Picker and Material Preset System

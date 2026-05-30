@@ -85,7 +85,8 @@ from ..io.export import (
     export_single_spectrum_csv,  # Export single spectrum detailed data
     export_figure_png,  # Export high-res PNG (requires kaleido)
     export_figure_html,  # Export interactive HTML plot
-    create_filename  # Generate safe filenames
+    create_filename,  # Generate safe filenames
+    prompt_save_path  # Native Save-As dialog (v2.7): pick folder + type filename
 )
 
 # Local imports - Visualization
@@ -2599,6 +2600,31 @@ def render_export_section(is_expanded: bool):
 
                 with col2:
                     st.metric("Files", len(fitted_files))
+
+                # ===== Save Master CSV directly into the raw-data folder (v2.7) =====
+                # Default the Save-As dialog to the current file's source folder
+                # (falling back to the last-browsed folder, then the OS default).
+                default_dir = getattr(spectrum, 'source_dir', None) \
+                    or st.session_state.get('last_picked_dir', '')
+                default_name = create_filename("spectralfit", "master_results", "csv")
+
+                if st.button("💾 Save Master CSV to folder",
+                             help="Open a Save-As dialog (pre-pointed at your raw-data folder) "
+                                  "and type a filename",
+                             use_container_width=True):
+                    try:
+                        save_path = prompt_save_path(
+                            default_dir=default_dir,
+                            default_filename=default_name,
+                            title="Save Master CSV"
+                        )
+                        if save_path:
+                            with open(save_path, "w", newline="", encoding="utf-8") as f:
+                                f.write(master_csv)
+                            st.success(f"✅ Saved to {save_path}")
+                        # save_path is None => user cancelled => no-op
+                    except Exception as e:
+                        st.error(f"❌ Failed to save master CSV: {e}")
 
                 st.caption("**Master CSV includes:** Filename, Mode, Peak_Label, Center, Amplitude, FWHM, Shape, R², χ², and standard errors")
 

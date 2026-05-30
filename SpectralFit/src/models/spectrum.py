@@ -173,6 +173,10 @@ class SpectrumFile:
     ----------
     filename : str
         Original .txt filename (1-255 characters).
+    source_dir : Optional[str]
+        Absolute path to the folder the .txt was loaded from (v2.7+).
+        None for files from old projects that predate this field. Used to
+        default the "Save Master CSV to folder" dialog to the raw-data folder.
     mode : Literal["Raman", "PL"]
         Spectroscopy mode (affects units and fitting bounds).
     original_data : SpectrumData
@@ -213,6 +217,7 @@ class SpectrumFile:
     original_data: SpectrumData  # **NEW (Issue 5)**: True original before X-range cropping
     raw_data: SpectrumData
     processed_data: SpectrumData
+    source_dir: Optional[str] = None  # **NEW (v2.7)**: folder the .txt was loaded from
     processing_settings: ProcessingSettings = field(default_factory=ProcessingSettings)
     peak_table: list = field(default_factory=list)
     fit_result: Optional[object] = None  # Will be FitResult after peak.py is implemented
@@ -290,6 +295,7 @@ class SpectrumFile:
         """
         result = {
             "filename": self.filename,
+            "source_dir": self.source_dir,
             "mode": self.mode,
             "processing_settings": self.processing_settings.to_dict(),
             "peak_table": [p.to_dict() for p in self.peak_table] if self.peak_table else [],
@@ -342,6 +348,7 @@ class SpectrumFile:
             original_data=original_data,  # **NEW (Issue 5)**
             raw_data=raw_data,
             processed_data=processed_data,
+            source_dir=data.get("source_dir", None),  # **NEW (v2.7)**: backward-compatible
             processing_settings=ProcessingSettings.from_dict(data["processing_settings"]),
             peak_table=[PeakDefinition.from_dict(p) for p in data.get("peak_table", [])],
             fit_result=FitResult.from_dict(data["fit_result"]) if data.get("fit_result") else None,

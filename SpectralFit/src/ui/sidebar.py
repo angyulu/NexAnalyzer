@@ -373,6 +373,7 @@ print(json.dumps(list(selected_files)))
 
         for file_path in files_to_load:
             filename = os.path.basename(file_path)
+            source_dir = os.path.dirname(file_path)  # v2.7: remember source folder for exports
 
             try:
                 # Parse spectrum (returns list; len > 1 for multi-Y files)
@@ -407,6 +408,7 @@ print(json.dumps(list(selected_files)))
                         original_data=spectrum_data,
                         raw_data=spectrum_data,
                         processed_data=spectrum_data,
+                        source_dir=source_dir,  # v2.7: folder the .txt came from
                         processing_settings=ProcessingSettings(),
                         auto_detected=auto_detected
                     )

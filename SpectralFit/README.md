@@ -1,4 +1,4 @@
-# SpectralFit v2.6.0
+# SpectralFit v2.7.0
 
 A desktop web application for analyzing Raman and Photoluminescence spectroscopy data with real-time previews, advanced peak fitting, and material-preset-driven automation.
 
@@ -24,6 +24,13 @@ A desktop web application for analyzing Raman and Photoluminescence spectroscopy
 - **Interactive Plotly Plots**: Publication-quality with zoom, pan, export
 - **Batch Processing**: Load and process multiple files independently
 - **Project Persistence**: Save/load full project state to JSON
+
+## What's New in v2.7.0
+
+### Save Master CSV to the Raw-Data Folder
+- A **"Save Master CSV to folder"** button in the Export section opens a native Save-As dialog **pre-pointed at the folder your raw `.txt` data came from**, with an **editable filename**, and writes the master CSV straight there (the in-browser download button is kept as a fallback).
+
+See [CHANGELOG.md](CHANGELOG.md) for full details.
 
 ## What's New in v2.6.0
 
