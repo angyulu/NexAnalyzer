@@ -15,6 +15,7 @@ from .session_state import (
     initialize_session_state,
     add_spectrum_file,
     remove_spectrum_file,
+    clear_all_files,
     set_mode
 )
 
@@ -447,10 +448,17 @@ print(json.dumps(list(selected_files)))
             f"**Range**: {spectrum.raw_data.X.min():.2f} - {spectrum.raw_data.X.max():.2f}"
         )
 
-        # Remove file button
-        if st.button("Remove File", key=f"remove_{current_file}"):
-            remove_spectrum_file(current_file)
-            st.rerun()
+        # Remove-file / delete-all buttons (side by side)
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("Remove File", key=f"remove_{current_file}"):
+                remove_spectrum_file(current_file)
+                st.rerun()
+        with col_b:
+            if st.button("🗑️ Delete All", key="delete_all_files",
+                         help="Remove all loaded files"):
+                clear_all_files()
+                st.rerun()
 
     else:
         st.info("Upload .txt files to begin")

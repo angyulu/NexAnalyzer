@@ -1808,7 +1808,11 @@ def render_baseline_section(is_expanded: bool):
             st.success(f"✓ {len(exclusions)} exclusion region(s) defined")
 
         # ========== REAL-TIME PREVIEW COMPUTATION ==========
-        if show_preview and not spectrum.fit_done:
+        # Preview runs whenever the checkbox is on, including after a fit exists —
+        # user may want to re-tune baseline parameters and visually compare to the
+        # existing fit. (Previously gated on `not spectrum.fit_done`, which silently
+        # hid the red dashed preview curve any time a fit had been completed.)
+        if show_preview:
             try:
                 # Import all baseline algorithms (only imports used ones)
                 from ..processing.baseline import (

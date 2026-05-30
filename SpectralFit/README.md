@@ -1,4 +1,4 @@
-# SpectralFit v2.5.0
+# SpectralFit v2.6.0
 
 A desktop web application for analyzing Raman and Photoluminescence spectroscopy data with real-time previews, advanced peak fitting, and material-preset-driven automation.
 
@@ -24,6 +24,13 @@ A desktop web application for analyzing Raman and Photoluminescence spectroscopy
 - **Interactive Plotly Plots**: Publication-quality with zoom, pan, export
 - **Batch Processing**: Load and process multiple files independently
 - **Project Persistence**: Save/load full project state to JSON
+
+## What's New in v2.6.0
+
+### Delete All Files
+- A **"Delete All Files"** button in the sidebar's "Loaded Files" section clears every loaded spectrum in one click, instead of removing them one at a time. It sits next to the existing "Remove File" button.
+
+See [CHANGELOG.md](CHANGELOG.md) for full details.
 
 ## What's New in v2.5.0
 

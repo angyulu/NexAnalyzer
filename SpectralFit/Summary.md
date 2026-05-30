@@ -1,8 +1,23 @@
-# SpectralFit v2.5.0 - Project Summary
+# SpectralFit v2.6.0 - Project Summary
 
 ## Overview
 
 SpectralFit is a desktop web application for analyzing Raman and Photoluminescence (PL) spectroscopy data. Built with Streamlit and Python, it provides real-time previews, advanced peak fitting, material-preset-driven automation, and a streamlined single-page accordion workflow.
+
+---
+
+## Recent Updates (v2.6.0)
+
+### New Features ⭐
+
+#### Delete All Files
+**What Changed:** A **"Delete All Files"** button was added to the sidebar's "Loaded Files" section, alongside the existing "Remove File" button (two-column layout).
+
+**Why:** Clearing a multi-file session previously required clicking "Remove File" once per file. One button now clears them all.
+
+**Behavior:** Calls the existing `clear_all_files()` helper, which resets `st.session_state["files"]` to `{}` and `current_file` to `None`, then reruns. No confirmation prompt (matches the existing "Remove File" behavior).
+
+**Files Modified:** [src/ui/sidebar.py](src/ui/sidebar.py) (`render_sidebar`, "Loaded Files" block; added `clear_all_files` import)
 
 ---
 
@@ -611,5 +626,5 @@ Example:
 ---
 
 **Last Updated:** 2026-05-16
-**Project Version:** v2.5.0
+**Project Version:** v2.6.0
 **Status:** Production-ready with Multi-Select File Picker and Material Preset System
