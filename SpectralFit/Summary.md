@@ -1,4 +1,4 @@
-# SpectralFit v2.7.0 - Project Summary
+# SpectralFit v2.7.1 - Project Summary
 
 ## Overview
 
@@ -645,5 +645,5 @@ Example:
 ---
 
 **Last Updated:** 2026-05-16
-**Project Version:** v2.7.0
+**Project Version:** v2.7.1
 **Status:** Production-ready with Multi-Select File Picker and Material Preset System

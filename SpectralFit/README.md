@@ -1,4 +1,4 @@
-# SpectralFit v2.7.0
+# SpectralFit v2.7.1
 
 A desktop web application for analyzing Raman and Photoluminescence spectroscopy data with real-time previews, advanced peak fitting, and material-preset-driven automation.
 
@@ -57,32 +57,55 @@ See [CHANGELOG.md](CHANGELOG.md) for full details.
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- pip package manager
+- Python 3.10 or higher (with "Add Python to PATH" checked on Windows)
+- [Git](https://git-scm.com/downloads) — required for one-click setup and auto-updates
 
-### Setup
+### Recommended setup (auto-updating)
+
+Clone the repository with Git, then use the launcher. The launcher **auto-updates to the
+latest version every time you run it**, so you always have the newest release:
 
 ```bash
-# Clone repository
-git clone <repo-url>
-cd SpectralFit
+git clone https://github.com/angyulu/Spectrum_Analyzer.git
+cd Spectrum_Analyzer/SpectralFit
+```
 
-# Create virtual environment
+Then launch:
+
+- **Windows**: double-click `start.bat` (or run it in a terminal)
+- **macOS / Linux**: `./start.sh`
+
+On each launch the script pulls the latest version from GitHub, installs any dependency
+updates, and starts the app. If you're offline or Git isn't installed, it skips the update and
+launches the version you already have (it never blocks).
+
+> **Note:** Downloading the repo as a ZIP also works, but ZIP copies have no Git history, so
+> they **won't auto-update** — clone with Git to get updates.
+
+### Manual setup (advanced)
+
+```bash
+git clone https://github.com/angyulu/Spectrum_Analyzer.git
+cd Spectrum_Analyzer/SpectralFit
+
+# Create and activate a virtual environment
 python -m venv venv
-
-# Activate virtual environment
-# On Windows:
+# Windows:
 venv\Scripts\activate
-# On macOS/Linux:
+# macOS/Linux:
 source venv/bin/activate
 
-# Install dependencies
+# Install dependencies and run
 pip install -r requirements.txt
+streamlit run app.py
 ```
 
 ## Usage
 
 ### Running the Application
+
+Use the launcher (`start.bat` on Windows, `./start.sh` on macOS/Linux) — it handles updates,
+the virtual environment, dependencies, and startup. Or run manually:
 
 ```bash
 streamlit run app.py
