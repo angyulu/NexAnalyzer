@@ -15,3 +15,8 @@
 *.bmp binary
 *.jpg binary
 *.tif binary
+
+# The installer is downloaded straight from raw.githubusercontent.com, which
+# serves the stored blob and ignores the eol rules above. Store its bytes
+# verbatim so the download is CRLF, which cmd.exe parses without edge cases.
+Install-NexAnalyzer.bat -text
