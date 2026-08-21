@@ -7,16 +7,17 @@ A step-by-step guide for installing and running NexAnalyzer on **Windows** and *
 ## Table of Contents
 
 1. [System Requirements](#system-requirements)
-2. [Step 1: Install Python](#step-1-install-python)
-3. [Step 2: Install Git](#step-2-install-git)
-4. [Step 3: Download NexAnalyzer](#step-3-download-nexanalyzer)
-5. [Step 4: Run NexAnalyzer](#step-4-run-nexanalyzer)
-6. [Step 5: Create a Desktop Shortcut (Optional)](#step-5-create-a-desktop-shortcut-optional)
-7. [How Updates Work](#how-updates-work)
-8. [Quick Start: Auto-Workflow with Material Presets](#quick-start-auto-workflow-with-material-presets)
-9. [Sample Report: One-Click PPTX from a Sample Folder](#sample-report-one-click-pptx-from-a-sample-folder)
-10. [File Format](#file-format)
-11. [Troubleshooting](#troubleshooting)
+2. [Easiest Setup: One-Click Installer (Windows)](#easiest-setup-one-click-installer-windows)
+3. [Step 1: Install Python](#step-1-install-python)
+4. [Step 2: Install Git](#step-2-install-git)
+5. [Step 3: Download NexAnalyzer](#step-3-download-nexanalyzer)
+6. [Step 4: Run NexAnalyzer](#step-4-run-nexanalyzer)
+7. [Step 5: Create a Desktop Shortcut (Optional)](#step-5-create-a-desktop-shortcut-optional)
+8. [How Updates Work](#how-updates-work)
+9. [Quick Start: Auto-Workflow with Material Presets](#quick-start-auto-workflow-with-material-presets)
+10. [Sample Report: One-Click PPTX from a Sample Folder](#sample-report-one-click-pptx-from-a-sample-folder)
+11. [File Format](#file-format)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -28,6 +29,33 @@ A step-by-step guide for installing and running NexAnalyzer on **Windows** and *
 - **GitHub account**: not needed — the repository is public, so anyone can clone it
 - **Disk space**: ~500 MB (including Python and dependencies)
 - **Browser**: Any modern browser (Chrome, Edge, Firefox, Safari)
+
+---
+
+## Easiest Setup: One-Click Installer (Windows)
+
+**On Windows, this replaces Steps 1 to 3 entirely.**
+
+1. Download **[Install-NexAnalyzer.bat](https://raw.githubusercontent.com/angyulu/NexAnalyzer/main/Install-NexAnalyzer.bat)** — right-click that link and choose
+   **Save link as...**
+2. Your browser will probably warn about keeping a `.bat` file. Choose **Keep**.
+3. **Double-click the file you just downloaded.**
+
+That is the whole setup. It installs Python and Git if they are missing, downloads NexAnalyzer
+to `C:\Users\YourName\nexanalyzer`, puts a **NexAnalyzer** shortcut on your Desktop, and
+starts the app. The first run takes a few minutes while it downloads the Python packages the
+app needs — leave the window alone until your browser opens by itself.
+
+**After that, just double-click NexAnalyzer on your Desktop.** It updates itself every launch.
+
+> - If Windows asks permission while Git or Python installs, allow it.
+> - If the window says it cannot see the newly installed program yet, close it and
+>   double-click the file again — it carries on from where it stopped.
+> - If it refuses because the folder is inside OneDrive or too deep in the filesystem, that is
+>   deliberate: both break the app. Let it use the default location.
+
+Steps 1 to 5 below are the manual route — use them on macOS, or on Windows if the installer
+cannot run on your machine.
 
 ---
 

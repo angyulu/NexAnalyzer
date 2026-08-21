@@ -12,6 +12,15 @@ The platform is built so further techniques plug in alongside it — see
 
 ## Quick start
 
+### Windows: one click
+
+Download **[Install-NexAnalyzer.bat](https://raw.githubusercontent.com/angyulu/NexAnalyzer/main/Install-NexAnalyzer.bat)** (right-click the link, *Save link as...*) and
+double-click it. It installs Python and Git if they are missing, downloads the app, puts a
+shortcut on your Desktop, and launches it — nothing else to do. Your browser may warn about
+keeping a `.bat` file; choose **Keep**.
+
+### Any platform: clone it yourself
+
 **Prerequisites:** Python 3.10+ (tick "Add Python to PATH" on Windows) and
 [Git](https://git-scm.com/downloads).
 
