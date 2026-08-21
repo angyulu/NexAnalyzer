@@ -1,0 +1,281 @@
+"""
+Assembles the Sample Report's three-slide PPTX entirely in memory.
+
+Layout (16:9 slides):
+- Slide 1 (overview): title bar; 3x3 OM image grid on the left half;
+  Raman fit-summary table (optionally with a trailing amplitude-ratio row)
+  stacked above the PL fit-summary table on the right half.
+- Slide 2: 3x3 grid of each Raman point's individual fitted spectrum
+  (data + total fit curve).
+- Slide 3: same, for PL.
+"""
+
+import io
+from typing import Dict, List, Optional, Tuple
+
+from PIL import Image
+from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import MSO_ANCHOR
+from pptx.util import Inches, Pt
+
+from .models import PeakStat
+
+SLIDE_WIDTH_IN, SLIDE_HEIGHT_IN = 13.333, 7.5
+
+_TITLE_LEFT, _TITLE_TOP, _TITLE_W, _TITLE_H = 0.30, 0.15, 12.73, 0.65
+_RULE_TOP, _RULE_H = 0.83, 0.02
+_CONTENT_LEFT, _CONTENT_TOP, _CONTENT_W = 0.30, 0.95, 12.73
+
+# ---- Slide 1: OM grid (left half) ----
+_GRID_W, _GRID_H = 6.20, 4.55
+_GRID_GUTTER = 0.10
+_GRID_CAPTION_TOP, _GRID_CAPTION_H = 5.52, 0.28
+
+# ---- Slide 1: stats tables (right half, stacked) ----
+_TABLE_LEFT = 6.70
+_TABLE_W = 6.33
+_TABLE_H = 2.45
+_TABLE_CAPTION_GAP = 0.27
+_RAMAN_TABLE_TOP = 1.22
+# The Raman table gets the extra height because it may carry an additional
+# amplitude-ratio row; PL never does.
+_RAMAN_TABLE_H = 2.73
+_PL_TABLE_TOP = 4.27
+
+# ---- Slides 2 & 3: full-width 3x3 fitted-spectrum grid ----
+_FIT_GRID_W, _FIT_GRID_H = _CONTENT_W, 6.35
+_FIT_GRID_GUTTER = 0.12
+
+# Public: callers rendering the per-point fit Plotly figures to PNG (e.g.
+# via export_figure_png) should match this aspect ratio, otherwise
+# aspect-preserving _fit_picture() letterboxes the image inside its grid
+# cell and leaves part of the cell empty.
+FIT_GRID_ASPECT_RATIO = ((_FIT_GRID_W - 2 * _FIT_GRID_GUTTER) / 3) / ((_FIT_GRID_H - 2 * _FIT_GRID_GUTTER) / 3)
+
+_PLACEHOLDER_LINE = RGBColor(0x00, 0x00, 0x00)
+
+
+def build_sample_report_pptx(
+    sample_name: str,
+    material_name: str,
+    report_date: str,
+    magnification_label: Optional[str],
+    om_image_bytes: Dict[int, bytes],
+    raman_stats: Optional[List[PeakStat]],
+    raman_fit_images: Dict[int, bytes],
+    pl_stats: Optional[List[PeakStat]],
+    pl_fit_images: Dict[int, bytes],
+    raman_amplitude_ratio: Optional[Tuple[float, float, int]] = None,
+    raman_amplitude_ratio_label: str = "",
+) -> bytes:
+    """Build the three-slide sample report and return .pptx bytes.
+
+    `raman_amplitude_ratio`, if given, is (mean, std, n) of a per-point
+    amplitude ratio (e.g. LA/E2g+A1g for WSe2 Raman — see
+    peak_stats.compute_peak_amplitude_ratio) appended as a final, bolded row
+    of the Raman fit-summary table; omitted entirely when None.
+    """
+    prs = Presentation()
+    prs.slide_width = Inches(SLIDE_WIDTH_IN)
+    prs.slide_height = Inches(SLIDE_HEIGHT_IN)
+
+    overview_slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_title_bar(overview_slide, sample_name, material_name, report_date)
+    _add_om_grid(overview_slide, om_image_bytes, magnification_label)
+    _add_stats_table(
+        overview_slide, "Raman", raman_stats, _TABLE_LEFT, _RAMAN_TABLE_TOP, _TABLE_W, _RAMAN_TABLE_H,
+        ratio=raman_amplitude_ratio, ratio_label=raman_amplitude_ratio_label,
+    )
+    _add_stats_table(overview_slide, "PL", pl_stats, _TABLE_LEFT, _PL_TABLE_TOP, _TABLE_W, _TABLE_H)
+
+    raman_slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_title_bar(raman_slide, sample_name, material_name, report_date, subtitle="Raman — fitted spectra (9 points)")
+    _add_fit_grid(raman_slide, raman_fit_images)
+
+    pl_slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_title_bar(pl_slide, sample_name, material_name, report_date, subtitle="PL — fitted spectra (9 points)")
+    _add_fit_grid(pl_slide, pl_fit_images)
+
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+def _add_title_bar(
+    slide, sample_name: str, material_name: str, report_date: str, subtitle: Optional[str] = None
+) -> None:
+    box = slide.shapes.add_textbox(Inches(_TITLE_LEFT), Inches(_TITLE_TOP), Inches(_TITLE_W), Inches(_TITLE_H))
+    tf = box.text_frame
+    text = f"{sample_name}   |   Material: {material_name}   |   {report_date}"
+    if subtitle:
+        text += f"   |   {subtitle}"
+    tf.text = text
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    tf.paragraphs[0].font.size = Pt(24)
+    tf.paragraphs[0].font.bold = True
+
+    rule = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, Inches(_TITLE_LEFT), Inches(_RULE_TOP), Inches(_TITLE_W), Inches(_RULE_H)
+    )
+    rule.fill.solid()
+    rule.fill.fore_color.rgb = RGBColor(0x40, 0x40, 0x40)
+    rule.line.fill.background()
+
+
+def _add_om_grid(slide, om_image_bytes: Dict[int, bytes], magnification_label: Optional[str]) -> None:
+    cell_w = (_GRID_W - 2 * _GRID_GUTTER) / 3
+    cell_h = (_GRID_H - 2 * _GRID_GUTTER) / 3
+
+    for point in range(1, 10):
+        row, col = divmod(point - 1, 3)
+        cell_left = _CONTENT_LEFT + col * (cell_w + _GRID_GUTTER)
+        cell_top = _CONTENT_TOP + row * (cell_h + _GRID_GUTTER)
+
+        image_bytes = om_image_bytes.get(point)
+        if image_bytes is not None:
+            _fit_picture(slide, image_bytes, cell_left, cell_top, cell_w, cell_h)
+        else:
+            _add_placeholder(slide, cell_left, cell_top, cell_w, cell_h)
+
+    caption_text = "OM"
+    if magnification_label:
+        caption_text += f" ({magnification_label})"
+    caption = slide.shapes.add_textbox(
+        Inches(_CONTENT_LEFT), Inches(_GRID_CAPTION_TOP), Inches(_GRID_W), Inches(_GRID_CAPTION_H)
+    )
+    caption.text_frame.text = caption_text
+    caption.text_frame.paragraphs[0].font.size = Pt(11)
+    caption.text_frame.paragraphs[0].font.italic = True
+
+
+def _add_fit_grid(slide, fit_images: Dict[int, bytes]) -> None:
+    """3x3 grid of each point's individually fitted spectrum, spanning the
+    slide's full content width. Points with no successful fit (or an
+    entirely omitted technique) render as placeholder cells."""
+    cell_w = (_FIT_GRID_W - 2 * _FIT_GRID_GUTTER) / 3
+    cell_h = (_FIT_GRID_H - 2 * _FIT_GRID_GUTTER) / 3
+
+    for point in range(1, 10):
+        row, col = divmod(point - 1, 3)
+        cell_left = _CONTENT_LEFT + col * (cell_w + _FIT_GRID_GUTTER)
+        cell_top = _CONTENT_TOP + row * (cell_h + _FIT_GRID_GUTTER)
+
+        image_bytes = fit_images.get(point)
+        if image_bytes is not None:
+            _fit_picture(slide, image_bytes, cell_left, cell_top, cell_w, cell_h)
+        else:
+            _add_placeholder(slide, cell_left, cell_top, cell_w, cell_h)
+
+
+def _add_stats_table(
+    slide, technique_label: str, stats: Optional[List[PeakStat]], left: float, top: float, w: float, h: float,
+    ratio: Optional[Tuple[float, float, int]] = None, ratio_label: str = "",
+) -> None:
+    """One technique's fit-summary table.
+
+    `ratio`, if given, is appended as a final bolded row: its label in the
+    Peak column and `mean ± std` in the Amplitude column (it is an amplitude
+    ratio), with center/FWHM dashed out since they don't apply.
+    """
+    caption = slide.shapes.add_textbox(
+        Inches(left), Inches(top - _TABLE_CAPTION_GAP), Inches(w), Inches(_TABLE_CAPTION_GAP)
+    )
+    caption.text_frame.text = f"{technique_label} fit summary (mean ± std)"
+    caption.text_frame.paragraphs[0].font.size = Pt(12)
+    caption.text_frame.paragraphs[0].font.bold = True
+
+    if not stats:
+        _add_placeholder(slide, left, top, w, h)
+        return
+
+    n_data_rows = len(stats) + (1 if ratio is not None else 0)
+    n_rows = n_data_rows + 1
+    font_size = Pt(13) if n_data_rows <= 6 else (Pt(11) if n_data_rows <= 10 else Pt(9))
+
+    table_shape = slide.shapes.add_table(n_rows, 5, Inches(left), Inches(top), Inches(w), Inches(h))
+    table = table_shape.table
+
+    headers = ["Peak", "Center", "Amplitude", "FWHM", "n"]
+    col_fracs = [0.22, 0.26, 0.26, 0.18, 0.08]
+    for c, frac in enumerate(col_fracs):
+        table.columns[c].width = Inches(w * frac)
+
+    for c, header in enumerate(headers):
+        cell = table.cell(0, c)
+        cell.text = header
+        cell.text_frame.paragraphs[0].font.size = font_size
+        cell.text_frame.paragraphs[0].font.bold = True
+
+    for r, stat in enumerate(stats, start=1):
+        values = [
+            stat.label,
+            f"{stat.center_mean:.1f} ± {stat.center_std:.1f}",
+            f"{stat.amplitude_mean:.1f} ± {stat.amplitude_std:.1f}",
+            f"{stat.fwhm_mean:.1f} ± {stat.fwhm_std:.1f}",
+            str(stat.n),
+        ]
+        for c, value in enumerate(values):
+            cell = table.cell(r, c)
+            cell.text = value
+            cell.text_frame.paragraphs[0].font.size = font_size
+
+    if ratio is not None:
+        mean, std, n = ratio
+        values = [ratio_label, "—", f"{mean:.2f} ± {std:.2f}", "—", str(n)]
+        for c, value in enumerate(values):
+            cell = table.cell(n_rows - 1, c)
+            cell.text = value
+            cell.text_frame.paragraphs[0].font.size = font_size
+            cell.text_frame.paragraphs[0].font.bold = True
+
+
+_EMBED_DPI = 200  # target resolution for embedded pictures at their displayed size
+
+
+def _fit_picture(slide, image_bytes: bytes, left: float, top: float, max_w: float, max_h: float) -> None:
+    """Add `image_bytes` to `slide`, aspect-preserving-scaled to fit within
+    (max_w, max_h) inches, centered in that box.
+
+    Downsamples source images whose native resolution exceeds _EMBED_DPI at
+    their displayed size (e.g. multi-megapixel microscope photos going into
+    a postage-stamp-sized grid cell) so the .pptx doesn't balloon from
+    embedding full-resolution originals; images already at or below that
+    resolution are embedded unchanged.
+    """
+    with Image.open(io.BytesIO(image_bytes)) as im:
+        native_w, native_h = im.size
+        native_ratio = native_w / native_h
+        box_ratio = max_w / max_h
+
+        if native_ratio > box_ratio:
+            width, height = max_w, max_w / native_ratio
+        else:
+            width, height = max_h * native_ratio, max_h
+
+        target_px = (max(1, round(width * _EMBED_DPI)), max(1, round(height * _EMBED_DPI)))
+        if native_w > target_px[0] or native_h > target_px[1]:
+            im.thumbnail(target_px, Image.LANCZOS)
+            out_buf = io.BytesIO()
+            im.save(out_buf, format="PNG")
+            image_bytes = out_buf.getvalue()
+
+    left_offset = left + (max_w - width) / 2
+    top_offset = top + (max_h - height) / 2
+
+    slide.shapes.add_picture(
+        io.BytesIO(image_bytes), Inches(left_offset), Inches(top_offset),
+        width=Inches(width), height=Inches(height)
+    )
+
+
+def _add_placeholder(slide, left: float, top: float, w: float, h: float):
+    """An empty black-outlined, unfilled box marking missing content (no
+    image, no fit, no stats) — deliberately blank rather than explaining
+    why, so the report stays visually clean."""
+    shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(left), Inches(top), Inches(w), Inches(h))
+    shape.fill.background()
+    shape.line.color.rgb = _PLACEHOLDER_LINE
+    shape.line.width = Pt(1)
+    return shape

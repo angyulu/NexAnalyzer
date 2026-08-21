@@ -1,0 +1,13 @@
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+exclude = ["Example", "venv", ".specify"]
+
+[tool.ruff.lint]
+# F: pyflakes (unused imports, undefined names — the checks that catch real
+# breakage after a refactor). Kept deliberately narrow so the linter stays
+# signal, not style noise.
+select = ["F", "E9"]

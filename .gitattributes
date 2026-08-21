@@ -1,0 +1,17 @@
+# Normalize text files to LF in the repository, checked out per-platform.
+* text=auto
+
+# The macOS/Linux launcher must be LF even when cloned on Windows -- a CRLF
+# shebang line fails with "bad interpreter: /bin/bash^M".
+*.sh text eol=lf
+
+# The Windows launcher stays CRLF everywhere.
+*.bat text eol=crlf
+
+# Binary assets git must not touch.
+*.xlsx binary
+*.pptx binary
+*.png binary
+*.bmp binary
+*.jpg binary
+*.tif binary

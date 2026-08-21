@@ -1,0 +1,87 @@
+"""Unit tests for modules.spectra.io.preset_store (JSON-backed material preset storage)."""
+
+import pytest
+
+from modules.spectra.io.preset_store import load_presets, save_presets
+from modules.spectra.models.preset import MaterialPreset, PeakTemplate, parse_exclusion_ranges
+
+
+def _make_preset(material_name="Silicon", mode="Raman"):
+    return MaterialPreset(
+        material_name=material_name,
+        mode=mode,
+        enabled=True,
+        x_range_enabled=False,
+        x_min=None,
+        x_max=None,
+        despike_threshold=6.0,
+        baseline_algorithm="Polynomial",
+        baseline_degree=5,
+        baseline_lambda=None,
+        baseline_p=None,
+        peak_templates=[
+            PeakTemplate(peak_label="Si", center=520.0, center_tolerance=3.0,
+                         width_fwhm=8.0, shape=0.2, color="#2ca02c")
+        ],
+    )
+
+
+class TestLoadSaveRoundTrip:
+    def test_round_trip_preserves_data(self, tmp_path):
+        path = tmp_path / "materials.json"
+        presets = {("Silicon", "Raman"): _make_preset()}
+
+        save_presets(presets, path=path)
+        loaded = load_presets(path=path)
+
+        assert set(loaded.keys()) == {("Silicon", "Raman")}
+        loaded_preset = loaded[("Silicon", "Raman")]
+        assert loaded_preset.despike_threshold == 6.0
+        assert loaded_preset.baseline_degree == 5
+        assert len(loaded_preset.peak_templates) == 1
+        assert loaded_preset.peak_templates[0].peak_label == "Si"
+
+    def test_missing_file_returns_empty_dict(self, tmp_path):
+        assert load_presets(path=tmp_path / "does_not_exist.json") == {}
+
+    def test_multiple_presets_sorted_on_save(self, tmp_path):
+        path = tmp_path / "materials.json"
+        presets = {
+            ("WSe2", "Raman"): _make_preset("WSe2", "Raman"),
+            ("MoS2", "Raman"): _make_preset("MoS2", "Raman"),
+        }
+
+        save_presets(presets, path=path)
+        loaded = load_presets(path=path)
+
+        assert set(loaded.keys()) == {("WSe2", "Raman"), ("MoS2", "Raman")}
+
+
+class TestPeakTemplateHasNoAmplitude:
+    def test_amplitude_field_removed(self):
+        # v2.11.0: amplitude was dropped from PeakTemplate since the fitter
+        # auto-estimates it from data and never consults the preset value.
+        template = PeakTemplate(peak_label="Si", center=520.0, center_tolerance=3.0,
+                                 width_fwhm=8.0, shape=0.2, color="#2ca02c")
+        assert not hasattr(template, "amplitude")
+
+    def test_to_peak_definition_still_produces_valid_amplitude(self):
+        template = PeakTemplate(peak_label="Si", center=520.0, center_tolerance=3.0,
+                                 width_fwhm=8.0, shape=0.2, color="#2ca02c")
+        peak_def = template.to_peak_definition(
+            mode="Raman", x_range=(100.0, 1000.0), y_max=1000.0, spectral_resolution=1.0
+        )
+        assert peak_def.amplitude > 0
+
+
+class TestParseExclusionRanges:
+    def test_parses_multiple_ranges(self):
+        assert parse_exclusion_ranges("1200-1400; 2600-2800") == [(1200.0, 1400.0), (2600.0, 2800.0)]
+
+    def test_none_or_empty_returns_empty_list(self):
+        assert parse_exclusion_ranges(None) == []
+        assert parse_exclusion_ranges("") == []
+
+    def test_invalid_range_raises(self):
+        with pytest.raises(ValueError):
+            parse_exclusion_ranges("not-a-range-format-1")

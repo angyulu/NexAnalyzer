@@ -1,0 +1,420 @@
+# NexAnalyzer User Guide
+
+A step-by-step guide for installing and running NexAnalyzer on **Windows** and **macOS**.
+
+---
+
+## Table of Contents
+
+1. [System Requirements](#system-requirements)
+2. [Step 1: Install Python](#step-1-install-python)
+3. [Step 2: Install Git](#step-2-install-git)
+4. [Step 3: Download NexAnalyzer](#step-3-download-nexanalyzer)
+5. [Step 4: Run NexAnalyzer](#step-4-run-nexanalyzer)
+6. [Step 5: Create a Desktop Shortcut (Optional)](#step-5-create-a-desktop-shortcut-optional)
+7. [How Updates Work](#how-updates-work)
+8. [Quick Start: Auto-Workflow with Material Presets](#quick-start-auto-workflow-with-material-presets)
+9. [Sample Report: One-Click PPTX from a Sample Folder](#sample-report-one-click-pptx-from-a-sample-folder)
+10. [File Format](#file-format)
+11. [Troubleshooting](#troubleshooting)
+
+---
+
+## System Requirements
+
+- **OS**: Windows 10/11 or macOS 12+
+- **Python**: 3.10 or higher
+- **Git**: required for auto-updates — the app pulls the latest version on every launch
+- **GitHub access**: the repository is private, so you must be invited as a collaborator first
+- **Disk space**: ~500 MB (including Python and dependencies)
+- **Browser**: Any modern browser (Chrome, Edge, Firefox, Safari)
+
+---
+
+## Step 1: Install Python
+
+### Windows
+
+1. Go to **https://www.python.org/downloads/**
+2. Click **"Download Python 3.x.x"** (the latest version)
+3. Run the installer
+4. **IMPORTANT**: Check the box **"Add Python to PATH"** at the bottom of the installer
+5. Click **"Install Now"**
+6. Verify: Open **Command Prompt** (search "cmd" in Start menu) and type:
+   ```
+   python --version
+   ```
+   You should see something like `Python 3.12.x`.
+
+### macOS
+
+**Option A — Official installer:**
+1. Go to **https://www.python.org/downloads/**
+2. Download the macOS installer
+3. Run the `.pkg` file and follow the prompts
+
+**Option B — Homebrew (if you have Homebrew installed):**
+```bash
+brew install python3
+```
+
+**Verify**: Open **Terminal** and type:
+```bash
+python3 --version
+```
+You should see something like `Python 3.12.x`.
+
+---
+
+## Step 2: Install Git
+
+NexAnalyzer keeps itself up to date by pulling the latest version from GitHub every time you
+launch it, and that needs Git. Without Git the app still runs — it just never updates.
+
+### Windows
+
+1. Go to **https://git-scm.com/downloads** and download **Git for Windows**
+2. Run the installer and accept all the defaults. The defaults include **Git Credential
+   Manager**, which remembers your GitHub sign-in so you only do it once.
+3. Verify: open a **new** Command Prompt (an already-open one won't see the change) and type:
+   ```
+   git --version
+   ```
+   You should see something like `git version 2.47.0`.
+
+### macOS
+
+Git ships with the Xcode command line tools. Open **Terminal** and type:
+```bash
+git --version
+```
+If it's missing, macOS will offer to install it — accept. Or with Homebrew: `brew install git`.
+
+---
+
+## Step 3: Download NexAnalyzer
+
+> **Clone it with Git — don't download the ZIP.** A ZIP copy has no Git history, so it can
+> never auto-update: you would be frozen on whatever version you downloaded.
+
+The repository is private, so first check your email for a GitHub **collaborator invitation**
+and accept it. Without that, the clone below will fail.
+
+### Windows
+
+Open **Command Prompt** and run:
+
+```
+cd %USERPROFILE%
+git clone https://github.com/angyulu/NexAnalyzer.git nexanalyzer
+```
+
+> **Don't clone into OneDrive, Dropbox, or any synced folder.** The app builds a `venv` folder
+> holding thousands of files; sync clients fight with it, corrupt it, and slow every launch.
+> `C:\Users\YourName\nexanalyzer` (as above) is a good spot.
+
+A browser window will open asking you to sign in to GitHub — sign in and authorize. Git
+Credential Manager saves it, so this happens **only once**; every later update is silent.
+
+You will end up with `C:\Users\YourName\nexanalyzer` containing:
+
+```
+nexanalyzer/
+├── app.py
+├── start.bat          ← Windows launcher
+├── start.sh           ← Mac/Linux launcher
+├── requirements.txt
+├── core/              ← platform code
+├── modules/           ← analysis modules (spectra)
+├── data/              ← material presets
+└── ...
+```
+
+### macOS
+
+```bash
+cd ~
+git clone https://github.com/angyulu/NexAnalyzer.git nexanalyzer
+```
+
+Sign in to GitHub in the browser window that opens (once only).
+
+---
+
+## Step 4: Run NexAnalyzer
+
+### Windows
+
+1. Open the `nexanalyzer` folder in File Explorer
+2. **Double-click `start.bat`**
+3. A terminal window will appear. On **every** run it checks GitHub for a newer version
+   (see [How Updates Work](#how-updates-work)). On the **first** run it also:
+   - Creates a virtual environment (`venv` folder)
+   - Installs all required packages
+   - This may take 1-2 minutes
+4. Your browser will automatically open to **http://localhost:8501**
+5. To stop the app, press `Ctrl+C` in the terminal window, or simply close it
+
+### macOS
+
+1. Open **Terminal**
+2. Navigate to the nexanalyzer folder:
+   ```bash
+   cd ~/nexanalyzer
+   ```
+3. Make the script executable (first time only):
+   ```bash
+   chmod +x start.sh
+   ```
+4. Run:
+   ```bash
+   ./start.sh
+   ```
+5. Every run checks GitHub for a newer version (see [How Updates Work](#how-updates-work));
+   on the first run it also creates a virtual environment and installs packages
+6. Your browser will open to **http://localhost:8501**
+7. To stop the app, press `Ctrl+C` in the terminal
+
+---
+
+## Step 5: Create a Desktop Shortcut (Optional)
+
+### Windows
+
+1. Right-click `start.bat` → **Create shortcut**
+2. Drag the shortcut to your Desktop
+3. (Optional) Right-click the shortcut → **Properties** → **Change Icon** to customize
+
+### macOS
+
+1. Open **Automator** (search in Spotlight)
+2. Choose **Application**
+3. Add a **Run Shell Script** action with:
+   ```bash
+   cd ~/nexanalyzer && ./start.sh
+   ```
+4. Save as `NexAnalyzer` to your Desktop or Applications folder
+
+**Alternatively**, create a simple alias in Terminal:
+```bash
+echo 'alias nexanalyzer="cd ~/nexanalyzer && ./start.sh"' >> ~/.zshrc
+source ~/.zshrc
+```
+Then just type `nexanalyzer` in any terminal to launch.
+
+---
+
+## How Updates Work
+
+**You don't need to do anything to stay current.** Every time you launch NexAnalyzer, the
+launcher runs three steps before the app starts:
+
+1. **Pull the latest version** from GitHub
+2. **Install any new dependencies** listed in `requirements.txt`
+3. **Start the app**
+
+So the entire update procedure is: **close the app, launch it again.** No re-downloading, no
+copying folders, no reinstalling.
+
+Worth knowing:
+
+- **Updating never blocks you.** If you are offline, GitHub is unreachable, or Git isn't
+  installed, the launcher prints a warning and starts the version you already have.
+- **Watch the terminal for one line.** `Up to date with the latest version.` means the update
+  succeeded. Anything beginning with `[WARN]` or `[SKIP]` means you are running an **older**
+  version — read the message; Troubleshooting below covers each one.
+- **Your work is never overwritten.** The pull is fast-forward-only, so the launcher will never
+  create a merge commit or discard local changes. If it cannot update cleanly, it stops.
+- **Editing presets can block updates.** Changing material presets in the app rewrites
+  `data/materials.json`, which is a shared, tracked file. Git then refuses to overwrite your
+  edit, and updates stay blocked until you resolve it — see
+  [Updates are blocked by local changes](#updates-are-blocked-by-local-changes).
+- **Check which version you are on** at the bottom of the app's sidebar
+  (e.g. `NexAnalyzer v3.0.0`).
+
+---
+
+## Quick Start: Auto-Workflow with Material Presets
+
+NexAnalyzer processes spectra using the **auto-workflow** with a material preset — this is the only way to process a spectrum (as of v2.9.0 there's no manual step-by-step UI). It runs the entire pipeline (X-range crop, de-spiking, baseline correction, peak fitting) in a single click.
+
+### 1. Configure a Material Preset
+
+Material presets are created and edited directly in the app (as of v2.11.0 — no Excel file needed).
+
+1. Open the **Material Presets** page (top of the sidebar navigation)
+2. Expand **"➕ New material"** and fill in:
+   - **Material name** and **Mode** (Raman or PL)
+   - **Despike threshold**, **Baseline algorithm** (Polynomial / ALS / None (Skip)) and its parameters
+   - Optionally: **X-range** limits, **exclusion ranges** (e.g. `240-270; 400-420`), and **notes**
+   - **Peak templates**: add one row per peak (label, center, ± tolerance, FWHM, shape, color) — use the table's `+` button to add more rows
+3. Click **"➕ Create Material"**
+
+To change a material later, expand it in the list on the same page, edit its fields, and click **"💾 Save"** (or **"🗑️ Delete"** to remove it).
+
+### 2. Load Your Spectrum Files
+
+1. In the sidebar under **Load Spectra**, click **"Browse Spectrum Files"**
+2. A native file dialog opens, filtered to `.txt` files (use the dropdown to switch to "All files" if needed)
+3. Pick one file, or Ctrl-click (Cmd-click on macOS) to pick multiple files at once
+4. Each file is parsed and added to the loaded-files list; files with multiple Y columns appear as separate entries named `file__1.txt`, `file__2.txt`, etc.
+5. The mode (Raman/PL) is auto-detected from filename patterns (e.g., `RM*` → Raman, `PL*` → PL)
+6. Re-picking a file that's already loaded is skipped silently (with a count); the dialog opens at the last-picked directory on subsequent uses
+
+### 3. Select a Material
+
+1. Back on the **Spectra** page, in the sidebar under **Material Presets**, use the **material dropdown** to select the target material (all configured materials are listed, both Raman and PL)
+2. A summary of the preset settings (baseline algorithm, peak count, notes) appears below
+
+### 4. Run the Workflow
+
+**Single file:**
+- Click **"Run Auto-Workflow"** to process the currently selected spectrum
+- The pipeline executes: X-range crop → De-spike → Baseline correction → Peak fitting
+- Results appear in the plot and fit results table below it
+
+**All files (batch):**
+- If multiple files are loaded, a **"Run All Files"** button appears
+- Click it to process every loaded file using the selected preset
+- A progress bar shows the batch status
+- After completion, a summary shows how many files succeeded
+
+### 5. Review and Export
+
+- Use the **file navigation arrows** (above the plot) to browse through processed files
+- Check the **fit results table** below each plot for peak parameters and R² values
+- In the sidebar, use **Quick Export** to download PNG/HTML/CSV, or **Batch Export** to download a master CSV across all fitted files
+
+---
+
+## Sample Report: One-Click PPTX from a Sample Folder
+
+The **Sample Report** page (top of the sidebar navigation) turns a sample folder's 9-point OM + Raman + PL measurement grid into a three-slide PowerPoint report, with no manual plotting.
+
+### 1. Folder naming convention
+
+Your sample folder should contain, for each of the 9 grid points:
+- A Raman spectrum named like `RM_1.txt` … `RM_9.txt` (also accepts `Raman_`, `rm_`, `raman_`, and either `-` or `_` before the number, e.g. `RM-8.txt`)
+- A PL spectrum named like `PL_1.txt` … `PL_9.txt` (or `pl_`)
+- An OM image named like `100x_1.bmp` … `100x_9.bmp` (any magnification prefix works, e.g. `10x_`; `.bmp`/`.png`/`.jpg`/`.tif` all accepted)
+
+Any other file in the folder (old exports, project files, etc.) is simply listed as "ignored" — it doesn't need to be removed. A technique with no matching files (or no configured preset) is just left out of the report rather than causing an error.
+
+### 2. Generate the report
+
+1. Click **"Select Sample Folder"** and pick the folder
+2. If OM images exist at more than one magnification, pick which one to use in the **3x3 grid**
+3. Pick the **Material** (the same materials configured on the Material Presets page — one dropdown selects both the Raman and PL preset for that material). Your last choice is remembered the next time you open this page.
+4. Click **"🚀 Generate Report"** — every Raman/PL file is fit against the selected presets, with a progress bar
+5. The generated slides appear on-screen: an overview (OM grid + fit-summary tables), then a 3x3 grid of each point's individually fitted Raman spectrum, then the same for PL
+
+### 3. Save
+
+Click **"💾 Save Report As..."** and choose a location — this writes the `.pptx` plus three page images (`_page1.png`, `_page2.png`, `_page3.png`) alongside it, matching the three slides.
+
+> **Note:** The on-screen/saved slide *images* require Microsoft PowerPoint to be installed (used to render the preview) — the `.pptx` file itself always saves regardless.
+
+---
+
+## File Format
+
+NexAnalyzer accepts **two-column .txt files**:
+
+```
+120.5	1523.2
+121.0	1540.8
+121.5	1535.1
+...
+```
+
+- **Column 1**: Wavenumber (cm⁻¹) or Wavelength (nm)
+- **Column 2**: Intensity
+- **Delimiter**: Tab or comma
+- **No header row**
+
+---
+
+## Troubleshooting
+
+### "Python is not installed or not in PATH"
+- **Windows**: Reinstall Python and make sure to check **"Add Python to PATH"**. Then restart your terminal.
+- **Mac**: Make sure `python3 --version` works in Terminal. If not, reinstall from python.org.
+
+### "pip install fails" or network errors
+- Check your internet connection — packages are downloaded from the internet on first run
+- If behind a corporate proxy, ask your IT team for proxy settings
+- Try running manually:
+  ```
+  pip install -r requirements.txt
+  ```
+
+### The browser doesn't open automatically
+- Manually open your browser and go to **http://localhost:8501**
+
+### "Address already in use" error
+- Another instance of NexAnalyzer (or another Streamlit app) is already running
+- Close the other terminal window, or run on a different port:
+  ```
+  streamlit run app.py --server.port 8502
+  ```
+
+### App is slow or unresponsive
+- Large files or many loaded spectra can use significant memory
+- Try loading fewer files at once
+- Close other browser tabs to free memory
+
+### Updates are blocked by local changes
+
+The launcher prints `[WARN] Update BLOCKED by your local changes` and lists the files. This
+almost always means you edited material presets in the app, which rewrites the shared
+`data/materials.json`. **You will keep launching an old version until this is resolved.**
+
+Set your changes aside, then update:
+```
+git stash
+```
+Relaunch the app. To bring your changes back afterwards:
+```
+git stash pop
+```
+
+If you don't need your local edits and just want the official version:
+```
+git checkout -- data/materials.json
+```
+
+> If your preset changes *should* be shared with the team, send them to Angyu rather than
+> keeping them local — presets are committed to the repo so everyone gets them on update.
+
+### "[SKIP] Git not found - cannot auto-update"
+
+Git isn't installed, or isn't on your PATH. Redo [Step 2](#step-2-install-git), then open a
+**new** terminal — an already-open one won't pick up the change.
+
+### "[SKIP] Not a git checkout - cannot auto-update"
+
+You downloaded a ZIP instead of cloning, so there is no Git history to update from. Copy out any
+files you care about, delete the folder, and redo [Step 3](#step-3-download-nexanalyzer) using
+`git clone`.
+
+### "Authentication failed", or GitHub asks you to sign in on every launch
+
+- Confirm you accepted the GitHub **collaborator invitation** email — the repository is private
+- On Windows, **Git Credential Manager** must be installed (it is a default in the Git for
+  Windows installer) for your sign-in to be remembered
+- To clear a bad saved credential: **Control Panel → Credential Manager → Windows
+  Credentials**, delete any `git:https://github.com` entry, then run `git pull` to sign in again
+
+### "[WARN] Could not update - offline, or no access to the repo"
+
+Harmless if you are off the network — the app starts on your current version. If you *are*
+online, check that https://github.com/angyulu/NexAnalyzer opens in your browser; if it does
+not, your access may have been removed.
+
+### Forcing an update by hand
+
+Normally unnecessary, since relaunching the app updates it. But from inside the `nexanalyzer`
+folder you can always run:
+```
+git pull
+```
