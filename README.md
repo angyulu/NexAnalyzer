@@ -16,7 +16,7 @@ The platform is built so further techniques plug in alongside it — see
 [Git](https://git-scm.com/downloads).
 
 ```bash
-git clone https://github.com/angyulu/nexanalyzer.git
+git clone https://github.com/angyulu/NexAnalyzer.git nexanalyzer
 cd nexanalyzer
 ```
 

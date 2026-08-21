@@ -25,7 +25,7 @@ A step-by-step guide for installing and running NexAnalyzer on **Windows** and *
 - **OS**: Windows 10/11 or macOS 12+
 - **Python**: 3.10 or higher
 - **Git**: required for auto-updates — the app pulls the latest version on every launch
-- **GitHub access**: the repository is private, so you must be invited as a collaborator first
+- **GitHub account**: not needed — the repository is public, so anyone can clone it
 - **Disk space**: ~500 MB (including Python and dependencies)
 - **Browser**: Any modern browser (Chrome, Edge, Firefox, Safari)
 
@@ -74,8 +74,7 @@ launch it, and that needs Git. Without Git the app still runs — it just never 
 ### Windows
 
 1. Go to **https://git-scm.com/downloads** and download **Git for Windows**
-2. Run the installer and accept all the defaults. The defaults include **Git Credential
-   Manager**, which remembers your GitHub sign-in so you only do it once.
+2. Run the installer and accept all the defaults — none of them need changing
 3. Verify: open a **new** Command Prompt (an already-open one won't see the change) and type:
    ```
    git --version
@@ -97,8 +96,8 @@ If it's missing, macOS will offer to install it — accept. Or with Homebrew: `b
 > **Clone it with Git — don't download the ZIP.** A ZIP copy has no Git history, so it can
 > never auto-update: you would be frozen on whatever version you downloaded.
 
-The repository is private, so first check your email for a GitHub **collaborator invitation**
-and accept it. Without that, the clone below will fail.
+You don't need a GitHub account, and there is nothing to sign up for — the repository is
+public, so the command below just works.
 
 ### Windows
 
@@ -113,8 +112,7 @@ git clone https://github.com/angyulu/NexAnalyzer.git nexanalyzer
 > holding thousands of files; sync clients fight with it, corrupt it, and slow every launch.
 > `C:\Users\YourName\nexanalyzer` (as above) is a good spot.
 
-A browser window will open asking you to sign in to GitHub — sign in and authorize. Git
-Credential Manager saves it, so this happens **only once**; every later update is silent.
+The download starts immediately and takes a few seconds — there is no login step.
 
 You will end up with `C:\Users\YourName\nexanalyzer` containing:
 
@@ -137,7 +135,7 @@ cd ~
 git clone https://github.com/angyulu/NexAnalyzer.git nexanalyzer
 ```
 
-Sign in to GitHub in the browser window that opens (once only).
+That's it — no login step.
 
 ---
 
@@ -397,19 +395,24 @@ You downloaded a ZIP instead of cloning, so there is no Git history to update fr
 files you care about, delete the folder, and redo [Step 3](#step-3-download-nexanalyzer) using
 `git clone`.
 
-### "Authentication failed", or GitHub asks you to sign in on every launch
+### "Repository not found", or GitHub asks you to sign in
 
-- Confirm you accepted the GitHub **collaborator invitation** email — the repository is private
-- On Windows, **Git Credential Manager** must be installed (it is a default in the Git for
-  Windows installer) for your sign-in to be remembered
-- To clear a bad saved credential: **Control Panel → Credential Manager → Windows
-  Credentials**, delete any `git:https://github.com` entry, then run `git pull` to sign in again
+The repository is public, so you should never be asked to log in. A sign-in prompt or a
+"not found" error almost always means the URL is wrong — GitHub reports a mistyped URL as
+"not found" rather than admitting the repo doesn't exist. Check it character for character:
+
+```
+https://github.com/angyulu/NexAnalyzer.git
+```
+
+If the URL is right and it still fails, the repository may have been switched to private —
+ask Angyu for access.
 
 ### "[WARN] Could not update - offline, or no access to the repo"
 
 Harmless if you are off the network — the app starts on your current version. If you *are*
-online, check that https://github.com/angyulu/NexAnalyzer opens in your browser; if it does
-not, your access may have been removed.
+online, check that https://github.com/angyulu/NexAnalyzer opens in your browser. A corporate
+proxy or firewall blocking GitHub is the other usual cause; ask IT for the proxy settings.
 
 ### Forcing an update by hand
 
