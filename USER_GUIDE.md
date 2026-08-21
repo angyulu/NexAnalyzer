@@ -317,7 +317,17 @@ To change a material later, expand it in the list on the same page, edit its fie
 
 The **Sample Report** page (top of the sidebar navigation) turns a sample folder's 9-point OM + Raman + PL measurement grid into a three-slide PowerPoint report, with no manual plotting.
 
-### 1. Folder naming convention
+### 1. Name the folder after the wafer
+
+**The folder's own name becomes the wafer ID on the report.** It is used verbatim in the header
+of all three slides, and as the default filename (`<foldername>_Report.pptx`). There is no field
+in the app to type or correct it, and nothing validates it — so a folder called
+`New folder (2)` produces a report titled `New folder (2)`.
+
+Name the folder after the wafer, for example `VABA52`. To fix a wrong title, rename the folder
+and generate the report again.
+
+### 2. Put the measurement files in it
 
 Your sample folder should contain, for each of the 9 grid points:
 - A Raman spectrum named like `RM_1.txt` … `RM_9.txt` (also accepts `Raman_`, `rm_`, `raman_`, and either `-` or `_` before the number, e.g. `RM-8.txt`)
@@ -326,7 +336,12 @@ Your sample folder should contain, for each of the 9 grid points:
 
 Any other file in the folder (old exports, project files, etc.) is simply listed as "ignored" — it doesn't need to be removed. A technique with no matching files (or no configured preset) is just left out of the report rather than causing an error.
 
-### 2. Generate the report
+### 3. Generate the report
+
+> **First, make sure the material exists.** Add it on the **Material Presets** page, with peak
+> templates for both Raman *and* PL. A technique with no preset for the chosen material is left
+> out of the report silently rather than reported as an error — so a missing PL preset simply
+> means no PL slide, with nothing on screen explaining why.
 
 1. Click **"Select Sample Folder"** and pick the folder
 2. If OM images exist at more than one magnification, pick which one to use in the **3x3 grid**
@@ -334,7 +349,7 @@ Any other file in the folder (old exports, project files, etc.) is simply listed
 4. Click **"🚀 Generate Report"** — every Raman/PL file is fit against the selected presets, with a progress bar
 5. The generated slides appear on-screen: an overview (OM grid + fit-summary tables), then a 3x3 grid of each point's individually fitted Raman spectrum, then the same for PL
 
-### 3. Save
+### 4. Save
 
 Click **"💾 Save Report As..."** and choose a location — this writes the `.pptx` plus three page images (`_page1.png`, `_page2.png`, `_page3.png`) alongside it, matching the three slides.
 
