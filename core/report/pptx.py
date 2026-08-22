@@ -50,15 +50,17 @@ _PL_TABLE_TOP = 4.27
 # The legend and axis titles live on the slide rather than inside each cell
 # image. Nine copies of the same key and the same two axis titles were most of
 # what made the individual spectra small; drawn once, the cells keep that space.
-_FIT_LEGEND_TOP, _FIT_LEGEND_H = 0.92, 0.26
-_FIT_YLABEL_W = 0.32  # left gutter holding the rotated Y-axis title
-_FIT_XLABEL_TOP, _FIT_XLABEL_H = 7.06, 0.30
+_FIT_LEGEND_TOP, _FIT_LEGEND_H = 0.90, 0.24
+_FIT_YLABEL_W = 0.30  # left gutter holding the rotated Y-axis title
+_FIT_XLABEL_TOP, _FIT_XLABEL_H = 7.12, 0.28
 
 _FIT_GRID_LEFT = _CONTENT_LEFT + _FIT_YLABEL_W
-_FIT_GRID_TOP = 1.24
+_FIT_GRID_TOP = 1.18
 _FIT_GRID_W = SLIDE_WIDTH_IN - _FIT_GRID_LEFT - _CONTENT_LEFT
-_FIT_GRID_H = 5.78
-_FIT_GRID_GUTTER = 0.10
+_FIT_GRID_H = 5.92
+# Columns sit close together too: the gutter only has to separate them, and
+# every hundredth of an inch here goes to the spectra.
+_FIT_GRID_GUTTER = 0.06
 
 _LEGEND_SWATCH_W, _LEGEND_SWATCH_H, _LEGEND_GAP = 0.20, 0.05, 0.06
 _LEGEND_FONT, _AXIS_LABEL_FONT = Pt(12), Pt(12)

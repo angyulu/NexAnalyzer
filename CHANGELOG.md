@@ -5,6 +5,17 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1] - 2026-08-22
+
+### Changed
+- **The three panels of a Sample Report column now stack flush.** The gap
+  between them drops to a hairline, and each point's number moves from a title
+  band above its panel to a label inside the panel's top-left corner, where it
+  costs no height at all. With the tightened figure margins, column gutter and
+  grid bounds, each spectrum gets **16% more height and 20% more area** than in
+  3.2.0 — the nine panels read as three continuous stacks rather than nine
+  boxes.
+
 ## [3.2.0] - 2026-08-22
 
 ### Changed

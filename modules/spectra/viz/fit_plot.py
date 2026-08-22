@@ -27,6 +27,7 @@ RESIDUAL_COLOR = "#d62728"
 # is why these look far too big for a figure and are not.
 COMPACT_FONT_PX = 26
 COMPACT_TITLE_PX = 34
+COMPACT_PANEL_LABEL_PX = 30
 
 # Points per column in the Sample Report's 3x3 grid: 1/4/7, 2/5/8, 3/6/9.
 GRID_ROWS = 3
@@ -323,14 +324,14 @@ def plot_fit_column(
     fig : plotly.graph_objects.Figure
         A `rows`-row figure, sized and styled for a report grid cell.
     """
-    titles = [f"Point {point}" for point, *_rest in points]
-    titles += [""] * max(0, rows - len(titles))
-
     fig = make_subplots(
         rows=rows, cols=1,
         shared_xaxes=True,  # only the bottom panel keeps tick labels
-        vertical_spacing=0.055,
-        subplot_titles=titles,
+        # Hairline gap rather than a real one: the panels are three points of
+        # one measurement, and reading them as a stack is easier when nothing
+        # separates them. Not zero, so adjacent frames don't merge into a
+        # single heavy line.
+        vertical_spacing=0.012,
     )
 
     x_label = axis_label(mode)
@@ -352,9 +353,24 @@ def plot_fit_column(
         template='plotly_white',
         showlegend=False,
     )
-    # No figure title: each panel is titled with its own point number, and the
-    # slide's title bar names the sample and technique.
-    _apply_compact_style(fig, None, dict(l=98, r=24, t=48, b=74))
+    # No figure title, and almost no top margin: the slide's title bar names
+    # the sample and technique, and each panel labels itself from the inside.
+    _apply_compact_style(fig, None, dict(l=78, r=18, t=10, b=74))
+    # Three Y ticks (0, half, peak) keep the labels of touching panels apart.
+    fig.update_yaxes(nticks=3)
+
+    # Point numbers go inside their panel rather than above it. A title band
+    # above each panel costs height three times over; a corner label costs
+    # none, and sits in space the spectrum's tail isn't using.
+    for row, (point, *_rest) in enumerate(points[:rows], start=1):
+        fig.add_annotation(
+            text=f"Point {point}",
+            row=row, col=1,
+            xref="x domain", yref="y domain",
+            x=0.015, y=0.98, xanchor="left", yanchor="top",
+            showarrow=False,
+            font=dict(size=COMPACT_PANEL_LABEL_PX),
+        )
 
     return fig
 
