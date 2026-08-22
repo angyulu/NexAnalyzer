@@ -4,7 +4,7 @@ Static fit figures for export and reports.
 Where live_plot.py renders the interactive, session-state-driven multi-layer
 plot on the Analysis page, this module builds standalone figures with no
 session-state dependencies: the data + fit + components view used for PNG/HTML
-export and for the Sample Report's per-point grids.
+export, and the Sample Report's stacked per-column grids.
 
 Rendering these to the page goes through core.viz.render.render_plot().
 """
@@ -19,13 +19,135 @@ from plotly.subplots import make_subplots
 # (the Sample Report draws one per slide) has to match the lines it describes.
 DATA_COLOR = "#1f77b4"
 FIT_COLOR = "#ff7f0e"
+RESIDUAL_COLOR = "#d62728"
 
-# A compact figure is rendered around 460px tall and then placed in a grid cell
-# under 2 inches high, so one figure pixel is roughly a third of a point on the
-# slide. Plotly's default 12px text arrives there at about 3.5pt — unreadable —
-# which is why these look far too big for a figure and are not.
+# A compact figure is rendered small and then placed in a grid cell under 2
+# inches high, so one figure pixel is roughly a third of a point on the slide.
+# Plotly's default 12px text arrives there at about 3.5pt — unreadable — which
+# is why these look far too big for a figure and are not.
 COMPACT_FONT_PX = 26
 COMPACT_TITLE_PX = 34
+
+# Points per column in the Sample Report's 3x3 grid: 1/4/7, 2/5/8, 3/6/9.
+GRID_ROWS = 3
+
+
+def axis_label(mode: str) -> str:
+    """X-axis label for a spectroscopy mode."""
+    return "Raman Shift (cm⁻¹)" if mode == "Raman" else "Wavelength (nm)"
+
+
+def peak_normalization_scale(y_data: np.ndarray, fit_result=None) -> float:
+    """
+    The divisor that puts this spectrum's tallest peak at 1.0.
+
+    Taken from the fitted curve rather than the raw maximum wherever there is
+    one: a surviving cosmic ray or the Rayleigh edge routinely tops the raw
+    data, and dividing by that would squash the actual peaks to a fraction of
+    the frame. The fit does not chase single-sample spikes, so its maximum is
+    the height of a real peak.
+
+    Falls back to the data maximum with no fit, and to 1.0 when neither is
+    positive — there is nothing meaningful to normalize against, and returning
+    1.0 leaves the spectrum untouched rather than inverting or blanking it.
+    """
+    if fit_result is not None and getattr(fit_result, "total_fit_curve", None) is not None:
+        curve = fit_result.total_fit_curve
+        if len(curve):
+            peak = float(np.max(curve))
+            if peak > 0:
+                return peak
+
+    if y_data is not None and len(y_data):
+        peak = float(np.max(y_data))
+        if peak > 0:
+            return peak
+
+    return 1.0
+
+
+def _add_spectrum_traces(
+    fig,
+    row: int,
+    x: np.ndarray,
+    y_data: np.ndarray,
+    fit_result,
+    x_label: str,
+    show_components: bool,
+    showlegend: bool,
+    marker_px: float,
+    fit_line_px: float,
+    component_line_px: float,
+    scale: float = 1.0,
+) -> None:
+    """
+    Add one spectrum's data, total fit and peak components to `row` of `fig`.
+
+    `scale` divides every Y series, so data and fit stay superimposed however
+    the spectrum is normalized (see `peak_normalization_scale`).
+    """
+    # Baseline-corrected data — the series that was actually fitted.
+    fig.add_trace(go.Scatter(
+        x=x,
+        y=np.asarray(y_data) / scale,
+        mode='markers',
+        name='Data',
+        marker=dict(size=marker_px, color=DATA_COLOR),
+        showlegend=showlegend,
+        hovertemplate=f'{x_label}: %{{x:.2f}}<br>Intensity: %{{y:.3g}}<extra></extra>'
+    ), row=row, col=1)
+
+    if not (fit_result and getattr(fit_result, "total_fit_curve", None) is not None):
+        return
+
+    # Total fit: the sum of all Voigt components, compared against the data by
+    # eye to judge R².
+    fig.add_trace(go.Scatter(
+        x=x,
+        y=np.asarray(fit_result.total_fit_curve) / scale,
+        mode='lines',
+        name='Total Fit',
+        line=dict(width=fit_line_px, color=FIT_COLOR),
+        showlegend=showlegend,
+        hovertemplate=f'{x_label}: %{{x:.2f}}<br>Fit: %{{y:.3g}}<extra></extra>'
+    ), row=row, col=1)
+
+    # Individual peaks, so the contribution of each is visible (e.g. D-band
+    # against G-band).
+    if show_components and fit_result.fitted_peaks:
+        for i, peak in enumerate(fit_result.fitted_peaks):
+            if peak.component_curve is None:
+                continue
+            fig.add_trace(go.Scatter(
+                x=x,
+                y=np.asarray(peak.component_curve) / scale,
+                mode='lines',
+                name=peak.label or f"Peak {i+1}",
+                # The peak's own color from its Material Preset, rather than
+                # Plotly's automatic cycling: the same peak then draws the same
+                # color in every point's plot, which is what lets one legend
+                # describe all nine of them.
+                line=dict(width=component_line_px, dash='dash', color=peak.color or None),
+                opacity=0.7,
+                showlegend=showlegend,
+                hovertemplate=f'{x_label}: %{{x:.2f}}<br>Component: %{{y:.3g}}<extra></extra>'
+            ), row=row, col=1)
+
+
+def _apply_compact_style(fig, title: Optional[str], margin: dict) -> None:
+    """Font and margin sizing for figures rendered into a small grid cell."""
+    fig.update_layout(
+        margin=margin,
+        font=dict(size=COMPACT_FONT_PX),
+    )
+    if title is not None:
+        fig.update_layout(title=dict(text=title, x=0.5, xanchor="center", font=dict(size=COMPACT_TITLE_PX)))
+    # Fewer ticks than Plotly chooses for a figure this size, so the enlarged
+    # labels have room instead of colliding.
+    fig.update_xaxes(nticks=6)
+    fig.update_yaxes(nticks=4)
+    for annotation in fig.layout.annotations:  # make_subplots renders subplot titles as annotations
+        annotation.font.size = COMPACT_TITLE_PX
 
 
 def plot_composite(
@@ -40,6 +162,7 @@ def plot_composite(
     x_range: Optional[Tuple[float, float]] = None,
     y_range: Optional[Tuple[float, float]] = None,
     compact: bool = False,
+    normalize: bool = False,
 ) -> go.Figure:
     """
     Create composite plot with data, fit, components, and (optionally) residuals.
@@ -63,30 +186,25 @@ def plot_composite(
         Whether to show individual peak components.
     show_residuals : bool, default=True
         Whether to include the residuals subplot. False gives a single
-        full-height data+fit panel — used where the plot is rendered small
-        (e.g. the Sample Report's 3x3 fitted-spectrum grids), where a
-        quarter-height residual strip is unreadable anyway.
+        full-height data+fit panel — used where the plot is rendered small,
+        where a quarter-height residual strip is unreadable anyway.
     show_legend : bool, default=True
         Whether this figure draws its own legend. False where a set of these
-        figures is shown together under one shared legend (the Sample
-        Report's 3x3 grids), so it isn't repeated in every cell.
+        figures is shown together under one shared legend.
     x_range, y_range : Optional[Tuple[float, float]], default=None
-        Explicit axis ranges. Passing the same ranges to every figure in a set
-        is what makes their peak heights comparable by eye; None autoscales
-        each figure independently. See `shared_axis_ranges`.
+        Explicit axis ranges; None autoscales this figure independently.
+        See `shared_axis_ranges`.
     compact : bool, default=False
-        Strip the per-figure axis titles and shrink the margins and fonts, for
-        figures rendered small in a grid where the slide labels the axes once.
+        Strip the axis titles and size fonts and margins for a figure rendered
+        small in a grid, where the slide labels the axes once.
+    normalize : bool, default=False
+        Divide the spectrum by its own tallest peak, putting that peak at 1.0.
+        See `peak_normalization_scale`.
 
     Returns
     -------
     fig : plotly.graph_objects.Figure
         Interactive Plotly figure with subplots.
-
-    Notes
-    -----
-    Full implementation will be completed in Phase 5 (T042-T044).
-    This is a simplified version for Phase 3 completion.
     """
     # Shrunk into a grid cell, default-weight lines and markers thin out to
     # near-invisible; these are the same shapes drawn heavier to survive it.
@@ -94,127 +212,55 @@ def plot_composite(
     fit_line_px = 3.0 if compact else 2
     component_line_px = 2.4 if compact else 1.5
 
-    # ========== CREATE SUBPLOT LAYOUT ==========
-    # Create 2-row, 1-column subplot layout
-    # Row 1 (75% height): Main plot with data, fit, and components
-    # Row 2 (25% height): Residuals subplot
-    # WHY: Residuals subplot helps evaluate fit quality (should be random noise around zero)
     if show_residuals:
+        # Row 1 (75%) data and fit; row 2 (25%) residuals, which should be
+        # random noise about zero for a good fit — a pattern there means a
+        # systematic error, such as a missing peak.
         fig = make_subplots(
-            rows=2, cols=1,  # 2 rows, 1 column
-            row_heights=[0.75, 0.25],  # Row 1 gets 75% of height, Row 2 gets 25%
-            vertical_spacing=0.05,  # 5% gap between subplots
-            subplot_titles=("Data & Fit", "")  # Titles for each subplot
+            rows=2, cols=1,
+            row_heights=[0.75, 0.25],
+            vertical_spacing=0.05,
+            subplot_titles=("Data & Fit", "")
         )
     else:
-        # Single panel: the main plot gets the full figure height
         fig = make_subplots(rows=1, cols=1)
 
-    # ========== DETERMINE AXIS LABEL ==========
-    # X-axis label depends on spectroscopy mode
-    if mode == "Raman":
-        x_label = "Raman Shift (cm⁻¹)"  # Wavenumber shift
-    else:  # PL (Photoluminescence)
-        x_label = "Wavelength (nm)"  # Emission wavelength
+    x_label = axis_label(mode)
+    scale = peak_normalization_scale(y_data, fit_result) if normalize else 1.0
 
-    # ==================== ROW 1: MAIN PLOT - DATA ====================
-    # Add baseline-corrected data as scatter plot
-    # Color: #1f77b4 (Plotly blue) - standard data color
-    # WHY: This is the data that was fitted (after baseline removal)
-    fig.add_trace(go.Scatter(
-        x=x,  # X values (wavenumber or wavelength)
-        y=y_data,  # Processed/baseline-corrected intensity
-        mode='markers',  # Show as scatter points (actual data)
-        name='Data',  # Legend label
-        marker=dict(size=marker_px, color=DATA_COLOR),  # Blue dots
-        hovertemplate=f'{x_label}: %{{x:.2f}}<br>Intensity: %{{y:.1f}}<extra></extra>'  # Custom tooltip
-    ), row=1, col=1)  # Add to row 1, column 1 (main plot)
+    _add_spectrum_traces(
+        fig, 1, x, y_data, fit_result, x_label, show_components, show_legend,
+        marker_px, fit_line_px, component_line_px, scale,
+    )
 
-    # ==================== ROW 1: MAIN PLOT - TOTAL FIT ====================
-    # Only add fit traces if fit_result exists and fitting succeeded
-    if fit_result and fit_result.total_fit_curve is not None:
-        # Add total fit curve (sum of all Voigt peak components)
-        # Color: #ff7f0e (Plotly orange) - standard fit color
-        # WHY: User compares this to data to evaluate R² quality
+    if show_residuals and fit_result and fit_result.total_fit_curve is not None:
         fig.add_trace(go.Scatter(
-            x=x,  # Same X as data
-            y=fit_result.total_fit_curve,  # Sum of all fitted peaks
-            mode='lines',  # Connected line (smooth fit)
-            name='Total Fit',  # Legend label
-            line=dict(width=fit_line_px, color=FIT_COLOR),  # Orange line
-            hovertemplate=f'{x_label}: %{{x:.2f}}<br>Fit: %{{y:.1f}}<extra></extra>'  # Custom tooltip
-        ), row=1, col=1)  # Add to row 1 (main plot)
+            x=x,
+            y=np.asarray(fit_result.residuals) / scale,
+            mode='markers',
+            name='Residuals',
+            marker=dict(size=3, color=RESIDUAL_COLOR),
+            showlegend=False,
+            hovertemplate=f'{x_label}: %{{x:.2f}}<br>Residual: %{{y:.3g}}<extra></extra>'
+        ), row=2, col=1)
 
-        # ==================== ROW 1: MAIN PLOT - COMPONENTS ====================
-        # Add individual peak components if user enabled "Show Components"
-        # Each peak gets its own dashed line trace
-        # WHY: User can see contribution of each peak (e.g., D-band vs G-band ratio)
-        if show_components and fit_result.fitted_peaks:
-            # Loop through each fitted peak
-            for i, peak in enumerate(fit_result.fitted_peaks):
-                # Only add if component_curve was generated
-                if peak.component_curve is not None:
-                    # Add individual peak component trace
-                    # Dash style: dashed to distinguish from total fit
-                    # Opacity: 0.7 (semi-transparent to avoid cluttering)
-                    fig.add_trace(go.Scatter(
-                        x=x,  # Same X as data and fit
-                        y=peak.component_curve,  # Single peak's contribution
-                        mode='lines',  # Connected line
-                        name=peak.label or f"Peak {i+1}",  # Use peak label or default "Peak 1", "Peak 2", etc.
-                        # The peak's own color from its Material Preset, rather than
-                        # Plotly's automatic cycling: the same peak then draws the same
-                        # color in every point's plot, which is what lets one legend
-                        # describe all nine of them.
-                        line=dict(width=component_line_px, dash='dash', color=peak.color or None),
-                        opacity=0.7,  # Semi-transparent
-                        hovertemplate=f'{x_label}: %{{x:.2f}}<br>Component: %{{y:.1f}}<extra></extra>'  # Custom tooltip
-                    ), row=1, col=1)  # Add to row 1 (main plot)
+        # Zero line, to see whether the residuals are centered.
+        fig.add_trace(go.Scatter(
+            x=[x.min(), x.max()],
+            y=[0, 0],
+            mode='lines',
+            line=dict(width=1, color='gray', dash='dash'),
+            showlegend=False
+        ), row=2, col=1)
 
-        # ==================== ROW 2: RESIDUALS SUBPLOT ====================
-        # Add residuals (data - fit) to bottom subplot, unless the caller
-        # asked for a residual-free single-panel plot
-        if show_residuals:
-            # -------- RESIDUALS SUBPLOT - DATA POINTS --------
-            # Color: #d62728 (Plotly red) - indicates error/residual
-            # WHY: Residuals should be random noise around zero if fit is good
-            # Patterns in residuals indicate systematic fit errors (e.g., missing peaks)
-            fig.add_trace(go.Scatter(
-                x=x,  # Same X as data
-                y=fit_result.residuals,  # Residuals = data - total_fit (from lmfit)
-                mode='markers',  # Show as scatter points (discrete residuals)
-                name='Residuals',  # Legend label (but showlegend=False)
-                marker=dict(size=3, color='#d62728'),  # Small red dots
-                showlegend=False,  # Don't show in legend (avoid clutter)
-                hovertemplate=f'{x_label}: %{{x:.2f}}<br>Residual: %{{y:.1f}}<extra></extra>'  # Custom tooltip
-            ), row=2, col=1)  # Add to row 2 (residuals subplot)
-
-            # -------- RESIDUALS SUBPLOT - ZERO LINE --------
-            # Add horizontal dashed line at Y=0 for reference
-            # WHY: Helps visualize whether residuals are centered around zero
-            # Good fit: residuals randomly scattered around zero line
-            # Bad fit: residuals show systematic trends or offsets
-            fig.add_trace(go.Scatter(
-                x=[x.min(), x.max()],  # Horizontal line from min X to max X
-                y=[0, 0],  # Y=0 (zero line)
-                mode='lines',  # Connected line
-                line=dict(width=1, color='gray', dash='dash'),  # Thin gray dashed line
-                showlegend=False  # Don't show in legend
-            ), row=2, col=1)  # Add to row 2 (residuals subplot)
-
-    # ========== CONFIGURE SUBPLOT AXES ==========
-    # Update axes labels for each subplot
-    # Only bottom subplot (row 2) gets X-axis label (shared X-axis)
-    # WHY: Saves vertical space, both subplots use same X-axis
-    x_label_row = 2 if show_residuals else 1  # Bottom-most subplot carries the X-axis label
-    # `compact` drops the axis titles entirely: the Sample Report tiles nine of
-    # these into one slide and labels the axes once for the whole grid, so nine
-    # copies of the same two labels would only shrink the spectra.
+    # `compact` drops the axis titles entirely: the Sample Report labels the
+    # axes once for a whole grid, so repeating them per cell only shrinks the
+    # spectra.
     if not compact:
-        fig.update_xaxes(title_text=x_label, row=x_label_row, col=1)
-        fig.update_yaxes(title_text="Intensity (a.u.)", row=1, col=1)  # Y-axis label for main plot
+        fig.update_xaxes(title_text=x_label, row=2 if show_residuals else 1, col=1)
+        fig.update_yaxes(title_text=_y_axis_title(normalize), row=1, col=1)
         if show_residuals:
-            fig.update_yaxes(title_text="Residual", row=2, col=1)  # Y-axis label for residuals subplot
+            fig.update_yaxes(title_text="Residual", row=2, col=1)
 
     # Explicit ranges put a whole set of figures on one scale; None leaves each
     # to autoscale, which is right for a figure viewed on its own.
@@ -223,36 +269,105 @@ def plot_composite(
     if y_range is not None:
         fig.update_yaxes(range=list(y_range), row=1, col=1)
 
-    # ========== CONFIGURE OVERALL LAYOUT ==========
-    # Set title, interactivity, styling, legend position for entire figure
     fig.update_layout(
-        title=title,  # Overall plot title (e.g., "Peak Fit Results")
-        hovermode='closest',  # Show hover tooltip for nearest point
-        template='plotly_white',  # Clean white background with grid
-        height=600,  # Total figure height in pixels (includes both subplots)
+        title=title,
+        hovermode='closest',
+        template='plotly_white',
+        height=600,
         showlegend=show_legend,
-        legend=dict(
-            x=1.02,  # Position just outside right edge of plot (2% beyond)
-            y=1,  # Position at top (100% from bottom)
-            bgcolor='rgba(255,255,255,0.8)'  # Semi-transparent white background
-        )
+        legend=dict(x=1.02, y=1, bgcolor='rgba(255,255,255,0.8)')
     )
 
     if compact:
         # Hand the spectrum the pixels the legend, axis titles and default
         # margins were using. The left margin still has to fit the Y tick
         # labels, and the bottom the X ones.
-        fig.update_layout(
-            margin=dict(l=92, r=22, t=56, b=70),
-            title=dict(text=title, x=0.5, xanchor="center", font=dict(size=COMPACT_TITLE_PX)),
-            font=dict(size=COMPACT_FONT_PX),
-        )
-        # Fewer ticks than Plotly chooses for a figure this wide, so the
-        # enlarged labels have room instead of colliding.
-        fig.update_xaxes(nticks=6)
-        fig.update_yaxes(nticks=5, row=1, col=1)
+        _apply_compact_style(fig, title, dict(l=92, r=22, t=56, b=70))
 
-    return fig  # Return completed figure (data+fit+components, plus residuals if enabled)
+    return fig
+
+
+def plot_fit_column(
+    points: Sequence[Tuple[int, np.ndarray, np.ndarray, object]],
+    mode: str = "Raman",
+    show_components: bool = True,
+    x_range: Optional[Tuple[float, float]] = None,
+    y_range: Optional[Tuple[float, float]] = None,
+    normalize: bool = True,
+    rows: int = GRID_ROWS,
+) -> go.Figure:
+    """
+    One column of the Sample Report grid: its points stacked on a shared X-axis.
+
+    The three points of a column are one vertical line across the wafer, and
+    drawing them against a single X-axis is what makes them read that way —
+    peaks line up down the column instead of each panel restating the same
+    axis. Only the bottom panel carries tick labels, and the two rows of labels
+    that saves is most of the extra height the spectra get.
+
+    Parameters
+    ----------
+    points : sequence of (point_index, x, y_data, fit_result)
+        In top-to-bottom order. Fewer than `rows` leaves the lower panels
+        empty rather than restacking, so columns stay aligned across the grid.
+    normalize : bool, default=True
+        Scale each point by its own tallest peak, putting every panel's peak
+        at 1.0. Comparable peak shape and position, at the cost of intensity:
+        a weak point and a strong one reach the same height by construction.
+    x_range, y_range : Optional[Tuple[float, float]]
+        Applied to every panel. Pass the same values to all three columns to
+        keep the whole grid on one scale.
+
+    Returns
+    -------
+    fig : plotly.graph_objects.Figure
+        A `rows`-row figure, sized and styled for a report grid cell.
+    """
+    titles = [f"Point {point}" for point, *_rest in points]
+    titles += [""] * max(0, rows - len(titles))
+
+    fig = make_subplots(
+        rows=rows, cols=1,
+        shared_xaxes=True,  # only the bottom panel keeps tick labels
+        vertical_spacing=0.055,
+        subplot_titles=titles,
+    )
+
+    x_label = axis_label(mode)
+    for row, (_point, x, y_data, fit_result) in enumerate(points[:rows], start=1):
+        scale = peak_normalization_scale(y_data, fit_result) if normalize else 1.0
+        _add_spectrum_traces(
+            fig, row, x, y_data, fit_result, x_label, show_components,
+            showlegend=False,  # the slide draws one legend for the whole grid
+            marker_px=5, fit_line_px=3.0, component_line_px=2.4, scale=scale,
+        )
+
+    if x_range is not None:
+        fig.update_xaxes(range=list(x_range))
+    if y_range is not None:
+        fig.update_yaxes(range=list(y_range))
+
+    fig.update_layout(
+        hovermode='closest',
+        template='plotly_white',
+        showlegend=False,
+    )
+    # No figure title: each panel is titled with its own point number, and the
+    # slide's title bar names the sample and technique.
+    _apply_compact_style(fig, None, dict(l=98, r=24, t=48, b=74))
+
+    return fig
+
+
+def _y_axis_title(normalized: bool) -> str:
+    """Y-axis title, which stops being arbitrary units once normalized."""
+    return "Normalized intensity" if normalized else "Intensity (a.u.)"
+
+
+def y_axis_title(normalized: bool) -> str:
+    """Public form of `_y_axis_title`, for a caller labelling the axis itself
+    (the Sample Report writes it on the slide, not into the figures)."""
+    return _y_axis_title(normalized)
 
 
 def shared_axis_ranges(
@@ -262,9 +377,12 @@ def shared_axis_ranges(
     """
     One (x_range, y_range) pair covering every spectrum in `series`.
 
-    Nine independently autoscaled plots can't be compared by eye — a weak point
-    and a strong one both fill their frame. Plotting them all on these ranges
-    makes the differences the thing you actually see.
+    Independently autoscaled plots can't be compared by eye — a weak point and
+    a strong one both fill their frame. Plotting them all on these ranges makes
+    the differences the thing you actually see.
+
+    Pass already-normalized Y values if the figures will be normalized, so the
+    range describes what is actually drawn.
 
     Parameters
     ----------

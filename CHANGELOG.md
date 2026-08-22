@@ -5,6 +5,24 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-08-22
+
+### Changed
+- **Sample Report grids are now three columns, not nine cells.** Each column
+  (points 1/4/7, 2/5/8, 3/6/9) is a single figure whose three panels share one
+  X-axis, so only the bottom panel carries tick labels. A column is one
+  vertical line across the wafer and now reads as one measurement, with peaks
+  lining up down it; the two rows of tick labels that saves is most of the
+  extra height the spectra get.
+- **Every panel is normalized to its own tallest peak, which plots at 1.0.**
+  Peak shape and position are directly comparable across the wafer. This
+  deliberately discards intensity — a weak point and a strong one now reach
+  the same height by construction, unlike 3.1.0's shared raw scale. The Y-axis
+  title says "Normalized intensity" accordingly.
+- `peak_normalization_scale()` divides by the fitted curve's maximum rather
+  than the raw maximum: a surviving cosmic ray or the Rayleigh edge routinely
+  tops the raw data, and dividing by that would squash the real peaks.
+
 ## [3.1.0] - 2026-08-22
 
 ### Changed

@@ -12,7 +12,9 @@ from modules.spectra.viz.fit_plot import (
     DATA_COLOR,
     FIT_COLOR,
     fit_legend_entries,
+    peak_normalization_scale,
     plot_composite,
+    plot_fit_column,
     shared_axis_ranges,
 )
 
@@ -160,3 +162,96 @@ class TestPlotCompositeGridOptions:
         component = next(t for t in fig.data if t.name == "A")
 
         assert component.line.color == "#EF482E"
+
+
+class TestPeakNormalizationScale:
+    def test_uses_the_fitted_peak_not_the_raw_maximum(self):
+        """A cosmic ray or the Rayleigh edge routinely tops the raw data.
+        Dividing by that would squash the real peaks to a fraction of the frame."""
+        y = np.array([0.0, 500.0, 900.0])  # 900 is a one-sample spike
+        fit = _Fit(total=np.array([0.0, 500.0, 10.0]))
+
+        assert peak_normalization_scale(y, fit) == 500.0
+
+    def test_falls_back_to_the_data_maximum_without_a_fit(self):
+        assert peak_normalization_scale(np.array([0.0, 42.0]), None) == 42.0
+
+    def test_falls_back_when_the_fit_has_no_curve(self):
+        assert peak_normalization_scale(np.array([0.0, 42.0]), _Fit(total=None)) == 42.0
+
+    def test_non_positive_data_is_left_alone(self):
+        """Returning 1.0 leaves the spectrum untouched, rather than inverting
+        or blanking it."""
+        assert peak_normalization_scale(np.array([0.0, -5.0]), None) == 1.0
+        assert peak_normalization_scale(np.array([]), None) == 1.0
+
+    def test_normalizing_puts_the_fitted_peak_at_one(self):
+        y = np.array([0.0, 250.0])
+        fit = _Fit(total=np.array([0.0, 250.0]))
+
+        assert (y / peak_normalization_scale(y, fit)).max() == 1.0
+
+
+class TestPlotFitColumn:
+    def _points(self, indices=(1, 4, 7)):
+        x = np.linspace(0.0, 400.0, 50)
+        return [(i, x, np.sin(x / 40) * (i * 100), _Fit(total=np.sin(x / 40) * (i * 100))) for i in indices]
+
+    def test_one_panel_per_point_titled_by_point_number(self):
+        fig = plot_fit_column(self._points())
+        titles = [a.text for a in fig.layout.annotations]
+
+        assert titles[:3] == ["Point 1", "Point 4", "Point 7"]
+
+    def test_panels_share_one_x_axis(self):
+        """Only the bottom panel keeps tick labels; that is both what makes the
+        three read as one measurement and where the extra height comes from."""
+        fig = plot_fit_column(self._points())
+
+        assert fig.layout.xaxis.matches or fig.layout.xaxis2.matches or fig.layout.xaxis3.matches
+        assert fig.layout.xaxis.showticklabels is False
+        assert fig.layout.xaxis2.showticklabels is False
+
+    def test_normalizing_brings_every_panel_to_one(self):
+        """Points of very different intensity all peak at 1.0."""
+        fig = plot_fit_column(self._points((1, 4, 7)), normalize=True)
+        fits = [t for t in fig.data if t.name == "Total Fit"]
+
+        assert len(fits) == 3
+        for trace in fits:
+            assert max(trace.y) == pytest.approx(1.0)
+
+    def test_without_normalizing_the_panels_keep_their_own_heights(self):
+        fig = plot_fit_column(self._points((1, 4, 7)), normalize=False)
+        peaks = [max(t.y) for t in fig.data if t.name == "Total Fit"]
+
+        assert peaks[0] < peaks[1] < peaks[2]
+
+    def test_never_draws_its_own_legend(self):
+        """The slide draws one legend for the whole grid."""
+        fig = plot_fit_column(self._points())
+
+        assert fig.layout.showlegend is False
+        assert all(t.showlegend is False for t in fig.data)
+
+    def test_a_short_column_leaves_the_lower_panels_empty(self):
+        """Restacking would misalign this column against the others, so the
+        third row is still laid out - just with nothing drawn in it."""
+        fig = plot_fit_column(self._points((1, 4)))
+
+        assert [a.text for a in fig.layout.annotations] == ["Point 1", "Point 4"]
+        assert fig.layout.yaxis3 is not None, "the third row should still exist"
+        assert len([t for t in fig.data if t.name == "Data"]) == 2
+
+    def test_ranges_apply_to_every_panel(self):
+        fig = plot_fit_column(self._points(), x_range=(0.0, 400.0), y_range=(-0.1, 1.1))
+
+        for axis in (fig.layout.xaxis, fig.layout.xaxis2, fig.layout.xaxis3):
+            assert tuple(axis.range) == (0.0, 400.0)
+        for axis in (fig.layout.yaxis, fig.layout.yaxis2, fig.layout.yaxis3):
+            assert tuple(axis.range) == (-0.1, 1.1)
+
+    def test_an_empty_column_is_still_a_valid_figure(self):
+        fig = plot_fit_column([])
+
+        assert fig.data == ()

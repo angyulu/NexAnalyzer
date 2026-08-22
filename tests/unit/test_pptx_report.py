@@ -43,13 +43,13 @@ def _stat(label="Exciton", n=9):
 class TestBuildSampleReportPptx:
     def test_full_report_builds_three_slides(self):
         om_bytes = {p: _tiny_png() for p in range(1, 10)}
-        fit_bytes = {p: _tiny_png() for p in range(1, 10)}
+        column_bytes = {c: _tiny_png() for c in range(3)}
 
         result = build_sample_report_pptx(
             sample_name="VABA52", material_name="WSe2", report_date="2026-08-21",
             magnification_label="100x", om_image_bytes=om_bytes,
-            raman_stats=[_stat("E2g+A1g"), _stat("2LA")], raman_fit_images=fit_bytes,
-            pl_stats=[_stat("Exciton"), _stat("Trion")], pl_fit_images=fit_bytes,
+            raman_stats=[_stat("E2g+A1g"), _stat("2LA")], raman_fit_columns=column_bytes,
+            pl_stats=[_stat("Exciton"), _stat("Trion")], pl_fit_columns=column_bytes,
         )
 
         assert result[:2] == b"PK"  # pptx is a zip archive
@@ -60,21 +60,21 @@ class TestBuildSampleReportPptx:
         result = build_sample_report_pptx(
             sample_name="Partial", material_name="WSe2", report_date="2026-08-21",
             magnification_label="100x", om_image_bytes={1: _tiny_png(), 5: _tiny_png()},
-            raman_stats=None, raman_fit_images={1: _tiny_png()},
-            pl_stats=None, pl_fit_images={},
+            raman_stats=None, raman_fit_columns={0: _tiny_png()},
+            pl_stats=None, pl_fit_columns={},
         )
 
         prs = Presentation(io.BytesIO(result))
         assert len(prs.slides) == 3
 
     def test_technique_entirely_omitted(self):
-        fit_bytes = {p: _tiny_png() for p in range(1, 10)}
+        column_bytes = {c: _tiny_png() for c in range(3)}
 
         result = build_sample_report_pptx(
             sample_name="RamanOnly", material_name="Silicon", report_date="2026-08-21",
             magnification_label=None, om_image_bytes={},
-            raman_stats=[_stat("Si", n=9)], raman_fit_images=fit_bytes,
-            pl_stats=None, pl_fit_images={},
+            raman_stats=[_stat("Si", n=9)], raman_fit_columns=column_bytes,
+            pl_stats=None, pl_fit_columns={},
         )
 
         prs = Presentation(io.BytesIO(result))
@@ -85,14 +85,14 @@ class TestBuildSampleReportPptx:
         assert len(pictures) == 0
 
     def test_wide_and_tall_images_both_fit_without_error(self):
-        fit_bytes = {p: _tiny_png() for p in range(1, 10)}
+        column_bytes = {c: _tiny_png() for c in range(3)}
 
         result = build_sample_report_pptx(
             sample_name="AspectRatios", material_name="WSe2", report_date="2026-08-21",
             magnification_label="100x",
             om_image_bytes={1: _tiny_png(size=(200, 40)), 2: _tiny_png(size=(40, 200))},
-            raman_stats=[_stat()], raman_fit_images=fit_bytes,
-            pl_stats=None, pl_fit_images={},
+            raman_stats=[_stat()], raman_fit_columns=column_bytes,
+            pl_stats=None, pl_fit_columns={},
         )
 
         prs = Presentation(io.BytesIO(result))
@@ -104,8 +104,8 @@ class TestBuildSampleReportPptx:
         result = build_sample_report_pptx(
             sample_name="ManyPeaks", material_name="WSe2", report_date="2026-08-21",
             magnification_label=None, om_image_bytes={},
-            raman_stats=stats, raman_fit_images={},
-            pl_stats=None, pl_fit_images={},
+            raman_stats=stats, raman_fit_columns={},
+            pl_stats=None, pl_fit_columns={},
         )
 
         prs = Presentation(io.BytesIO(result))
@@ -115,8 +115,8 @@ class TestBuildSampleReportPptx:
         result = build_sample_report_pptx(
             sample_name="Empty", material_name="WSe2", report_date="2026-08-21",
             magnification_label=None, om_image_bytes={},
-            raman_stats=None, raman_fit_images={},
-            pl_stats=None, pl_fit_images={},
+            raman_stats=None, raman_fit_columns={},
+            pl_stats=None, pl_fit_columns={},
         )
 
         prs = Presentation(io.BytesIO(result))
@@ -129,8 +129,8 @@ class TestBuildSampleReportPptx:
         result = build_sample_report_pptx(
             sample_name="RatioTest", material_name="WSe2", report_date="2026-08-21",
             magnification_label=None, om_image_bytes={},
-            raman_stats=[_stat("LA"), _stat("E2g+A1g")], raman_fit_images={},
-            pl_stats=None, pl_fit_images={},
+            raman_stats=[_stat("LA"), _stat("E2g+A1g")], raman_fit_columns={},
+            pl_stats=None, pl_fit_columns={},
             raman_amplitude_ratio=(0.59, 0.08, 9), raman_amplitude_ratio_label="LA / E2g+A1g ratio",
         )
 
@@ -152,8 +152,8 @@ class TestBuildSampleReportPptx:
         result = build_sample_report_pptx(
             sample_name="NoRatio", material_name="Silicon", report_date="2026-08-21",
             magnification_label=None, om_image_bytes={},
-            raman_stats=[_stat("Si")], raman_fit_images={},
-            pl_stats=None, pl_fit_images={},
+            raman_stats=[_stat("Si")], raman_fit_columns={},
+            pl_stats=None, pl_fit_columns={},
             raman_amplitude_ratio=None,
         )
 
@@ -175,8 +175,8 @@ class TestFitGridLegendAndAxisTitles:
         return build_sample_report_pptx(
             sample_name="VBBA14", material_name="WSe2", report_date="2026-08-22",
             magnification_label=None, om_image_bytes={},
-            raman_stats=None, raman_fit_images={p: _tiny_png() for p in range(1, 10)},
-            pl_stats=None, pl_fit_images={p: _tiny_png() for p in range(1, 10)},
+            raman_stats=None, raman_fit_columns={c: _tiny_png() for c in range(3)},
+            pl_stats=None, pl_fit_columns={c: _tiny_png() for c in range(3)},
             **kwargs,
         )
 
@@ -213,8 +213,10 @@ class TestFitGridLegendAndAxisTitles:
     def test_both_grid_slides_carry_the_axis_titles(self):
         raman_slide, pl_slide = _fit_slides(self._build())
 
-        assert "Intensity (a.u.)" in _texts(raman_slide)
-        assert "Intensity (a.u.)" in _texts(pl_slide)
+        # Normalized by default now: every panel's own peak is 1.0, so the
+        # units are no longer arbitrary.
+        assert "Normalized intensity" in _texts(raman_slide)
+        assert "Normalized intensity" in _texts(pl_slide)
 
     def test_x_axis_title_names_the_technique_s_own_units(self):
         raman_slide, pl_slide = _fit_slides(self._build())
@@ -230,4 +232,62 @@ class TestFitGridLegendAndAxisTitles:
     def test_overview_slide_has_no_grid_axis_titles(self):
         prs = Presentation(io.BytesIO(self._build(raman_fit_legend=self._LEGEND)))
 
-        assert "Intensity (a.u.)" not in _texts(prs.slides[0])
+        assert "Normalized intensity" not in _texts(prs.slides[0])
+
+
+class TestFitColumns:
+    """A grid slide is three full-height column images, not nine cells: the
+    three points of a column share an X-axis, which only holds if they are
+    drawn in one figure."""
+
+    def _build(self, **kwargs):
+        defaults = dict(
+            sample_name="VBBA14", material_name="WSe2", report_date="2026-08-22",
+            magnification_label=None, om_image_bytes={},
+            raman_stats=None, raman_fit_columns={}, pl_stats=None, pl_fit_columns={},
+        )
+        defaults.update(kwargs)
+        return build_sample_report_pptx(**defaults)
+
+    def _pictures(self, slide):
+        return [s for s in slide.shapes if s.shape_type == 13]
+
+    def _placeholders(self, slide):
+        return [s for s in slide.shapes if s.shape_type == 1 and s.has_text_frame and s.text_frame.text == ""]
+
+    def test_three_columns_give_three_pictures(self):
+        raman_slide, _pl = _fit_slides(self._build(raman_fit_columns={c: _tiny_png() for c in range(3)}))
+
+        assert len(self._pictures(raman_slide)) == 3
+
+    def test_a_missing_column_becomes_a_placeholder_in_its_own_position(self):
+        """The other columns must not shuffle left to fill the gap."""
+        result = self._build(raman_fit_columns={0: _tiny_png(), 2: _tiny_png()})
+        raman_slide, _pl = _fit_slides(result)
+
+        pictures = self._pictures(raman_slide)
+        assert len(pictures) == 2
+        # The title rule is also a filled autoshape, so allow for it.
+        assert len(self._placeholders(raman_slide)) >= 1
+
+        lefts = sorted(p.left for p in pictures)
+        gap = lefts[1] - lefts[0]
+        # Columns 0 and 2 are two column-widths apart, not adjacent.
+        assert gap > 0
+
+    def test_no_columns_gives_placeholders_and_no_pictures(self):
+        raman_slide, pl_slide = _fit_slides(self._build())
+
+        assert self._pictures(raman_slide) == []
+        assert self._pictures(pl_slide) == []
+
+    def test_columns_span_the_grid_width_in_order(self):
+        raman_slide, _pl = _fit_slides(self._build(raman_fit_columns={c: _tiny_png() for c in range(3)}))
+
+        lefts = [p.left for p in self._pictures(raman_slide)]
+        assert lefts == sorted(lefts), "columns should be laid out left to right"
+
+    def test_y_axis_title_is_caller_supplied(self):
+        raman_slide, _pl = _fit_slides(self._build(fit_y_label="Normalized intensity"))
+
+        assert "Normalized intensity" in _texts(raman_slide)

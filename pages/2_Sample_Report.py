@@ -15,7 +15,7 @@ from PIL import Image
 
 from core.io.export import export_figure_png, prompt_save_path
 from core.io.folder_picker import prompt_folder_path
-from core.report.pptx import FIT_GRID_ASPECT_RATIO, build_sample_report_pptx
+from core.report.pptx import FIT_COLUMN_ASPECT_RATIO, FIT_GRID_COLUMNS, build_sample_report_pptx
 from modules.spectra.io.preset_store import load_presets
 from core.io.report_settings import load_default_material, save_default_material
 from core.report.slides import render_slides_to_png
@@ -23,7 +23,13 @@ from modules.spectra.processing.peak_metrics import aggregate_fit_results, compu
 from modules.spectra.processing.sample_batch import run_sample_batch
 from modules.spectra.processing.sample_scanner import default_magnification, scan_sample_folder
 from modules.spectra.ui.sample_report_state import get_sample_report_state
-from modules.spectra.viz.fit_plot import fit_legend_entries, plot_composite, shared_axis_ranges
+from modules.spectra.viz.fit_plot import (
+    fit_legend_entries,
+    peak_normalization_scale,
+    plot_fit_column,
+    shared_axis_ranges,
+    y_axis_title,
+)
 
 # WSe2-specific defect/strain indicator: LA mode amplitude relative to the
 # E2g+A1g in-plane mode, appended as an extra row of the Raman fit-summary
@@ -146,54 +152,60 @@ if scan is not None:
             status_text.empty()
             state["batch_result"] = batch_result
 
-            # Same rendering as the Analysis page's own fit results (data +
-            # total fit + peak components), just rasterized small for the
-            # grid, and without the residuals strip — at grid-cell size it's
-            # too small to read and only steals height from the spectrum.
-            # Rendered at the pptx layout's grid-cell aspect ratio so the
-            # image fills its cell instead of being letterboxed.
-            fit_width_px = 1000
-            fit_height_px = round(fit_width_px / FIT_GRID_ASPECT_RATIO)
+            # Same traces as the Analysis page's fit results (data + total fit
+            # + peak components), minus the residuals strip, which is unreadable
+            # at this size and only steals height from the spectrum. Rendered at
+            # the pptx layout's column aspect ratio so each image fills its
+            # column instead of being letterboxed.
+            column_width_px = 1000
+            column_height_px = round(column_width_px / FIT_COLUMN_ASPECT_RATIO)
 
-            def _build_fit_images(point_spectra, mode):
-                # One scale across all nine points. Left to autoscale, every
-                # point's strongest peak fills its own frame, so a weak point
-                # looks identical to a strong one and the grid says nothing
-                # about uniformity across the wafer.
-                x_range, y_range = shared_axis_ranges(
-                    (
+            def _build_fit_columns(point_spectra, mode):
+                """One image per grid column, each holding that column's three
+                points on a single shared X-axis: column 0 is points 1/4/7,
+                column 1 is 2/5/8, column 2 is 3/6/9."""
+                by_point = dict(point_spectra)
+
+                # Ranges are computed from the normalized series, because that
+                # is what actually gets drawn — every point divided by its own
+                # tallest peak, so each panel's peak lands at 1.0.
+                normalized = []
+                for _point, s in point_spectra:
+                    scale = peak_normalization_scale(s.processed_data.Y, s.fit_result)
+                    curve = s.fit_result.total_fit_curve if s.fit_result else None
+                    normalized.append((
                         s.processed_data.X,
-                        s.processed_data.Y,
-                        s.fit_result.total_fit_curve if s.fit_result else None,
-                    )
-                    for _point, s in point_spectra
-                )
+                        s.processed_data.Y / scale,
+                        None if curve is None else curve / scale,
+                    ))
+                x_range, y_range = shared_axis_ranges(normalized)
 
                 images = {}
-                for point, spectrum in point_spectra:
-                    fig = plot_composite(
-                        x=spectrum.processed_data.X,
-                        y_data=spectrum.processed_data.Y,
-                        fit_result=spectrum.fit_result,
-                        mode=mode,
-                        title=f"Point {point}",
-                        show_components=True,
-                        show_residuals=False,
-                        # The legend and axis titles are drawn once on the
-                        # slide instead of in all nine cells; compact reclaims
-                        # the margin they were using for the spectrum itself.
-                        show_legend=False,
-                        compact=True,
-                        x_range=x_range,
-                        y_range=y_range,
+                for col in range(FIT_GRID_COLUMNS):
+                    column_points = [
+                        (
+                            point,
+                            by_point[point].processed_data.X,
+                            by_point[point].processed_data.Y,
+                            by_point[point].fit_result,
+                        )
+                        for point in (col + 1, col + 4, col + 7)
+                        if point in by_point
+                    ]
+                    if not column_points:
+                        continue  # placeholder column; nothing to render
+
+                    fig = plot_fit_column(
+                        column_points, mode=mode, show_components=True,
+                        x_range=x_range, y_range=y_range, normalize=True,
                     )
-                    images[point] = export_figure_png(
-                        fig, width=fit_width_px, height=fit_height_px, scale=2.0
+                    images[col] = export_figure_png(
+                        fig, width=column_width_px, height=column_height_px, scale=2.0
                     )
                 return images
 
-            raman_fit_images = _build_fit_images(batch_result.raman_spectra, "Raman")
-            pl_fit_images = _build_fit_images(batch_result.pl_spectra, "PL")
+            raman_fit_columns = _build_fit_columns(batch_result.raman_spectra, "Raman")
+            pl_fit_columns = _build_fit_columns(batch_result.pl_spectra, "PL")
 
             # Keys for those grids. None where the technique produced no fits,
             # so an all-placeholder slide doesn't get a legend for nothing.
@@ -240,13 +252,14 @@ if scan is not None:
                 magnification_label=state["magnification"],
                 om_image_bytes=om_png_bytes,
                 raman_stats=state["raman_stats"],
-                raman_fit_images=raman_fit_images,
+                raman_fit_columns=raman_fit_columns,
                 pl_stats=state["pl_stats"],
-                pl_fit_images=pl_fit_images,
+                pl_fit_columns=pl_fit_columns,
                 raman_amplitude_ratio=raman_ratio,
                 raman_amplitude_ratio_label=_RAMAN_RATIO_LABEL,
                 raman_fit_legend=raman_legend,
                 pl_fit_legend=pl_legend,
+                fit_y_label=y_axis_title(normalized=True),
             )
 
             try:

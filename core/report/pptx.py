@@ -5,9 +5,9 @@ Layout (16:9 slides):
 - Slide 1 (overview): title bar; 3x3 OM image grid on the left half;
   Raman fit-summary table (optionally with a trailing amplitude-ratio row)
   stacked above the PL fit-summary table on the right half.
-- Slide 2: 3x3 grid of each Raman point's individual fitted spectrum
-  (data + total fit curve), under one legend and one pair of axis titles
-  serving all nine cells.
+- Slide 2: the nine Raman points as three stacked columns (1/4/7, 2/5/8,
+  3/6/9), each column one image whose three panels share an X-axis, under
+  one legend and one pair of axis titles serving the whole grid.
 - Slide 3: same, for PL.
 """
 
@@ -60,15 +60,19 @@ _FIT_GRID_W = SLIDE_WIDTH_IN - _FIT_GRID_LEFT - _CONTENT_LEFT
 _FIT_GRID_H = 5.78
 _FIT_GRID_GUTTER = 0.10
 
-_FIT_Y_LABEL = "Intensity (a.u.)"
 _LEGEND_SWATCH_W, _LEGEND_SWATCH_H, _LEGEND_GAP = 0.20, 0.05, 0.06
 _LEGEND_FONT, _AXIS_LABEL_FONT = Pt(12), Pt(12)
 
-# Public: callers rendering the per-point fit Plotly figures to PNG (e.g.
-# via export_figure_png) should match this aspect ratio, otherwise
-# aspect-preserving _fit_picture() letterboxes the image inside its grid
-# cell and leaves part of the cell empty.
-FIT_GRID_ASPECT_RATIO = ((_FIT_GRID_W - 2 * _FIT_GRID_GUTTER) / 3) / ((_FIT_GRID_H - 2 * _FIT_GRID_GUTTER) / 3)
+# Three columns across the grid's width, each running its full height: a
+# column is one image holding three stacked panels that share an X-axis.
+FIT_GRID_COLUMNS = 3
+_FIT_COLUMN_W = (_FIT_GRID_W - (FIT_GRID_COLUMNS - 1) * _FIT_GRID_GUTTER) / FIT_GRID_COLUMNS
+
+# Public: callers rendering a column figure to PNG (e.g. via
+# export_figure_png) should match this aspect ratio, otherwise
+# aspect-preserving _fit_picture() letterboxes the image inside its column
+# and leaves part of it empty.
+FIT_COLUMN_ASPECT_RATIO = _FIT_COLUMN_W / _FIT_GRID_H
 
 _PLACEHOLDER_LINE = RGBColor(0x00, 0x00, 0x00)
 
@@ -80,15 +84,16 @@ def build_sample_report_pptx(
     magnification_label: Optional[str],
     om_image_bytes: Dict[int, bytes],
     raman_stats: Optional[List[PeakStat]],
-    raman_fit_images: Dict[int, bytes],
+    raman_fit_columns: Dict[int, bytes],
     pl_stats: Optional[List[PeakStat]],
-    pl_fit_images: Dict[int, bytes],
+    pl_fit_columns: Dict[int, bytes],
     raman_amplitude_ratio: Optional[Tuple[float, float, int]] = None,
     raman_amplitude_ratio_label: str = "",
     raman_fit_legend: Optional[List[Tuple[str, str]]] = None,
     pl_fit_legend: Optional[List[Tuple[str, str]]] = None,
-    raman_x_label: str = "Raman Shift (cm\u207b\u00b9)",
+    raman_x_label: str = "Raman Shift (cm⁻¹)",
     pl_x_label: str = "Wavelength (nm)",
+    fit_y_label: str = "Normalized intensity",
 ) -> bytes:
     """Build the three-slide sample report and return .pptx bytes.
 
@@ -97,8 +102,13 @@ def build_sample_report_pptx(
     peak_stats.compute_peak_amplitude_ratio) appended as a final, bolded row
     of the Raman fit-summary table; omitted entirely when None.
 
+    `raman_fit_columns`/`pl_fit_columns` map column index (0, 1, 2) to one PNG
+    holding that column's three stacked points — 0 is points 1/4/7, 1 is 2/5/8,
+    2 is 3/6/9 — rendered at FIT_COLUMN_ASPECT_RATIO. A missing column becomes
+    a placeholder.
+
     `raman_fit_legend`/`pl_fit_legend` are (label, "#RRGGBB") pairs describing
-    the traces in that technique's grid, drawn once above it. The cell images
+    the traces in that technique's grid, drawn once above it. The column images
     are expected to carry no legend of their own; passing None just omits it.
     """
     prs = Presentation()
@@ -117,14 +127,14 @@ def build_sample_report_pptx(
     raman_slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_title_bar(raman_slide, sample_name, material_name, report_date, subtitle="Raman — fitted spectra (9 points)")
     _add_fit_legend(raman_slide, raman_fit_legend)
-    _add_fit_axis_titles(raman_slide, raman_x_label)
-    _add_fit_grid(raman_slide, raman_fit_images)
+    _add_fit_axis_titles(raman_slide, raman_x_label, fit_y_label)
+    _add_fit_columns(raman_slide, raman_fit_columns)
 
     pl_slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_title_bar(pl_slide, sample_name, material_name, report_date, subtitle="PL — fitted spectra (9 points)")
     _add_fit_legend(pl_slide, pl_fit_legend)
-    _add_fit_axis_titles(pl_slide, pl_x_label)
-    _add_fit_grid(pl_slide, pl_fit_images)
+    _add_fit_axis_titles(pl_slide, pl_x_label, fit_y_label)
+    _add_fit_columns(pl_slide, pl_fit_columns)
 
     buf = io.BytesIO()
     prs.save(buf)
@@ -225,14 +235,14 @@ def _add_fit_legend(slide, entries: Optional[List[Tuple[str, str]]]) -> None:
         tf.paragraphs[0].font.size = _LEGEND_FONT
 
 
-def _add_fit_axis_titles(slide, x_label: str) -> None:
-    """The axis titles the grid cells no longer carry, written once each: the
-    Y title rotated in the left gutter, the X title centered under the grid."""
+def _add_fit_axis_titles(slide, x_label: str, y_label: str) -> None:
+    """The axis titles the column images no longer carry, written once each:
+    the Y title rotated in the left gutter, the X title centered underneath."""
     y_box = slide.shapes.add_textbox(
         Inches(_CONTENT_LEFT), Inches(_FIT_GRID_TOP), Inches(_FIT_YLABEL_W), Inches(_FIT_GRID_H)
     )
     y_tf = y_box.text_frame
-    y_tf.text = _FIT_Y_LABEL
+    y_tf.text = y_label
     y_tf.word_wrap = False
     y_tf.vertical_anchor = MSO_ANCHOR.MIDDLE
     y_tf.paragraphs[0].alignment = PP_ALIGN.CENTER
@@ -252,23 +262,22 @@ def _add_fit_axis_titles(slide, x_label: str) -> None:
     x_tf.paragraphs[0].font.size = _AXIS_LABEL_FONT
 
 
-def _add_fit_grid(slide, fit_images: Dict[int, bytes]) -> None:
-    """3x3 grid of each point's individually fitted spectrum. Points with no
-    successful fit (or an entirely omitted technique) render as placeholder
-    cells. The legend and axis titles are added separately, once per slide."""
-    cell_w = (_FIT_GRID_W - 2 * _FIT_GRID_GUTTER) / 3
-    cell_h = (_FIT_GRID_H - 2 * _FIT_GRID_GUTTER) / 3
+def _add_fit_columns(slide, column_images: Dict[int, bytes]) -> None:
+    """The grid, as three full-height columns side by side.
 
-    for point in range(1, 10):
-        row, col = divmod(point - 1, 3)
-        cell_left = _FIT_GRID_LEFT + col * (cell_w + _FIT_GRID_GUTTER)
-        cell_top = _FIT_GRID_TOP + row * (cell_h + _FIT_GRID_GUTTER)
+    A column arrives as one image because its three points share an X-axis,
+    which only holds if they are drawn in a single figure. A column with no
+    image (an omitted technique, or every point in it failing to fit) renders
+    as a placeholder, keeping the other columns in their usual positions. The
+    legend and axis titles are added separately, once per slide."""
+    for col in range(FIT_GRID_COLUMNS):
+        col_left = _FIT_GRID_LEFT + col * (_FIT_COLUMN_W + _FIT_GRID_GUTTER)
 
-        image_bytes = fit_images.get(point)
+        image_bytes = column_images.get(col)
         if image_bytes is not None:
-            _fit_picture(slide, image_bytes, cell_left, cell_top, cell_w, cell_h)
+            _fit_picture(slide, image_bytes, col_left, _FIT_GRID_TOP, _FIT_COLUMN_W, _FIT_GRID_H)
         else:
-            _add_placeholder(slide, cell_left, cell_top, cell_w, cell_h)
+            _add_placeholder(slide, col_left, _FIT_GRID_TOP, _FIT_COLUMN_W, _FIT_GRID_H)
 
 
 def _add_stats_table(
