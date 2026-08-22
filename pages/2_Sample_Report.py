@@ -19,7 +19,7 @@ from core.report.pptx import FIT_COLUMN_ASPECT_RATIO, FIT_GRID_COLUMNS, build_sa
 from modules.spectra.io.preset_store import load_presets
 from core.io.report_settings import load_default_material, save_default_material
 from core.report.slides import render_slides_to_png
-from modules.spectra.processing.peak_metrics import aggregate_fit_results, compute_peak_amplitude_ratio
+from modules.spectra.processing.peak_metrics import aggregate_fit_results, compute_peak_height_ratio
 from modules.spectra.processing.sample_batch import run_sample_batch
 from modules.spectra.processing.sample_scanner import default_magnification, scan_sample_folder
 from modules.spectra.ui.sample_report_state import get_sample_report_state
@@ -31,13 +31,14 @@ from modules.spectra.viz.fit_plot import (
     y_axis_title,
 )
 
-# WSe2-specific defect/strain indicator: LA mode amplitude relative to the
+# WSe2-specific defect/strain indicator: LA mode height relative to the
 # E2g+A1g in-plane mode, appended as an extra row of the Raman fit-summary
 # table. Omitted automatically for any material/fit where either peak label
-# isn't present (see compute_peak_amplitude_ratio).
+# isn't present (see compute_peak_height_ratio). The label marks it as a
+# median, because the peak rows above it are means.
 _RAMAN_RATIO_NUMERATOR = "LA"
 _RAMAN_RATIO_DENOMINATOR = "E2g+A1g"
-_RAMAN_RATIO_LABEL = f"{_RAMAN_RATIO_NUMERATOR} / {_RAMAN_RATIO_DENOMINATOR} ratio"
+_RAMAN_RATIO_LABEL = f"{_RAMAN_RATIO_NUMERATOR} / {_RAMAN_RATIO_DENOMINATOR} (median)"
 
 _SLIDE_CAPTIONS = ["Overview — OM + fit summary", "Raman — fitted spectra", "PL — fitted spectra"]
 
@@ -227,7 +228,7 @@ if scan is not None:
                 if batch_result.pl_spectra else None
             )
             raman_ratio = (
-                compute_peak_amplitude_ratio(
+                compute_peak_height_ratio(
                     [s.fit_result for _, s in batch_result.raman_spectra],
                     _RAMAN_RATIO_NUMERATOR, _RAMAN_RATIO_DENOMINATOR,
                 )

@@ -35,7 +35,7 @@ def _stat(label="Exciton", n=9):
     return PeakStat(
         label=label, n=n,
         center_mean=766.5, center_std=0.7,
-        amplitude_mean=12000.0, amplitude_std=1500.0,
+        height_mean=12000.0, height_std=1500.0,
         fwhm_mean=25.0, fwhm_std=1.2,
     )
 
@@ -141,7 +141,9 @@ class TestBuildSampleReportPptx:
         assert len(raman_table.rows) == 4
         ratio_row = [c.text for c in raman_table.rows[3].cells]
         assert ratio_row[0] == "LA / E2g+A1g ratio"
-        assert ratio_row[2] == "0.59 ± 0.08"  # value sits in the Amplitude column
+        # Median +/- MAD, to three decimals: these ratios run around 0.1, where
+        # two decimals would round away the variation the row exists to show.
+        assert ratio_row[2] == "0.590 ± 0.080"  # value sits in the Amplitude column
         assert ratio_row[4] == "9"
 
         # ...and nowhere outside the table

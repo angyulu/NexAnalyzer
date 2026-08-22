@@ -2,21 +2,21 @@
 Metrics derived from a fit result: the per-peak numbers every reporting
 surface displays, and their aggregation across a set of fits.
 
-Two amplitude conventions coexist deliberately, so read carefully before
-adding a caller:
+Every reporting surface uses **height** — the fitted curve's maximum, via
+`peak_height_and_stderr` — because it's the number spectroscopists read off a
+plot. The on-screen Fit Results table, the exported CSVs, the Sample Report's
+summary tables and its LA/E2g+A1g ratio all agree on it.
 
-- **height** (`peak_height_and_stderr`) — the fitted curve's maximum. This is
-  what the on-screen Fit Results table and the exported CSVs report, because
-  it's the number spectroscopists read off a plot.
-- **integrated intensity** (`FittedPeak.amplitude`, used by
-  `aggregate_fit_results` and `compute_peak_amplitude_ratio`) — lmfit's own
-  amplitude, i.e. area under the peak (height x FWHM x 1.064 for a Voigt).
-  This is what the Sample Report's summary tables and its LA/E2g+A1g ratio
-  report.
+The other convention still exists on the model: `FittedPeak.amplitude` is
+lmfit's own amplitude, i.e. **integrated intensity** — area under the peak,
+height x FWHM x 1.064 for a Voigt. It is what the fitter solves for, and the
+two diverge whenever peaks have unequal widths: WSe2's LA mode is ~6x broader
+than E2g+A1g, so their area ratio is ~4.3x their height ratio. The Sample
+Report used to report area under an "Amplitude" heading, which made it
+disagree with the CSV that named the same column the same thing.
 
-Both are legitimate; they differ whenever peaks have unequal widths. Keeping
-them in one module makes the choice explicit at each call site instead of
-re-deriving either rule inline.
+Don't reintroduce that. If a caller genuinely wants area, take
+`FittedPeak.amplitude` explicitly and label it "integrated".
 """
 
 from typing import List, NamedTuple, Optional, Tuple
@@ -94,14 +94,16 @@ def raw_peak_stats(x: np.ndarray, y: np.ndarray) -> Optional[RawPeakStats]:
 def aggregate_fit_results(fit_results: List[FitResult]) -> List[PeakStat]:
     """
     Group fitted peaks by label across `fit_results` and compute mean/std/n
-    of center, amplitude, and width_fwhm for each label.
+    of center, height, and width_fwhm for each label.
+
+    Height, not lmfit's integrated amplitude — see the module docstring.
 
     Label order follows first-seen order. Standard deviation uses ddof=1
     when n > 1, else 0.0 (a single point has no spread). Callers should
     pass only successful fits; `FitResult.success` is not checked here.
     """
     centers: dict = {}
-    amplitudes: dict = {}
+    heights: dict = {}
     fwhms: dict = {}
     order: List[str] = []
 
@@ -109,11 +111,11 @@ def aggregate_fit_results(fit_results: List[FitResult]) -> List[PeakStat]:
         for peak in fit_result.fitted_peaks:
             if peak.label not in centers:
                 centers[peak.label] = []
-                amplitudes[peak.label] = []
+                heights[peak.label] = []
                 fwhms[peak.label] = []
                 order.append(peak.label)
             centers[peak.label].append(peak.center)
-            amplitudes[peak.label].append(peak.amplitude)
+            heights[peak.label].append(peak_height(peak))
             fwhms[peak.label].append(peak.width_fwhm)
 
     stats = []
@@ -125,8 +127,8 @@ def aggregate_fit_results(fit_results: List[FitResult]) -> List[PeakStat]:
             n=n,
             center_mean=float(np.mean(centers[label])),
             center_std=float(np.std(centers[label], ddof=ddof)) if n > 1 else 0.0,
-            amplitude_mean=float(np.mean(amplitudes[label])),
-            amplitude_std=float(np.std(amplitudes[label], ddof=ddof)) if n > 1 else 0.0,
+            height_mean=float(np.mean(heights[label])),
+            height_std=float(np.std(heights[label], ddof=ddof)) if n > 1 else 0.0,
             fwhm_mean=float(np.mean(fwhms[label])),
             fwhm_std=float(np.std(fwhms[label], ddof=ddof)) if n > 1 else 0.0,
         ))
@@ -134,31 +136,41 @@ def aggregate_fit_results(fit_results: List[FitResult]) -> List[PeakStat]:
     return stats
 
 
-def compute_peak_amplitude_ratio(
+def compute_peak_height_ratio(
     fit_results: List[FitResult], numerator_label: str, denominator_label: str
 ) -> Optional[Tuple[float, float, int]]:
     """
-    Aggregate the per-point amplitude ratio `numerator_label` / `denominator_label`
-    (e.g. "LA" / "E2g+A1g" for WSe2 Raman) across `fit_results`.
+    The per-point peak-height ratio `numerator_label` / `denominator_label`
+    (e.g. "LA" / "E2g+A1g" for WSe2 Raman), summarized across `fit_results`.
 
-    The ratio is computed per point first, then averaged — not mean(numerator)
-    / mean(denominator) — so it reflects the actual point-to-point ratio
-    spread. Points missing either peak (or with a zero denominator) are
-    skipped. Returns (mean, std, n), or None if no point has both peaks.
+    The ratio is formed per point first, then summarized — not
+    mean(numerator) / mean(denominator) — so it describes the actual
+    point-to-point ratio rather than a ratio of two separately averaged
+    numbers. On a 9-point grid the two agree to well under a percent, but only
+    the per-point form has a meaningful spread attached.
+
+    Summarized by **median and median absolute deviation**, not mean and
+    standard deviation: one badly fitted point moves a 9-point mean noticeably,
+    and a ratio of two fitted quantities is exactly where that happens.
+
+    Heights, not lmfit's integrated amplitudes — see the module docstring; for
+    peaks of unequal width the two ratios differ by a large factor.
+
+    Points missing either peak (or with a zero denominator) are skipped.
+    Returns (median, mad, n), or None if no point has both peaks.
     """
     ratios = []
     for fit_result in fit_results:
-        amplitudes = {peak.label: peak.amplitude for peak in fit_result.fitted_peaks}
-        numerator = amplitudes.get(numerator_label)
-        denominator = amplitudes.get(denominator_label)
+        heights = {peak.label: peak_height(peak) for peak in fit_result.fitted_peaks}
+        numerator = heights.get(numerator_label)
+        denominator = heights.get(denominator_label)
         if numerator is not None and denominator:
             ratios.append(numerator / denominator)
 
     if not ratios:
         return None
 
-    n = len(ratios)
-    ddof = 1 if n > 1 else 0
-    mean = float(np.mean(ratios))
-    std = float(np.std(ratios, ddof=ddof)) if n > 1 else 0.0
-    return (mean, std, n)
+    values = np.asarray(ratios, dtype=float)
+    median = float(np.median(values))
+    mad = float(np.median(np.abs(values - median)))
+    return (median, mad, len(ratios))

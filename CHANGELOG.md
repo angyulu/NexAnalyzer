@@ -5,6 +5,32 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-08-22
+
+### Fixed
+- **The Sample Report's "Amplitude" column reported a different quantity from
+  every other surface in the app.** The CSV export and the on-screen Fit
+  Results table report peak *height*; the .pptx summary table and its
+  LA/E2g+A1g ratio reported lmfit's integrated intensity (area = height x FWHM
+  x 1.064) under the same heading. Because WSe2's LA mode is ~6x broader than
+  E2g+A1g, their area ratio is ~4.3x their height ratio, so a report could
+  never be reconciled against the CSV it came from. The report now uses height
+  throughout. On VBBA14, E2g+A1g reads 299.6 rather than 3440.9 and the ratio
+  0.114 rather than 0.527.
+
+### Changed
+- **The peak ratio is now the median of the per-point ratios**, with the median
+  absolute deviation as its spread, rather than the mean and standard
+  deviation. A ratio of two fitted quantities is where one badly fitted point
+  drags a 9-point mean somewhere no measurement supports. The row is labelled
+  "(median)" since the peak rows above it are means, and it prints three
+  decimals — at ratios around 0.1, two rounded away the variation the row
+  exists to show.
+- `compute_peak_amplitude_ratio` is now `compute_peak_height_ratio` and returns
+  `(median, MAD, n)`; `PeakStat.amplitude_*` is now `PeakStat.height_*`. Both
+  renamed rather than redefined so callers fail loudly instead of silently
+  reporting a different quantity.
+
 ## [3.2.2] - 2026-08-22
 
 ### Changed

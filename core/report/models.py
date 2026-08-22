@@ -46,13 +46,20 @@ class PeakStat:
     """
     Mean/std/n of one fitted peak's parameters, aggregated across a
     technique's per-point fits (grouped by ``FittedPeak.label``).
+
+    ``height_*`` is peak height — the maximum of the fitted component curve —
+    which is the same quantity the CSV export and the on-screen Fit Results
+    table call "Amplitude". It is deliberately *not* lmfit's
+    ``FittedPeak.amplitude``, which is integrated intensity (area) and differs
+    by a factor of FWHM x 1.064; reporting that here made the .pptx disagree
+    with every other surface while using the same column heading.
     """
 
     label: str
     n: int
     center_mean: float
     center_std: float
-    amplitude_mean: float
-    amplitude_std: float
+    height_mean: float
+    height_std: float
     fwhm_mean: float
     fwhm_std: float

@@ -99,9 +99,9 @@ def build_sample_report_pptx(
 ) -> bytes:
     """Build the three-slide sample report and return .pptx bytes.
 
-    `raman_amplitude_ratio`, if given, is (mean, std, n) of a per-point
-    amplitude ratio (e.g. LA/E2g+A1g for WSe2 Raman — see
-    peak_stats.compute_peak_amplitude_ratio) appended as a final, bolded row
+    `raman_amplitude_ratio`, if given, is (median, MAD, n) of a per-point
+    peak-height ratio (e.g. LA/E2g+A1g for WSe2 Raman — see
+    peak_metrics.compute_peak_height_ratio) appended as a final, bolded row
     of the Raman fit-summary table; omitted entirely when None.
 
     `raman_fit_columns`/`pl_fit_columns` map column index (0, 1, 2) to one PNG
@@ -289,8 +289,9 @@ def _add_stats_table(
     """One technique's fit-summary table.
 
     `ratio`, if given, is appended as a final bolded row: its label in the
-    Peak column and `mean ± std` in the Amplitude column (it is an amplitude
-    ratio), with center/FWHM dashed out since they don't apply.
+    Peak column and `median ± MAD` in the Amplitude column (it is a ratio of
+    heights), with center/FWHM dashed out since they don't apply. The label is
+    expected to mark it as a median, since the peak rows above are means.
     """
     caption = slide.shapes.add_textbox(
         Inches(left), Inches(top - _TABLE_CAPTION_GAP), Inches(w), Inches(_TABLE_CAPTION_GAP)
@@ -325,7 +326,7 @@ def _add_stats_table(
         values = [
             stat.label,
             f"{stat.center_mean:.1f} ± {stat.center_std:.1f}",
-            f"{stat.amplitude_mean:.1f} ± {stat.amplitude_std:.1f}",
+            f"{stat.height_mean:.1f} ± {stat.height_std:.1f}",
             f"{stat.fwhm_mean:.1f} ± {stat.fwhm_std:.1f}",
             str(stat.n),
         ]
@@ -335,8 +336,10 @@ def _add_stats_table(
             cell.text_frame.paragraphs[0].font.size = font_size
 
     if ratio is not None:
-        mean, std, n = ratio
-        values = [ratio_label, "—", f"{mean:.2f} ± {std:.2f}", "—", str(n)]
+        median, mad, n = ratio
+        # Three decimals: these ratios run around 0.1, where two would round
+        # away most of the point-to-point variation the row exists to show.
+        values = [ratio_label, "—", f"{median:.3f} ± {mad:.3f}", "—", str(n)]
         for c, value in enumerate(values):
             cell = table.cell(n_rows - 1, c)
             cell.text = value

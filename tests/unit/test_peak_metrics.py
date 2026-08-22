@@ -5,19 +5,28 @@ import numpy as np
 from modules.spectra.models.peak import FitResult, FittedPeak
 from modules.spectra.processing.peak_metrics import (
     aggregate_fit_results,
-    compute_peak_amplitude_ratio,
+    compute_peak_height_ratio,
     peak_height,
     peak_height_and_stderr,
     raw_peak_stats,
 )
 
 
-def _peak(label, center, amplitude, width_fwhm):
+def _peak(label, center, height, width_fwhm, amplitude=None):
+    """A fitted peak whose component curve peaks at `height`.
+
+    `amplitude` is lmfit's integrated intensity, a different quantity. It
+    defaults to a value clearly unlike the height so that anything reading the
+    wrong one fails loudly rather than looking plausible.
+    """
+    curve = np.zeros(10)
+    curve[5] = height
     return FittedPeak(
         label=label, center=center, center_stderr=0.1,
-        amplitude=amplitude, amplitude_stderr=1.0,
+        amplitude=height * 7.0 if amplitude is None else amplitude,
+        amplitude_stderr=1.0,
         width_fwhm=width_fwhm, width_stderr=0.1,
-        shape=0.3, component_curve=np.zeros(10),
+        shape=0.3, component_curve=curve,
     )
 
 
@@ -43,6 +52,8 @@ class TestAggregateFitResults:
         assert stat.n == 2
         assert stat.center_mean == 767.0
         assert stat.center_std == np.std([766.0, 768.0], ddof=1)
+        assert stat.height_mean == 11000.0
+        assert stat.height_std == np.std([10000.0, 12000.0], ddof=1)
 
     def test_single_fit_has_zero_std(self):
         fits = [_fit_result([_peak("Si", 520.0, 5000.0, 8.0)])]
@@ -50,7 +61,7 @@ class TestAggregateFitResults:
 
         assert stats[0].n == 1
         assert stats[0].center_std == 0.0
-        assert stats[0].amplitude_std == 0.0
+        assert stats[0].height_std == 0.0
         assert stats[0].fwhm_std == 0.0
 
     def test_multiple_labels_preserve_first_seen_order(self):
@@ -75,44 +86,86 @@ class TestAggregateFitResults:
     def test_empty_input_returns_empty_list(self):
         assert aggregate_fit_results([]) == []
 
+    def test_reports_height_not_lmfit_s_integrated_amplitude(self):
+        """The two differ by FWHM x 1.064. Reporting area under a heading the
+        CSV uses for height is what made the .pptx disagree with every other
+        surface in the app."""
+        fits = [_fit_result([_peak("LA", 130.0, height=36.0, width_fwhm=22.0, amplitude=1800.0)])]
 
-class TestComputePeakAmplitudeRatio:
-    def test_ratio_averaged_per_point_not_ratio_of_means(self):
-        fits = [
-            _fit_result([_peak("LA", 130.0, 100.0, 20.0), _peak("E2g+A1g", 250.0, 200.0, 4.0)]),  # ratio 0.5
-            _fit_result([_peak("LA", 130.0, 300.0, 20.0), _peak("E2g+A1g", 250.0, 100.0, 4.0)]),  # ratio 3.0
-        ]
-        mean, std, n = compute_peak_amplitude_ratio(fits, "LA", "E2g+A1g")
+        assert aggregate_fit_results(fits)[0].height_mean == 36.0
+
+
+class TestComputePeakHeightRatio:
+    def _pair(self, la_height, e2g_height, **kwargs):
+        return _fit_result([
+            _peak("LA", 130.0, la_height, 20.0, **kwargs),
+            _peak("E2g+A1g", 250.0, e2g_height, 4.0),
+        ])
+
+    def test_uses_heights_not_lmfit_s_integrated_amplitudes(self):
+        """LA is ~6x broader than E2g+A1g here, so the area ratio and the
+        height ratio are nothing like each other."""
+        fits = [_fit_result([
+            _peak("LA", 130.0, height=10.0, width_fwhm=20.0, amplitude=900.0),
+            _peak("E2g+A1g", 250.0, height=100.0, width_fwhm=4.0, amplitude=300.0),
+        ])]
+        median, _mad, _n = compute_peak_height_ratio(fits, "LA", "E2g+A1g")
+
+        assert median == 0.1  # heights, 10/100
+        assert median != 900.0 / 300.0  # not the integrated-intensity ratio
+
+    def test_ratio_formed_per_point_not_from_the_two_means(self):
+        fits = [self._pair(100.0, 200.0), self._pair(300.0, 100.0)]  # ratios 0.5 and 3.0
+        median, _mad, n = compute_peak_height_ratio(fits, "LA", "E2g+A1g")
 
         assert n == 2
-        assert mean == (0.5 + 3.0) / 2  # per-point average, not mean(LA)/mean(E2g)
-        assert std == np.std([0.5, 3.0], ddof=1)
+        assert median == np.median([0.5, 3.0])
+        # mean(LA)/mean(E2g) would be 200/150 = 1.333
+        assert median != (200.0 / 150.0)
 
-    def test_single_point_has_zero_std(self):
-        fits = [_fit_result([_peak("LA", 130.0, 100.0, 20.0), _peak("E2g+A1g", 250.0, 200.0, 4.0)])]
-        mean, std, n = compute_peak_amplitude_ratio(fits, "LA", "E2g+A1g")
+    def test_median_resists_one_badly_fitted_point(self):
+        """A ratio of two fitted quantities is exactly where one bad point
+        drags a mean somewhere no measurement supports."""
+        fits = [self._pair(50.0, 100.0), self._pair(50.0, 100.0),
+                self._pair(50.0, 100.0), self._pair(500.0, 100.0)]
+        median, _mad, n = compute_peak_height_ratio(fits, "LA", "E2g+A1g")
 
-        assert n == 1
-        assert mean == 0.5
-        assert std == 0.0
+        assert n == 4
+        assert median == 0.5           # the three consistent points
+        assert np.mean([0.5, 0.5, 0.5, 5.0]) == 1.625  # what the mean would have said
+
+    def test_spread_is_the_median_absolute_deviation(self):
+        fits = [self._pair(40.0, 100.0), self._pair(50.0, 100.0), self._pair(70.0, 100.0)]
+        _median, mad, _n = compute_peak_height_ratio(fits, "LA", "E2g+A1g")
+
+        assert mad == np.median(np.abs(np.array([0.4, 0.5, 0.7]) - 0.5))
+
+    def test_single_point_has_zero_spread(self):
+        median, mad, n = compute_peak_height_ratio([self._pair(100.0, 200.0)], "LA", "E2g+A1g")
+
+        assert (median, mad, n) == (0.5, 0.0, 1)
 
     def test_points_missing_either_peak_are_skipped(self):
-        fits = [
-            _fit_result([_peak("LA", 130.0, 100.0, 20.0), _peak("E2g+A1g", 250.0, 200.0, 4.0)]),
-            _fit_result([_peak("LA", 130.0, 300.0, 20.0)]),  # no E2g+A1g this point
-        ]
-        mean, std, n = compute_peak_amplitude_ratio(fits, "LA", "E2g+A1g")
+        fits = [self._pair(100.0, 200.0), _fit_result([_peak("LA", 130.0, 300.0, 20.0)])]
+        median, _mad, n = compute_peak_height_ratio(fits, "LA", "E2g+A1g")
 
         assert n == 1
-        assert mean == 0.5
+        assert median == 0.5
+
+    def test_a_zero_denominator_is_skipped_rather_than_dividing_by_zero(self):
+        fits = [self._pair(100.0, 200.0), self._pair(100.0, 0.0)]
+        median, _mad, n = compute_peak_height_ratio(fits, "LA", "E2g+A1g")
+
+        assert n == 1
+        assert median == 0.5
 
     def test_no_point_has_both_labels_returns_none(self):
         fits = [_fit_result([_peak("Exciton", 766.0, 10000.0, 25.0)])]
 
-        assert compute_peak_amplitude_ratio(fits, "LA", "E2g+A1g") is None
+        assert compute_peak_height_ratio(fits, "LA", "E2g+A1g") is None
 
     def test_empty_input_returns_none(self):
-        assert compute_peak_amplitude_ratio([], "LA", "E2g+A1g") is None
+        assert compute_peak_height_ratio([], "LA", "E2g+A1g") is None
 
 
 class TestPeakHeightAndStderr:
