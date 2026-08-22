@@ -5,6 +5,17 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.2] - 2026-08-22
+
+### Changed
+- **Report columns drop the Y scale and stack completely flush.** Every panel
+  is normalized to its own peak at 1.0, so a Y axis repeated the same three
+  numbers nine times across a slide. Removing the tick labels, tick marks and
+  horizontal grid also removes the only reason the panels needed a gap and the
+  figures needed a wide left margin, so the panels now touch and the spectra
+  take the width back. The rotated "Normalized intensity" title on the slide
+  still says what the vertical axis is.
+
 ## [3.2.1] - 2026-08-22
 
 ### Changed

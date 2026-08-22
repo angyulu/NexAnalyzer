@@ -51,7 +51,7 @@ _PL_TABLE_TOP = 4.27
 # image. Nine copies of the same key and the same two axis titles were most of
 # what made the individual spectra small; drawn once, the cells keep that space.
 _FIT_LEGEND_TOP, _FIT_LEGEND_H = 0.90, 0.24
-_FIT_YLABEL_W = 0.30  # left gutter holding the rotated Y-axis title
+_FIT_YLABEL_W = 0.26  # left gutter holding the rotated Y-axis title
 _FIT_XLABEL_TOP, _FIT_XLABEL_H = 7.12, 0.28
 
 _FIT_GRID_LEFT = _CONTENT_LEFT + _FIT_YLABEL_W

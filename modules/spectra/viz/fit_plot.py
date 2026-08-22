@@ -327,11 +327,9 @@ def plot_fit_column(
     fig = make_subplots(
         rows=rows, cols=1,
         shared_xaxes=True,  # only the bottom panel keeps tick labels
-        # Hairline gap rather than a real one: the panels are three points of
-        # one measurement, and reading them as a stack is easier when nothing
-        # separates them. Not zero, so adjacent frames don't merge into a
-        # single heavy line.
-        vertical_spacing=0.012,
+        # Truly flush. The gap only ever existed to keep the Y tick labels of
+        # touching panels apart, and there are no Y ticks any more.
+        vertical_spacing=0.0,
     )
 
     x_label = axis_label(mode)
@@ -353,11 +351,16 @@ def plot_fit_column(
         template='plotly_white',
         showlegend=False,
     )
-    # No figure title, and almost no top margin: the slide's title bar names
-    # the sample and technique, and each panel labels itself from the inside.
-    _apply_compact_style(fig, None, dict(l=78, r=18, t=10, b=74))
-    # Three Y ticks (0, half, peak) keep the labels of touching panels apart.
-    fig.update_yaxes(nticks=3)
+    # No figure title, and barely any margin: the slide's title bar names the
+    # sample and technique, each panel labels itself from the inside, and with
+    # no Y ticks the left edge needs nothing but a hairline.
+    _apply_compact_style(fig, None, dict(l=14, r=18, t=10, b=74))
+
+    # Every panel is normalized to its own peak at 1.0, so a Y scale would
+    # repeat the same three numbers nine times. Dropping the labels, the tick
+    # marks and the horizontal grid gives the width and the height back to the
+    # spectra, and lets the panels sit flush.
+    fig.update_yaxes(showticklabels=False, ticks="", showgrid=False, zeroline=False)
 
     # Point numbers go inside their panel rather than above it. A title band
     # above each panel costs height three times over; a corner label costs

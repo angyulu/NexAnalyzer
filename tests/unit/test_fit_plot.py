@@ -251,6 +251,31 @@ class TestPlotFitColumn:
         for axis in (fig.layout.yaxis, fig.layout.yaxis2, fig.layout.yaxis3):
             assert tuple(axis.range) == (-0.1, 1.1)
 
+    def test_no_y_ticks_or_horizontal_grid(self):
+        """Every panel peaks at 1.0 by construction, so a Y scale would repeat
+        the same numbers nine times across the slide."""
+        fig = plot_fit_column(self._points())
+
+        for axis in (fig.layout.yaxis, fig.layout.yaxis2, fig.layout.yaxis3):
+            assert axis.showticklabels is False
+            assert axis.showgrid is False
+
+    def test_panels_sit_flush_against_each_other(self):
+        """With no Y tick labels there is nothing to keep apart, so the gap
+        that separated them goes too."""
+        fig = plot_fit_column(self._points())
+
+        # Row 1 is the top panel, so its domain sits above row 2's.
+        top, middle, bottom = fig.layout.yaxis, fig.layout.yaxis2, fig.layout.yaxis3
+        assert middle.domain[1] == pytest.approx(top.domain[0])
+        assert bottom.domain[1] == pytest.approx(middle.domain[0])
+
+    def test_x_ticks_are_kept_on_the_bottom_panel(self):
+        """Dropping the Y scale doesn't cost the X one, which is still read."""
+        fig = plot_fit_column(self._points())
+
+        assert fig.layout.xaxis3.showticklabels is not False
+
     def test_an_empty_column_is_still_a_valid_figure(self):
         fig = plot_fit_column([])
 
