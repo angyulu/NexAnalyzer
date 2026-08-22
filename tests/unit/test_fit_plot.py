@@ -1,0 +1,162 @@
+"""Unit tests for modules.spectra.viz.fit_plot's shared-scale helpers.
+
+These exist for the Sample Report's 3x3 grids: nine spectra shown together
+need one scale and one legend, which means deriving both from the whole set
+rather than from each figure.
+"""
+
+import numpy as np
+import pytest
+
+from modules.spectra.viz.fit_plot import (
+    DATA_COLOR,
+    FIT_COLOR,
+    fit_legend_entries,
+    plot_composite,
+    shared_axis_ranges,
+)
+
+
+class _Peak:
+    def __init__(self, label, color="#123456", curve=None):
+        self.label = label
+        self.color = color
+        self.component_curve = curve
+
+
+class _Fit:
+    def __init__(self, peaks=(), total=None):
+        self.fitted_peaks = list(peaks)
+        self.total_fit_curve = total
+        self.residuals = None
+
+
+class TestSharedAxisRanges:
+    def test_empty_series_yields_no_ranges(self):
+        assert shared_axis_ranges([]) == (None, None)
+
+    def test_spans_every_series(self):
+        series = [
+            (np.array([10.0, 20.0]), np.array([0.0, 5.0]), None),
+            (np.array([5.0, 30.0]), np.array([-2.0, 8.0]), None),
+        ]
+        x_range, y_range = shared_axis_ranges(series, pad=0.0)
+
+        assert x_range == (5.0, 30.0)
+        assert y_range == (-2.0, 8.0)
+
+    def test_fit_curve_can_exceed_the_data(self):
+        """The fit's peak can overshoot the samples; the frame must still hold it."""
+        series = [(np.array([0.0, 1.0]), np.array([0.0, 1.0]), np.array([0.0, 50.0]))]
+        _x, y_range = shared_axis_ranges(series, pad=0.0)
+
+        assert y_range == (0.0, 50.0)
+
+    def test_pads_y_but_not_x(self):
+        series = [(np.array([0.0, 100.0]), np.array([0.0, 200.0]), None)]
+        x_range, y_range = shared_axis_ranges(series, pad=0.10)
+
+        assert x_range == (0.0, 100.0)  # the crop range is meaningful as-is
+        assert y_range == pytest.approx((-20.0, 220.0))
+
+    def test_flat_spectrum_still_gets_a_visible_range(self):
+        """A zero-height range renders as a single line across the middle."""
+        series = [(np.array([0.0, 1.0]), np.array([7.0, 7.0]), None)]
+        _x, y_range = shared_axis_ranges(series)
+
+        assert y_range[0] < 7.0 < y_range[1]
+
+    def test_all_zero_spectrum_does_not_collapse(self):
+        series = [(np.array([0.0, 1.0]), np.array([0.0, 0.0]), None)]
+        _x, y_range = shared_axis_ranges(series)
+
+        assert y_range[1] > y_range[0]
+
+    def test_empty_x_is_skipped_not_fatal(self):
+        series = [
+            (np.array([]), np.array([]), None),
+            (np.array([1.0, 2.0]), np.array([3.0, 4.0]), None),
+        ]
+        x_range, _y = shared_axis_ranges(series, pad=0.0)
+
+        assert x_range == (1.0, 2.0)
+
+
+class TestFitLegendEntries:
+    def test_data_and_total_fit_come_first(self):
+        entries = fit_legend_entries([])
+
+        assert entries == [("Data", DATA_COLOR), ("Total Fit", FIT_COLOR)]
+
+    def test_peaks_follow_in_first_seen_order_with_their_colors(self):
+        fit = _Fit([_Peak("E2g", "#EF482E"), _Peak("2LA", "#D5EF2E")])
+
+        assert fit_legend_entries([fit])[2:] == [("E2g", "#EF482E"), ("2LA", "#D5EF2E")]
+
+    def test_takes_the_union_across_points(self):
+        """One point failing to resolve a peak shouldn't drop it from the key."""
+        entries = fit_legend_entries([_Fit([_Peak("A")]), _Fit([_Peak("A"), _Peak("B")])])
+
+        assert [label for label, _c in entries[2:]] == ["A", "B"]
+
+    def test_repeated_peaks_appear_once(self):
+        entries = fit_legend_entries([_Fit([_Peak("A")])] * 9)
+
+        assert [label for label, _c in entries[2:]] == ["A"]
+
+    def test_none_and_unfitted_results_are_skipped(self):
+        entries = fit_legend_entries([None, _Fit([]), _Fit([_Peak("A")])])
+
+        assert [label for label, _c in entries[2:]] == ["A"]
+
+    def test_unlabeled_peak_gets_a_positional_name(self):
+        entries = fit_legend_entries([_Fit([_Peak("")])])
+
+        assert entries[2][0] == "Peak 1"
+
+
+class TestPlotCompositeGridOptions:
+    """The options the Sample Report grid relies on."""
+
+    def _fig(self, **kwargs):
+        x = np.linspace(0.0, 10.0, 20)
+        return plot_composite(
+            x=x, y_data=np.sin(x), fit_result=None, mode="Raman", show_residuals=False, **kwargs
+        )
+
+    def test_legend_can_be_suppressed(self):
+        assert self._fig(show_legend=False).layout.showlegend is False
+        assert self._fig().layout.showlegend is True
+
+    def test_explicit_ranges_are_applied(self):
+        fig = self._fig(x_range=(0.0, 400.0), y_range=(-10.0, 800.0))
+
+        assert tuple(fig.layout.xaxis.range) == (0.0, 400.0)
+        assert tuple(fig.layout.yaxis.range) == (-10.0, 800.0)
+
+    def test_no_ranges_leaves_autoscaling_alone(self):
+        fig = self._fig()
+
+        assert fig.layout.xaxis.range is None
+        assert fig.layout.yaxis.range is None
+
+    def test_compact_drops_the_axis_titles_the_slide_provides(self):
+        compact = self._fig(compact=True)
+        normal = self._fig()
+
+        assert compact.layout.xaxis.title.text is None
+        assert compact.layout.yaxis.title.text is None
+        assert normal.layout.xaxis.title.text == "Raman Shift (cm⁻¹)"
+        assert normal.layout.yaxis.title.text == "Intensity (a.u.)"
+
+    def test_compact_enlarges_text_for_the_shrunken_render(self):
+        assert self._fig(compact=True).layout.font.size > 20
+
+    def test_components_use_each_peak_s_configured_color(self):
+        x = np.linspace(0.0, 10.0, 20)
+        fit = _Fit([_Peak("A", "#EF482E", np.sin(x))], total=np.sin(x))
+
+        fig = plot_composite(x=x, y_data=np.sin(x), fit_result=fit, show_residuals=False)
+        component = next(t for t in fig.data if t.name == "A")
+
+        assert component.line.color == "#EF482E"

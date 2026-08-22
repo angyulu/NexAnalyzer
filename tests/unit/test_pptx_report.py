@@ -20,6 +20,17 @@ def _tables(slide):
     return [shape.table for shape in slide.shapes if shape.has_table]
 
 
+def _texts(slide):
+    """Every piece of text on `slide`."""
+    return [shape.text_frame.text for shape in slide.shapes if shape.has_text_frame]
+
+
+def _fit_slides(result):
+    """The two 3x3 fitted-spectrum slides (Raman, then PL)."""
+    prs = Presentation(io.BytesIO(result))
+    return prs.slides[1], prs.slides[2]
+
+
 def _stat(label="Exciton", n=9):
     return PeakStat(
         label=label, n=n,
@@ -152,3 +163,71 @@ class TestBuildSampleReportPptx:
 
         overview_texts = [s.text_frame.text for s in prs.slides[0].shapes if s.has_text_frame]
         assert not any("ratio" in t for t in overview_texts)
+
+
+class TestFitGridLegendAndAxisTitles:
+    """Slides 2 and 3 carry one legend and one pair of axis titles for all
+    nine cells, so the cell images don't have to repeat them."""
+
+    _LEGEND = [("Data", "#1f77b4"), ("Total Fit", "#ff7f0e"), ("E2g+A1g", "#EF482E")]
+
+    def _build(self, **kwargs):
+        return build_sample_report_pptx(
+            sample_name="VBBA14", material_name="WSe2", report_date="2026-08-22",
+            magnification_label=None, om_image_bytes={},
+            raman_stats=None, raman_fit_images={p: _tiny_png() for p in range(1, 10)},
+            pl_stats=None, pl_fit_images={p: _tiny_png() for p in range(1, 10)},
+            **kwargs,
+        )
+
+    def test_legend_labels_appear_once_on_their_slide(self):
+        raman_slide, pl_slide = _fit_slides(self._build(raman_fit_legend=self._LEGEND))
+        texts = _texts(raman_slide)
+
+        for label, _color in self._LEGEND:
+            assert texts.count(label) == 1, f"{label} should appear exactly once"
+        # ...and only on the technique it was given for.
+        assert "E2g+A1g" not in _texts(pl_slide)
+
+    def test_each_legend_entry_gets_a_swatch_in_its_color(self):
+        raman_slide, _pl = _fit_slides(self._build(raman_fit_legend=self._LEGEND))
+
+        # Swatches are the only filled autoshapes on a fit slide besides the
+        # title rule, which is dark grey.
+        fills = {
+            str(s.fill.fore_color.rgb)
+            for s in raman_slide.shapes
+            if s.shape_type == 1 and s.has_text_frame and s.text_frame.text == ""
+        }
+        for _label, color in self._LEGEND:
+            assert color.lstrip("#").upper() in fills
+
+    def test_no_legend_when_none_given(self):
+        """A technique with no fits gets an all-placeholder slide and no key."""
+        raman_slide, _pl = _fit_slides(self._build(raman_fit_legend=None))
+        texts = _texts(raman_slide)
+
+        assert "Data" not in texts
+        assert "Total Fit" not in texts
+
+    def test_both_grid_slides_carry_the_axis_titles(self):
+        raman_slide, pl_slide = _fit_slides(self._build())
+
+        assert "Intensity (a.u.)" in _texts(raman_slide)
+        assert "Intensity (a.u.)" in _texts(pl_slide)
+
+    def test_x_axis_title_names_the_technique_s_own_units(self):
+        raman_slide, pl_slide = _fit_slides(self._build())
+
+        assert "Raman Shift (cm\u207b\u00b9)" in _texts(raman_slide)
+        assert "Wavelength (nm)" in _texts(pl_slide)
+
+    def test_x_axis_title_is_overridable(self):
+        raman_slide, _pl = _fit_slides(self._build(raman_x_label="Energy (eV)"))
+
+        assert "Energy (eV)" in _texts(raman_slide)
+
+    def test_overview_slide_has_no_grid_axis_titles(self):
+        prs = Presentation(io.BytesIO(self._build(raman_fit_legend=self._LEGEND)))
+
+        assert "Intensity (a.u.)" not in _texts(prs.slides[0])

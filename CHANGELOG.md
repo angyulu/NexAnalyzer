@@ -5,6 +5,30 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-08-22
+
+### Changed
+- **Sample Report, slides 2 and 3: all nine points now share one pair of axes.**
+  Each point's spectrum was autoscaled independently, so every point's strongest
+  peak filled its own frame and a weak point looked exactly like a strong one —
+  the grid showed nine spectra but said nothing about uniformity across the
+  wafer. `shared_axis_ranges()` derives one X and Y range covering every point
+  (data and fit curve, with 5% headroom on Y), and every cell is drawn on it.
+- **One legend per slide instead of nine.** The legend is drawn on the slide as
+  PowerPoint shapes above the grid, not rendered into each cell image. Peak
+  components now take their color from the peak's Material Preset rather than
+  Plotly's automatic cycling, so a peak is the same color in every cell and one
+  key describes them all.
+- **The axis titles moved to the slide too** — the Y title rotated in the left
+  gutter, the X title centered under the grid — so the two labels appear once
+  rather than eighteen times.
+- **The spectra are substantially larger and legible.** Beyond the space the
+  legend and axis titles gave back, the cell text was badly undersized: a
+  figure rendered ~460px tall and placed in a 1.9-inch cell puts one figure
+  pixel at about a third of a point, so Plotly's defaults were landing near
+  3pt on the slide. Compact figures now set their fonts and stroke weights for
+  the size they are actually displayed at, and render at 2x scale.
+
 ## [3.0.0] - 2026-08-21
 
 Renamed to **NexAnalyzer** and restructured from a single-purpose spectrum fitter into a

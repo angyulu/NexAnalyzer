@@ -23,7 +23,7 @@ from modules.spectra.processing.peak_metrics import aggregate_fit_results, compu
 from modules.spectra.processing.sample_batch import run_sample_batch
 from modules.spectra.processing.sample_scanner import default_magnification, scan_sample_folder
 from modules.spectra.ui.sample_report_state import get_sample_report_state
-from modules.spectra.viz.fit_plot import plot_composite
+from modules.spectra.viz.fit_plot import fit_legend_entries, plot_composite, shared_axis_ranges
 
 # WSe2-specific defect/strain indicator: LA mode amplitude relative to the
 # E2g+A1g in-plane mode, appended as an extra row of the Raman fit-summary
@@ -156,6 +156,19 @@ if scan is not None:
             fit_height_px = round(fit_width_px / FIT_GRID_ASPECT_RATIO)
 
             def _build_fit_images(point_spectra, mode):
+                # One scale across all nine points. Left to autoscale, every
+                # point's strongest peak fills its own frame, so a weak point
+                # looks identical to a strong one and the grid says nothing
+                # about uniformity across the wafer.
+                x_range, y_range = shared_axis_ranges(
+                    (
+                        s.processed_data.X,
+                        s.processed_data.Y,
+                        s.fit_result.total_fit_curve if s.fit_result else None,
+                    )
+                    for _point, s in point_spectra
+                )
+
                 images = {}
                 for point, spectrum in point_spectra:
                     fig = plot_composite(
@@ -166,14 +179,32 @@ if scan is not None:
                         title=f"Point {point}",
                         show_components=True,
                         show_residuals=False,
+                        # The legend and axis titles are drawn once on the
+                        # slide instead of in all nine cells; compact reclaims
+                        # the margin they were using for the spectrum itself.
+                        show_legend=False,
+                        compact=True,
+                        x_range=x_range,
+                        y_range=y_range,
                     )
                     images[point] = export_figure_png(
-                        fig, width=fit_width_px, height=fit_height_px, scale=1.5
+                        fig, width=fit_width_px, height=fit_height_px, scale=2.0
                     )
                 return images
 
             raman_fit_images = _build_fit_images(batch_result.raman_spectra, "Raman")
             pl_fit_images = _build_fit_images(batch_result.pl_spectra, "PL")
+
+            # Keys for those grids. None where the technique produced no fits,
+            # so an all-placeholder slide doesn't get a legend for nothing.
+            raman_legend = (
+                fit_legend_entries([s.fit_result for _, s in batch_result.raman_spectra])
+                if batch_result.raman_spectra else None
+            )
+            pl_legend = (
+                fit_legend_entries([s.fit_result for _, s in batch_result.pl_spectra])
+                if batch_result.pl_spectra else None
+            )
 
             state["raman_stats"] = (
                 aggregate_fit_results([s.fit_result for _, s in batch_result.raman_spectra])
@@ -214,6 +245,8 @@ if scan is not None:
                 pl_fit_images=pl_fit_images,
                 raman_amplitude_ratio=raman_ratio,
                 raman_amplitude_ratio_label=_RAMAN_RATIO_LABEL,
+                raman_fit_legend=raman_legend,
+                pl_fit_legend=pl_legend,
             )
 
             try:

@@ -6,7 +6,8 @@ Layout (16:9 slides):
   Raman fit-summary table (optionally with a trailing amplitude-ratio row)
   stacked above the PL fit-summary table on the right half.
 - Slide 2: 3x3 grid of each Raman point's individual fitted spectrum
-  (data + total fit curve).
+  (data + total fit curve), under one legend and one pair of axis titles
+  serving all nine cells.
 - Slide 3: same, for PL.
 """
 
@@ -17,7 +18,8 @@ from PIL import Image
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import MSO_ANCHOR
+from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 
 from .models import PeakStat
@@ -44,9 +46,23 @@ _RAMAN_TABLE_TOP = 1.22
 _RAMAN_TABLE_H = 2.73
 _PL_TABLE_TOP = 4.27
 
-# ---- Slides 2 & 3: full-width 3x3 fitted-spectrum grid ----
-_FIT_GRID_W, _FIT_GRID_H = _CONTENT_W, 6.35
-_FIT_GRID_GUTTER = 0.12
+# ---- Slides 2 & 3: 3x3 fitted-spectrum grid, with one shared legend ----
+# The legend and axis titles live on the slide rather than inside each cell
+# image. Nine copies of the same key and the same two axis titles were most of
+# what made the individual spectra small; drawn once, the cells keep that space.
+_FIT_LEGEND_TOP, _FIT_LEGEND_H = 0.92, 0.26
+_FIT_YLABEL_W = 0.32  # left gutter holding the rotated Y-axis title
+_FIT_XLABEL_TOP, _FIT_XLABEL_H = 7.06, 0.30
+
+_FIT_GRID_LEFT = _CONTENT_LEFT + _FIT_YLABEL_W
+_FIT_GRID_TOP = 1.24
+_FIT_GRID_W = SLIDE_WIDTH_IN - _FIT_GRID_LEFT - _CONTENT_LEFT
+_FIT_GRID_H = 5.78
+_FIT_GRID_GUTTER = 0.10
+
+_FIT_Y_LABEL = "Intensity (a.u.)"
+_LEGEND_SWATCH_W, _LEGEND_SWATCH_H, _LEGEND_GAP = 0.20, 0.05, 0.06
+_LEGEND_FONT, _AXIS_LABEL_FONT = Pt(12), Pt(12)
 
 # Public: callers rendering the per-point fit Plotly figures to PNG (e.g.
 # via export_figure_png) should match this aspect ratio, otherwise
@@ -69,6 +85,10 @@ def build_sample_report_pptx(
     pl_fit_images: Dict[int, bytes],
     raman_amplitude_ratio: Optional[Tuple[float, float, int]] = None,
     raman_amplitude_ratio_label: str = "",
+    raman_fit_legend: Optional[List[Tuple[str, str]]] = None,
+    pl_fit_legend: Optional[List[Tuple[str, str]]] = None,
+    raman_x_label: str = "Raman Shift (cm\u207b\u00b9)",
+    pl_x_label: str = "Wavelength (nm)",
 ) -> bytes:
     """Build the three-slide sample report and return .pptx bytes.
 
@@ -76,6 +96,10 @@ def build_sample_report_pptx(
     amplitude ratio (e.g. LA/E2g+A1g for WSe2 Raman — see
     peak_stats.compute_peak_amplitude_ratio) appended as a final, bolded row
     of the Raman fit-summary table; omitted entirely when None.
+
+    `raman_fit_legend`/`pl_fit_legend` are (label, "#RRGGBB") pairs describing
+    the traces in that technique's grid, drawn once above it. The cell images
+    are expected to carry no legend of their own; passing None just omits it.
     """
     prs = Presentation()
     prs.slide_width = Inches(SLIDE_WIDTH_IN)
@@ -92,10 +116,14 @@ def build_sample_report_pptx(
 
     raman_slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_title_bar(raman_slide, sample_name, material_name, report_date, subtitle="Raman — fitted spectra (9 points)")
+    _add_fit_legend(raman_slide, raman_fit_legend)
+    _add_fit_axis_titles(raman_slide, raman_x_label)
     _add_fit_grid(raman_slide, raman_fit_images)
 
     pl_slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_title_bar(pl_slide, sample_name, material_name, report_date, subtitle="PL — fitted spectra (9 points)")
+    _add_fit_legend(pl_slide, pl_fit_legend)
+    _add_fit_axis_titles(pl_slide, pl_x_label)
     _add_fit_grid(pl_slide, pl_fit_images)
 
     buf = io.BytesIO()
@@ -150,17 +178,91 @@ def _add_om_grid(slide, om_image_bytes: Dict[int, bytes], magnification_label: O
     caption.text_frame.paragraphs[0].font.italic = True
 
 
+def _hex_to_rgb(value: str) -> RGBColor:
+    """A peak template's "#RRGGBB" as a pptx color, falling back to black for
+    anything unparseable (FittedPeak.color, unlike PeakDefinition.color, is
+    never validated)."""
+    try:
+        raw = value.lstrip("#")
+        return RGBColor(int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16))
+    except (AttributeError, ValueError, IndexError):
+        return RGBColor(0x00, 0x00, 0x00)
+
+
+def _add_fit_legend(slide, entries: Optional[List[Tuple[str, str]]]) -> None:
+    """One legend for all nine cells: a colored swatch and label per trace,
+    spread evenly across the grid's width above it.
+
+    Drawn as shapes rather than rendered into the cell images so it appears
+    once instead of nine times, and stays crisp at any zoom.
+    """
+    if not entries:
+        return
+
+    slot_w = _FIT_GRID_W / len(entries)
+    swatch_top = _FIT_LEGEND_TOP + (_FIT_LEGEND_H - _LEGEND_SWATCH_H) / 2
+
+    for i, (label, color) in enumerate(entries):
+        slot_left = _FIT_GRID_LEFT + i * slot_w
+
+        swatch = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(slot_left), Inches(swatch_top),
+            Inches(_LEGEND_SWATCH_W), Inches(_LEGEND_SWATCH_H),
+        )
+        swatch.fill.solid()
+        swatch.fill.fore_color.rgb = _hex_to_rgb(color)
+        swatch.line.fill.background()
+
+        text_left = slot_left + _LEGEND_SWATCH_W + _LEGEND_GAP
+        box = slide.shapes.add_textbox(
+            Inches(text_left), Inches(_FIT_LEGEND_TOP),
+            Inches(max(0.1, slot_w - _LEGEND_SWATCH_W - _LEGEND_GAP)), Inches(_FIT_LEGEND_H),
+        )
+        tf = box.text_frame
+        tf.text = label
+        tf.word_wrap = False
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        tf.paragraphs[0].font.size = _LEGEND_FONT
+
+
+def _add_fit_axis_titles(slide, x_label: str) -> None:
+    """The axis titles the grid cells no longer carry, written once each: the
+    Y title rotated in the left gutter, the X title centered under the grid."""
+    y_box = slide.shapes.add_textbox(
+        Inches(_CONTENT_LEFT), Inches(_FIT_GRID_TOP), Inches(_FIT_YLABEL_W), Inches(_FIT_GRID_H)
+    )
+    y_tf = y_box.text_frame
+    y_tf.text = _FIT_Y_LABEL
+    y_tf.word_wrap = False
+    y_tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    y_tf.paragraphs[0].alignment = PP_ALIGN.CENTER
+    y_tf.paragraphs[0].font.size = _AXIS_LABEL_FONT
+    # Rotate the text inside the box rather than the box itself: a rotated
+    # shape is positioned about its own center, which puts its top-left well
+    # off the slide for a label this tall.
+    y_tf._txBody.find(qn("a:bodyPr")).set("vert", "vert270")
+
+    x_box = slide.shapes.add_textbox(
+        Inches(_FIT_GRID_LEFT), Inches(_FIT_XLABEL_TOP), Inches(_FIT_GRID_W), Inches(_FIT_XLABEL_H)
+    )
+    x_tf = x_box.text_frame
+    x_tf.text = x_label
+    x_tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    x_tf.paragraphs[0].alignment = PP_ALIGN.CENTER
+    x_tf.paragraphs[0].font.size = _AXIS_LABEL_FONT
+
+
 def _add_fit_grid(slide, fit_images: Dict[int, bytes]) -> None:
-    """3x3 grid of each point's individually fitted spectrum, spanning the
-    slide's full content width. Points with no successful fit (or an
-    entirely omitted technique) render as placeholder cells."""
+    """3x3 grid of each point's individually fitted spectrum. Points with no
+    successful fit (or an entirely omitted technique) render as placeholder
+    cells. The legend and axis titles are added separately, once per slide."""
     cell_w = (_FIT_GRID_W - 2 * _FIT_GRID_GUTTER) / 3
     cell_h = (_FIT_GRID_H - 2 * _FIT_GRID_GUTTER) / 3
 
     for point in range(1, 10):
         row, col = divmod(point - 1, 3)
-        cell_left = _CONTENT_LEFT + col * (cell_w + _FIT_GRID_GUTTER)
-        cell_top = _CONTENT_TOP + row * (cell_h + _FIT_GRID_GUTTER)
+        cell_left = _FIT_GRID_LEFT + col * (cell_w + _FIT_GRID_GUTTER)
+        cell_top = _FIT_GRID_TOP + row * (cell_h + _FIT_GRID_GUTTER)
 
         image_bytes = fit_images.get(point)
         if image_bytes is not None:
