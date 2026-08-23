@@ -5,6 +5,19 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.2] - 2026-08-22
+
+### Changed
+- **`PeakDefinition.amplitude_max` is now `height_max`.** It holds
+  `5 × max(Y)` — a ceiling in height units — and only becomes an area when
+  `fitting.py` multiplies it by FWHM × 1.064 on the way into lmfit. The old
+  name read as lmfit's "amplitude", which is an area, so it named the one
+  thing it wasn't. The two local conversions are now `area_guess` and
+  `area_max` for the same reason. With this, "amplitude" no longer appears
+  anywhere in the codebase meaning something other than peak height.
+- No numbers change: heights, widths and the LA/E2g+A1g ratio are identical
+  either side of the rename.
+
 ## [3.4.1] - 2026-08-22
 
 ### Changed

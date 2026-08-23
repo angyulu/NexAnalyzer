@@ -205,14 +205,16 @@ def fit_voigt_peaks(
         idx = int(np.argmin(np.abs(x - peak.center)))
         height_guess = max(float(y[idx]), 1e-6)
         fwhm_eff = peak.width_fwhm
-        amplitude_lmfit = height_guess * fwhm_eff * 1.064
-        amplitude_max_lmfit = peak.amplitude_max * fwhm_eff * 1.064
+        # lmfit's "amplitude" is the integrated area, so both the guess and the
+        # ceiling convert from height: area = height x FWHM x 1.064 for a Voigt.
+        area_guess = height_guess * fwhm_eff * 1.064
+        area_max = peak.height_max * fwhm_eff * 1.064
 
         # Add parameters with bounds
         params.add(f"{prefix}center", value=peak.center,
                    min=peak.center_min, max=peak.center_max)
-        params.add(f"{prefix}amplitude", value=amplitude_lmfit,
-                   min=0, max=amplitude_max_lmfit)
+        params.add(f"{prefix}amplitude", value=area_guess,
+                   min=0, max=area_max)
         params.add(f"{prefix}sigma", value=sigma_guess,
                    min=peak.width_min / (2 * 2.355), max=peak.width_max / (2 * 2.355))
         params.add(f"{prefix}gamma", value=gamma_guess,

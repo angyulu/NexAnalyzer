@@ -24,7 +24,7 @@ class PeakDefinition:
     amplitude : float
         Placeholder field; required > 0 for backward-compatible serialization.
         The runtime initial guess is auto-estimated from data at fit time, and
-        ``amplitude_max`` is derived from ``y_max`` (5× max intensity), so this
+        ``height_max`` is derived from ``y_max`` (5× max intensity), so this
         value is not consulted by the fitter. Optional in the Excel preset
         format (defaults to 1.0 when absent).
     width_fwhm : float
@@ -43,8 +43,11 @@ class PeakDefinition:
         Minimum FWHM (auto-calculated if None).
     width_max : Optional[float]
         Maximum FWHM (auto-calculated if None).
-    amplitude_max : Optional[float]
-        Maximum amplitude (auto-calculated if None).
+    height_max : Optional[float]
+        Maximum peak height (auto-calculated if None). A height, not an area:
+        `fitting.py` multiplies it by FWHM × 1.064 before handing it to lmfit,
+        whose "amplitude" parameter is the integrated area (see
+        ``FittedPeak.area``).
     """
 
     center: float
@@ -57,7 +60,7 @@ class PeakDefinition:
     center_max: Optional[float] = None
     width_min: Optional[float] = None
     width_max: Optional[float] = None
-    amplitude_max: Optional[float] = None
+    height_max: Optional[float] = None
 
     def __post_init__(self):
         """Validate attributes."""
@@ -105,7 +108,7 @@ class PeakDefinition:
         - PL: center ± 30 nm
         - width_min: 2-3 × spectral_resolution
         - width_max: 50% of X range
-        - amplitude_max: 5 × max(Y)
+        - height_max: 5 × max(Y)
         """
         # Center bounds (adaptive: wider tolerance for broader peaks)
         if mode == "Raman":
@@ -127,10 +130,10 @@ class PeakDefinition:
         # At most 50% of X range, or 3× initial guess (prevents runaway fitting)
         self.width_max = min(0.5 * (x_range[1] - x_range[0]), 3.0 * self.width_fwhm)
 
-        # Amplitude bounds (wider range for uncertain peaks)
-        if self.amplitude_max is None:
+        # Height ceiling (wider range for uncertain peaks)
+        if self.height_max is None:
             # Allow up to 5× max intensity (accounts for sharp peaks above baseline)
-            self.amplitude_max = 5.0 * y_max
+            self.height_max = 5.0 * y_max
 
     def to_dict(self) -> dict:
         """Serialize to dictionary for JSON export."""
@@ -145,7 +148,7 @@ class PeakDefinition:
             "center_max": self.center_max,
             "width_min": self.width_min,
             "width_max": self.width_max,
-            "amplitude_max": self.amplitude_max
+            "height_max": self.height_max
         }
 
     @classmethod

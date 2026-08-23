@@ -194,3 +194,31 @@ class TestVoigtFwhmStderr:
         large = voigt_fwhm_stderr(2.0, 3.0, 1.0, 1.0)
 
         assert large > small > 0
+
+
+class TestHeightMaxIsAHeight:
+    """The ceiling on a peak is expressed in height, and only becomes an area
+    on the way into lmfit. It was called amplitude_max, which read as lmfit's
+    amplitude -- an area -- and was neither."""
+
+    def test_auto_bound_is_five_times_the_data_maximum(self):
+        peak = PeakDefinition(center=250.0, amplitude=1.0, width_fwhm=4.0)
+        peak.calculate_auto_bounds("Raman", x_range=(0.0, 400.0), y_max=120.0, spectral_resolution=0.5)
+
+        assert peak.height_max == 5.0 * 120.0
+
+    def test_the_old_name_is_gone(self):
+        peak = PeakDefinition(center=250.0, amplitude=1.0, width_fwhm=4.0)
+
+        assert not hasattr(peak, "amplitude_max")
+
+    def test_a_peak_may_reach_that_height_but_not_exceed_it(self):
+        """End to end: a peak taller than the ceiling gets clipped to it."""
+        x = np.linspace(200.0, 300.0, 800)
+        from lmfit.models import VoigtModel
+        y = VoigtModel().eval(x=x, center=250.0, amplitude=1000.0, sigma=2.0, gamma=1.0)
+
+        result = fit_voigt_peaks(x, y, [PeakDefinition(center=250.0, amplitude=1.0, width_fwhm=5.0)], mode="Raman")
+        height = float(np.max(result.fitted_peaks[0].component_curve))
+
+        assert height <= 5.0 * float(np.max(y)) * 1.001
