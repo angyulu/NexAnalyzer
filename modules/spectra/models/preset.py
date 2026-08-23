@@ -102,10 +102,10 @@ class PeakTemplate:
         """
         peak = PeakDefinition(
             center=self.center,
-            # Placeholder: PeakDefinition.amplitude is never consulted by the
+            # Placeholder: PeakDefinition.intensity is never consulted by the
             # fitter (auto-estimated from data at fit time; see PeakDefinition's
-            # own docstring), so PeakTemplate has no amplitude field of its own.
-            amplitude=1.0,
+            # own docstring), so PeakTemplate has no intensity field of its own.
+            intensity=1.0,
             width_fwhm=self.width_fwhm,
             label=self.peak_label,
             shape=self.shape,

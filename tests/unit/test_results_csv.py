@@ -80,18 +80,18 @@ class TestExportMasterCsv:
         header = csv.splitlines()[0].split(",")
         assert header[:2] == ["Filename", "Mode"]
         assert header[-1] == "Convergence_Time_s"
-        assert "Amplitude_Stderr" in header
+        assert "Intensity_Stderr" in header
 
-    def test_amplitude_is_peak_height_not_integrated_amplitude(self):
+    def test_intensity_is_the_curve_maximum_not_the_area(self):
         spectrum = _make_spectrum_file(with_fit=True)
         csv = export_master_csv({"sample_raman.txt": spectrum})
 
         df = pd.read_csv(io.StringIO(csv))
         # Component curve peaks at ~100 (discrete grid); lmfit's integrated
-        # amplitude is 1000, so height must not be the one reported.
-        assert df.iloc[0]["Amplitude"] == pytest.approx(100.0, rel=1e-2)
-        # stderr rescaled by the same height/amplitude ratio (10 * 100/1000).
-        assert df.iloc[0]["Amplitude_Stderr"] == pytest.approx(1.0, rel=1e-2)
+        # the area is 1000, so that must not be the number reported.
+        assert df.iloc[0]["Intensity"] == pytest.approx(100.0, rel=1e-2)
+        # stderr rescaled by the same intensity/area ratio (10 * 100/1000).
+        assert df.iloc[0]["Intensity_Stderr"] == pytest.approx(1.0, rel=1e-2)
 
 
 class TestExportFitParamsCsv:
@@ -101,7 +101,7 @@ class TestExportFitParamsCsv:
 
         assert len(df) == 1
         assert df.iloc[0]["Peak_Label"] == "Peak 1"
-        assert df.iloc[0]["Amplitude"] == pytest.approx(100.0, rel=1e-2)
+        assert df.iloc[0]["Intensity"] == pytest.approx(100.0, rel=1e-2)
 
     def test_omits_provenance_columns_and_raw_row(self):
         # Quick Export stays a compact table; provenance and the PL Raw row
@@ -113,10 +113,10 @@ class TestExportFitParamsCsv:
         assert "X_Range_Limited" not in df.columns
         assert "Raw" not in df["Peak_Label"].values
 
-    def test_shares_the_amplitude_convention_with_the_master_csv(self):
+    def test_shares_the_intensity_convention_with_the_master_csv(self):
         spectrum = _make_spectrum_file(with_fit=True)
         quick = pd.read_csv(io.StringIO(export_fit_params_csv(spectrum)))
         master = pd.read_csv(io.StringIO(export_master_csv({"sample_raman.txt": spectrum})))
 
-        for column in ("Amplitude", "Amplitude_Stderr", "Center", "FWHM"):
+        for column in ("Intensity", "Intensity_Stderr", "Center", "FWHM"):
             assert quick.iloc[0][column] == master.iloc[0][column]

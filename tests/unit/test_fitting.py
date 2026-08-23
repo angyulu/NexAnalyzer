@@ -16,7 +16,7 @@ from modules.spectra.models.peak import PeakDefinition
 class TestFitVoigtPeaks:
     def test_single_peak_converges_with_good_fit(self, synthetic_spectrum):
         x, y = synthetic_spectrum(n_points=300, peaks=((1000.0, 1000.0, 50.0),))
-        peak_defs = [PeakDefinition(center=990.0, amplitude=1.0, width_fwhm=60.0)]
+        peak_defs = [PeakDefinition(center=990.0, intensity=1.0, width_fwhm=60.0)]
 
         result = fit_voigt_peaks(x, y, peak_defs, mode="Raman")
 
@@ -31,8 +31,8 @@ class TestFitVoigtPeaks:
             peaks=((800.0, 500.0, 40.0), (1300.0, 800.0, 60.0)),
         )
         peak_defs = [
-            PeakDefinition(center=790.0, amplitude=1.0, width_fwhm=45.0),
-            PeakDefinition(center=1310.0, amplitude=1.0, width_fwhm=65.0),
+            PeakDefinition(center=790.0, intensity=1.0, width_fwhm=45.0),
+            PeakDefinition(center=1310.0, intensity=1.0, width_fwhm=65.0),
         ]
 
         result = fit_voigt_peaks(x, y, peak_defs, mode="Raman")
@@ -48,14 +48,14 @@ class TestFitVoigtPeaks:
 
     def test_too_many_peaks_raises(self, synthetic_spectrum):
         x, y = synthetic_spectrum()
-        peak_defs = [PeakDefinition(center=float(c), amplitude=1.0, width_fwhm=20.0) for c in range(11)]
+        peak_defs = [PeakDefinition(center=float(c), intensity=1.0, width_fwhm=20.0) for c in range(11)]
         with pytest.raises(ValueError):
             fit_voigt_peaks(x, y, peak_defs, mode="Raman")
 
     def test_mismatched_lengths_raise(self):
         x = np.linspace(0, 10, 100)
         y = np.ones(50)
-        peak_defs = [PeakDefinition(center=5.0, amplitude=1.0, width_fwhm=1.0)]
+        peak_defs = [PeakDefinition(center=5.0, intensity=1.0, width_fwhm=1.0)]
         with pytest.raises(ValueError):
             fit_voigt_peaks(x, y, peak_defs, mode="Raman")
 
@@ -111,15 +111,15 @@ class TestAutoFindPeaks:
 class TestDetectOverlappingPeaks:
     def test_no_warnings_for_well_separated_peaks(self):
         peaks = [
-            PeakDefinition(center=100.0, amplitude=1.0, width_fwhm=10.0, label="A"),
-            PeakDefinition(center=500.0, amplitude=1.0, width_fwhm=10.0, label="B"),
+            PeakDefinition(center=100.0, intensity=1.0, width_fwhm=10.0, label="A"),
+            PeakDefinition(center=500.0, intensity=1.0, width_fwhm=10.0, label="B"),
         ]
         assert detect_overlapping_peaks(peaks, merge_threshold=2.0) == []
 
     def test_warns_for_close_peaks(self):
         peaks = [
-            PeakDefinition(center=100.0, amplitude=1.0, width_fwhm=20.0, label="A"),
-            PeakDefinition(center=105.0, amplitude=1.0, width_fwhm=20.0, label="B"),
+            PeakDefinition(center=100.0, intensity=1.0, width_fwhm=20.0, label="A"),
+            PeakDefinition(center=105.0, intensity=1.0, width_fwhm=20.0, label="B"),
         ]
         warnings = detect_overlapping_peaks(peaks, merge_threshold=2.0)
         assert len(warnings) == 1
@@ -163,7 +163,7 @@ class TestVoigtFwhm:
         from lmfit.models import VoigtModel
         y = VoigtModel().eval(x=x, center=1000.0, amplitude=5000.0, sigma=4.0, gamma=3.0)
 
-        result = fit_voigt_peaks(x, y, [PeakDefinition(center=1000.0, amplitude=1.0, width_fwhm=15.0)], mode="Raman")
+        result = fit_voigt_peaks(x, y, [PeakDefinition(center=1000.0, intensity=1.0, width_fwhm=15.0)], mode="Raman")
         peak = result.fitted_peaks[0]
 
         curve = peak.component_curve
@@ -196,29 +196,30 @@ class TestVoigtFwhmStderr:
         assert large > small > 0
 
 
-class TestHeightMaxIsAHeight:
-    """The ceiling on a peak is expressed in height, and only becomes an area
-    on the way into lmfit. It was called amplitude_max, which read as lmfit's
-    amplitude -- an area -- and was neither."""
+class TestIntensityMaxIsAnIntensity:
+    """The ceiling on a peak is expressed in intensity -- the curve's
+    maximum -- and only becomes an area on the way into lmfit. It was called
+    amplitude_max, which read as lmfit's amplitude, an area, and was neither."""
 
     def test_auto_bound_is_five_times_the_data_maximum(self):
-        peak = PeakDefinition(center=250.0, amplitude=1.0, width_fwhm=4.0)
+        peak = PeakDefinition(center=250.0, intensity=1.0, width_fwhm=4.0)
         peak.calculate_auto_bounds("Raman", x_range=(0.0, 400.0), y_max=120.0, spectral_resolution=0.5)
 
-        assert peak.height_max == 5.0 * 120.0
+        assert peak.intensity_max == 5.0 * 120.0
 
-    def test_the_old_name_is_gone(self):
-        peak = PeakDefinition(center=250.0, amplitude=1.0, width_fwhm=4.0)
+    def test_the_old_names_are_gone(self):
+        peak = PeakDefinition(center=250.0, intensity=1.0, width_fwhm=4.0)
 
         assert not hasattr(peak, "amplitude_max")
+        assert not hasattr(peak, "height_max")
 
-    def test_a_peak_may_reach_that_height_but_not_exceed_it(self):
+    def test_a_peak_may_reach_that_intensity_but_not_exceed_it(self):
         """End to end: a peak taller than the ceiling gets clipped to it."""
         x = np.linspace(200.0, 300.0, 800)
         from lmfit.models import VoigtModel
         y = VoigtModel().eval(x=x, center=250.0, amplitude=1000.0, sigma=2.0, gamma=1.0)
 
-        result = fit_voigt_peaks(x, y, [PeakDefinition(center=250.0, amplitude=1.0, width_fwhm=5.0)], mode="Raman")
-        height = float(np.max(result.fitted_peaks[0].component_curve))
+        result = fit_voigt_peaks(x, y, [PeakDefinition(center=250.0, intensity=1.0, width_fwhm=5.0)], mode="Raman")
+        intensity = float(np.max(result.fitted_peaks[0].component_curve))
 
-        assert height <= 5.0 * float(np.max(y)) * 1.001
+        assert intensity <= 5.0 * float(np.max(y)) * 1.001

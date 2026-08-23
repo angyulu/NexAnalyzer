@@ -386,7 +386,7 @@ def create_unified_figure(spectrum: SpectrumFile, layer_config: Optional[Dict[st
             idx = np.argmin(np.abs(X_ref - peak.center))
             y_at_peak = Y_ref[idx] if idx < len(Y_ref) else 0  # Safeguard against index error
 
-            # Add vertical line marker from Y=0 to Y=peak_height
+            # Add vertical line marker from Y=0 to Y=peak_intensity
             # WHY: Shows peak position visually on plot
             fig.add_trace(go.Scatter(
                 x=[peak.center, peak.center],  # Two points: (center, 0) and (center, y_at_peak)
@@ -585,7 +585,7 @@ def render_unified_plot():
     if spectrum is not None and getattr(spectrum, 'fit_result', None) is not None and spectrum.fit_result.success:
         import pandas as pd
 
-        from ..processing.peak_metrics import peak_height, raw_peak_stats
+        from ..processing.peak_metrics import peak_intensity, raw_peak_stats
 
         st.markdown("**Fit Results**")
         results_data = []
@@ -604,7 +604,7 @@ def render_unified_plot():
         for peak in spectrum.fit_result.fitted_peaks:
             results_data.append({
                 "Label": peak.label,
-                "Intensity": f"{peak_height(peak):.0f}",
+                "Intensity": f"{peak_intensity(peak):.0f}",
                 "Center": f"{peak.center:.2f}",
                 "FWHM": f"{peak.width_fwhm:.2f}",
             })

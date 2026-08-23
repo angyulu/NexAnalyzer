@@ -294,7 +294,7 @@ def execute_auto_workflow(
         except Exception as e:
             raise WorkflowExecutionError(
                 f"Peak fitting failed: {e}. "
-                f"Suggestion: Check peak initial guesses (center, amplitude, width) in preset."
+                f"Suggestion: Check peak initial guesses (center, intensity, width) in preset."
             )
 
         if not fit_result.success:
@@ -426,7 +426,7 @@ def get_workflow_suggestions(stage: str, error_msg: str) -> str:
             "**Common fixes:**\n"
             "- Check peak centers match your spectrum (view data first)\n"
             "- Increase center_tolerance to allow more fitting flexibility\n"
-            "- Adjust initial amplitude guesses (should be ~peak height)\n"
+            "- Adjust initial intensity guesses (should be ~peak maximum)\n"
             "- Reduce number of peaks if spectrum is simple\n"
             "- Try manual workflow to see if baseline correction is adequate"
         )

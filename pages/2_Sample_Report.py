@@ -19,7 +19,7 @@ from core.report.pptx import FIT_COLUMN_ASPECT_RATIO, FIT_GRID_COLUMNS, build_sa
 from modules.spectra.io.preset_store import load_presets
 from core.io.report_settings import load_default_material, save_default_material
 from core.report.slides import render_slides_to_png
-from modules.spectra.processing.peak_metrics import aggregate_fit_results, compute_peak_height_ratio
+from modules.spectra.processing.peak_metrics import aggregate_fit_results, compute_peak_intensity_ratio
 from modules.spectra.processing.sample_batch import run_sample_batch
 from modules.spectra.processing.sample_scanner import default_magnification, scan_sample_folder
 from modules.spectra.ui.sample_report_state import get_sample_report_state
@@ -31,10 +31,10 @@ from modules.spectra.viz.fit_plot import (
     y_axis_title,
 )
 
-# WSe2-specific defect/strain indicators: mode heights relative to the E2g+A1g
+# WSe2-specific defect/strain indicators: mode intensities relative to the E2g+A1g
 # in-plane mode, appended as extra rows of the Raman fit-summary table. Any pair
 # whose labels aren't both present in a fit is dropped automatically (see
-# compute_peak_height_ratio), so this list is safe for other materials. The
+# compute_peak_intensity_ratio), so this list is safe for other materials. The
 # table's caption says which rows are medians; putting it on each label instead
 # wrapped the cell, which doubled the row's height and overran the table below.
 _RAMAN_RATIO_PAIRS = [("LA", "E2g+A1g"), ("B2g", "E2g+A1g")]
@@ -229,7 +229,7 @@ if scan is not None:
             raman_fits = [s.fit_result for _, s in batch_result.raman_spectra]
             raman_ratios = []
             for numerator, denominator in _RAMAN_RATIO_PAIRS:
-                ratio = compute_peak_height_ratio(raman_fits, numerator, denominator)
+                ratio = compute_peak_intensity_ratio(raman_fits, numerator, denominator)
                 if ratio is not None:
                     raman_ratios.append((f"{numerator} / {denominator}", ratio))
 

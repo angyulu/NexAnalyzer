@@ -5,6 +5,59 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - 2026-08-23
+
+### Changed
+- **One name per quantity, everywhere: `intensity` for the peak's maximum,
+  `area` for the integral.** "Amplitude" is gone from the codebase and from
+  every surface, because it was the one word that had meant both. The fitted
+  curve's maximum — the number a spectroscopist reads off a plot — is
+  **intensity**; the area under the peak, which is what lmfit solves for and
+  what lmfit itself calls "amplitude", is **area**. `amplitude` now appears
+  only where lmfit's own parameter is addressed by name.
+
+  | Old | New |
+  | --- | --- |
+  | `peak_height_and_stderr()`, `peak_height()` | `peak_intensity_and_stderr()`, `peak_intensity()` |
+  | `compute_peak_height_ratio()` | `compute_peak_intensity_ratio()` |
+  | `PeakStat.height_mean` / `height_std` | `PeakStat.intensity_mean` / `intensity_std` |
+  | `PeakDefinition.height_max` | `PeakDefinition.intensity_max` |
+  | `PeakDefinition.amplitude` | `PeakDefinition.intensity` |
+  | CSV columns `Amplitude`, `Amplitude_Stderr` | `Intensity`, `Intensity_Stderr` |
+  | Sample Report table heading `Amplitude` | `Intensity` |
+
+  The on-screen Fit Results table already said "Intensity" and is unchanged,
+  as are `FittedPeak.area` / `area_stderr` and `RawPeakStats.intensity`.
+- No numbers change: intensities, widths and the LA/E2g+A1g and B2g/E2g+A1g
+  ratios are identical either side of the rename. Only labels and identifiers
+  moved.
+
+### Breaking
+- **The fit-params and master CSVs now head that column `Intensity` /
+  `Intensity_Stderr`.** Anything downstream reading `Amplitude` by name needs
+  updating; the values in the column are the same as before.
+- **`PeakDefinition`'s serialized keys `amplitude` and `height_max` are now
+  `intensity` and `intensity_max`**, and `from_dict()` has no shim for the old
+  spelling. In practice nothing in the app writes them: project save/load is not
+  reachable from the UI, and the shared `data/materials.json` stores
+  `PeakTemplate` rows, which carry neither key — so **material presets are
+  unaffected and need no migration**. Only code calling the model API directly is
+  affected.
+
+### Documentation
+- **`CLAUDE.md` added**, carrying the intensity/area rule, the lmfit caveat, and
+  the handful of invariants that are easy to violate and expensive to get wrong.
+  The rule previously lived only in a module docstring.
+- **`Fitting_Algo.md` §2 documented a bug as current behaviour.** Its "Extract
+  Fitted Parameters" listing still showed `width_fwhm_fit = 2.355 * sigma_fit`,
+  the Gaussian width that v3.4.0 replaced with `voigt_fwhm()`. Corrected, with a
+  note on why it changed. §1-§4 were checked against the code; §5-§8 are now
+  labelled as history, whose listings quote code as it stood at the time.
+- **47 dead `src/...` file links across the two algo docs repointed** to
+  `modules/spectra/...` and verified to resolve. Line-number anchors were dropped
+  rather than left to rot on the next edit. `Baseline_Algo.md` now says plainly
+  that its algorithm content has not been re-verified since v2.9.0.
+
 ## [3.5.0] - 2026-08-23
 
 ### Added

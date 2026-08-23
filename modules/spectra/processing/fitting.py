@@ -130,15 +130,15 @@ def fit_voigt_peaks(
 
     Voigt parameters:
     - center: peak position
-    - amplitude: peak height × width (integrated intensity)
+    - amplitude: lmfit's name for the area — peak intensity × width
     - sigma: Gaussian width (FWHM = 2.355 * sigma)
     - gamma: Lorentzian width (FWHM = 2 * gamma)
 
     Examples
     --------
     >>> peak_defs = [
-    ...     PeakDefinition(center=1350, amplitude=5000, width_fwhm=50),
-    ...     PeakDefinition(center=1580, amplitude=8000, width_fwhm=60)
+    ...     PeakDefinition(center=1350, intensity=5000, width_fwhm=50),
+    ...     PeakDefinition(center=1580, intensity=8000, width_fwhm=60)
     ... ]
     >>> result = fit_voigt_peaks(x, y, peak_defs, mode="Raman")
     >>> if result.success:
@@ -199,16 +199,16 @@ def fit_voigt_peaks(
         sigma_guess = max(sigma_guess, sigma_min)
         gamma_guess = max(gamma_guess, gamma_min)
 
-        # Auto-estimate amplitude (peak height) from the data at peak.center.
-        # Position + FWHM come from the preset (material properties); amplitude
+        # Auto-estimate the peak intensity from the data at peak.center.
+        # Position + FWHM come from the preset (material properties); intensity
         # depends on measurement conditions, so we always init from the data.
         idx = int(np.argmin(np.abs(x - peak.center)))
-        height_guess = max(float(y[idx]), 1e-6)
+        intensity_guess = max(float(y[idx]), 1e-6)
         fwhm_eff = peak.width_fwhm
-        # lmfit's "amplitude" is the integrated area, so both the guess and the
-        # ceiling convert from height: area = height x FWHM x 1.064 for a Voigt.
-        area_guess = height_guess * fwhm_eff * 1.064
-        area_max = peak.height_max * fwhm_eff * 1.064
+        # lmfit's "amplitude" is the area, so both the guess and the ceiling
+        # convert from intensity: area = intensity x FWHM x 1.064 for a Voigt.
+        area_guess = intensity_guess * fwhm_eff * 1.064
+        area_max = peak.intensity_max * fwhm_eff * 1.064
 
         # Add parameters with bounds
         params.add(f"{prefix}center", value=peak.center,
@@ -451,8 +451,8 @@ def auto_find_peaks(
         # Peak center
         center = x[peak_idx]
 
-        # Amplitude (peak height)
-        amplitude = y[peak_idx]
+        # Peak intensity
+        intensity = y[peak_idx]
 
         # Estimate FWHM from widths (improved with curvature-based fallback)
         if 'widths' in properties and len(properties['widths']) > idx:
@@ -466,10 +466,10 @@ def auto_find_peaks(
                 d2y = (y[peak_idx - 1] - 2 * y[peak_idx] + y[peak_idx + 1]) / (dx ** 2)
 
                 if d2y < 0:  # Concave down (valid peak)
-                    # For Gaussian: y''(peak) = -height / σ²
-                    # σ ≈ sqrt(height / |y''|)
+                    # For Gaussian: y''(peak) = -intensity / σ²
+                    # σ ≈ sqrt(intensity / |y''|)
                     # FWHM ≈ 2.355 × σ
-                    sigma_est = np.sqrt(amplitude / abs(d2y))
+                    sigma_est = np.sqrt(intensity / abs(d2y))
                     width_fwhm = 2.355 * sigma_est
 
                     # Sanity check: FWHM should be reasonable
@@ -492,7 +492,7 @@ def auto_find_peaks(
 
         peak_table.append(PeakDefinition(
             center=center,
-            amplitude=amplitude,
+            intensity=intensity,
             width_fwhm=width_fwhm,
             label=label,
             color=color,

@@ -1,4 +1,4 @@
-# NexAnalyzer v3.5.0 - Project Summary
+# NexAnalyzer v3.6.0 - Project Summary
 
 ## Overview
 
@@ -78,8 +78,8 @@ nexanalyzer/
 │       │   ├── auto_workflow.py    # One-click preset-driven pipeline execution
 │       │   ├── sample_scanner.py   # Sample-folder discovery by filename pattern
 │       │   ├── sample_batch.py     # Per-sample batch-fit orchestration
-│       │   └── peak_metrics.py     # Peak height/stderr, raw-spectrum stats, mean/std
-│       │                           # aggregation, amplitude ratios (one rule, one place)
+│       │   └── peak_metrics.py     # Peak intensity/stderr, raw-spectrum stats, mean/std
+│       │                           # aggregation, intensity ratios (one rule, one place)
 │       ├── io/
 │       │   ├── preset_store.py     # JSON material-preset storage (data/materials.json)
 │       │   └── results_csv.py      # Fit-results CSVs: per-file and master
@@ -131,10 +131,10 @@ edited through the new Material Presets page. `PresetLibrary` (a wrapper
 class whose only job was decoding Excel's `"Material_Mode"` sheet-name
 convention back into two fields) was removed in favor of a plain
 `dict[(material_name, mode), MaterialPreset]`, since JSON presets already
-store those as separate fields — no decode step needed. `PeakTemplate.amplitude`
-was also dropped: `modules/spectra/processing/fitting.py` auto-estimates amplitude from
+store those as separate fields — no decode step needed. `PeakTemplate`'s
+initial-guess field was also dropped: `modules/spectra/processing/fitting.py` auto-estimates intensity from
 the actual data and never reads the preset's value (this was already
-documented on `PeakDefinition.amplitude`), so the field was pure schema
+documented on `PeakDefinition.intensity`), so the field was pure schema
 weight carried over from the Excel format. The app also became multi-page
 (`app.py` is now just an `st.navigation()` entrypoint) so the new editor
 page could exist alongside the original single-page workflow, and View

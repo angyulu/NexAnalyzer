@@ -39,9 +39,9 @@ Spike detection MUST use the modified Z-score algorithm (MAD-based, threshold 3.
 
 ### IV. Constrained Nonlinear Fitting
 
-Peak fitting MUST use Voigt profiles (lmfit backend with Levenberg–Marquardt). Center bounds MUST be auto-calculated based on mode (Raman: ±5 cm⁻¹, PL: ±30 nm). Width bounds MUST prevent zero-width or unreasonably broad peaks (minimum 2–3 spectral resolution steps, maximum 50% of range). Amplitude MUST be constrained to [0, 1.5–2.0× max intensity]. Fitting MUST provide actionable error messages on convergence failure (e.g., "Check center guesses, widen bounds, reduce peak count").
+Peak fitting MUST use Voigt profiles (lmfit backend with Levenberg–Marquardt). Center bounds MUST be auto-calculated based on mode (Raman: ±5 cm⁻¹, PL: ±30 nm). Width bounds MUST prevent zero-width or unreasonably broad peaks (minimum 2–3 spectral resolution steps, maximum 50% of range). Peak intensity MUST be constrained to [0, 1.5–2.0× max intensity] (a ceiling in intensity, converted to lmfit's area on the way in). Fitting MUST provide actionable error messages on convergence failure (e.g., "Check center guesses, widen bounds, reduce peak count").
 
-**Rationale**: Unconstrained fitting produces unphysical results (negative amplitudes, peaks drifting to noise). Mode-aware auto-bounds encode domain knowledge, prevent common errors, and improve convergence. Voigt profiles are the standard spectroscopy line shape.
+**Rationale**: Unconstrained fitting produces unphysical results (negative intensities, peaks drifting to noise). Mode-aware auto-bounds encode domain knowledge, prevent common errors, and improve convergence. Voigt profiles are the standard spectroscopy line shape.
 
 ### V. Simplicity and Clarity
 
@@ -79,7 +79,7 @@ Mode-specific defaults MUST work for typical spectra without tuning: spike sensi
 
 ### Export and Project State
 
-Master CSV export MUST contain all fitted peaks from all files (columns: filename, mode, peak_label, center, amplitude, FWHM, shape, chi2/R2) in raw units with comma delimiters and NO extra metadata. Figure export MUST support PNG (static) and HTML (interactive Plotly). Project save/load MUST preserve mode, de-spike threshold, baseline settings, peak table, and styling via JSON.
+Master CSV export MUST contain all fitted peaks from all files (columns: filename, mode, peak_label, center, intensity, FWHM, shape, chi2/R2) in raw units with comma delimiters and NO extra metadata. Figure export MUST support PNG (static) and HTML (interactive Plotly). Project save/load MUST preserve mode, de-spike threshold, baseline settings, peak table, and styling via JSON.
 
 **Rationale**: Simple, raw-value CSV is universally compatible with downstream analysis. PNG for publication, HTML for exploration. Project state enables reproducibility and iterative refinement.
 

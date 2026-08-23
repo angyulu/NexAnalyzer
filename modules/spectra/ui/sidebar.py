@@ -331,7 +331,7 @@ def render_sidebar():
                     except Exception as e:
                         st.error(f"❌ Failed to save master CSV: {e}")
 
-                st.caption("**Master CSV includes:** Filename, Mode, Peak_Label, Center, Amplitude, FWHM, Shape, R², χ², and standard errors")
+                st.caption("**Master CSV includes:** Filename, Mode, Peak_Label, Center, Intensity, FWHM, Shape, R², χ², and standard errors")
 
             except Exception as e:
                 st.error(f"Failed to generate master CSV: {e}")

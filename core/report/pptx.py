@@ -3,7 +3,7 @@ Assembles the Sample Report's three-slide PPTX entirely in memory.
 
 Layout (16:9 slides):
 - Slide 1 (overview): title bar; 3x3 OM image grid on the left half;
-  Raman fit-summary table (optionally with a trailing amplitude-ratio row)
+  Raman fit-summary table (optionally with trailing intensity-ratio rows)
   stacked above the PL fit-summary table on the right half.
 - Slide 2: the nine Raman points as three stacked columns (1/4/7, 2/5/8,
   3/6/9), each column one image whose three panels share an X-axis, under
@@ -100,8 +100,8 @@ def build_sample_report_pptx(
     """Build the three-slide sample report and return .pptx bytes.
 
     `raman_ratios` is a sequence of (label, (median, MAD, n)) — per-point
-    peak-height ratios (e.g. LA/E2g+A1g and B2g/E2g+A1g for WSe2 Raman, see
-    peak_metrics.compute_peak_height_ratio) appended as bolded rows below the
+    peak-intensity ratios (e.g. LA/E2g+A1g and B2g/E2g+A1g for WSe2 Raman, see
+    peak_metrics.compute_peak_intensity_ratio) appended as bolded rows below the
     Raman fit summary, in the order given. Empty or None adds no rows.
 
     `raman_fit_columns`/`pl_fit_columns` map column index (0, 1, 2) to one PNG
@@ -310,8 +310,8 @@ def _add_stats_table(
     """One technique's fit-summary table.
 
     Each entry of `ratios` becomes a bolded row below the peaks: its label in
-    the Peak column and `median ± MAD` in the Amplitude column (they are ratios
-    of heights), with center/FWHM dashed out since they don't apply. Labels are
+    the Peak column and `median ± MAD` in the Intensity column (they are ratios
+    of intensities), with center/FWHM dashed out since they don't apply. Labels are
     expected to mark themselves as medians, since the peak rows above are means.
     """
     ratios = list(ratios or [])
@@ -336,7 +336,7 @@ def _add_stats_table(
     table_shape = slide.shapes.add_table(n_rows, 5, Inches(left), Inches(top), Inches(w), Inches(h))
     table = table_shape.table
 
-    headers = ["Peak", "Center", "Amplitude", "FWHM", "n"]
+    headers = ["Peak", "Center", "Intensity", "FWHM", "n"]
     col_fracs = [0.30, 0.23, 0.23, 0.16, 0.08]
     for c, frac in enumerate(col_fracs):
         table.columns[c].width = Inches(w * frac)
@@ -351,7 +351,7 @@ def _add_stats_table(
         values = [
             stat.label,
             f"{stat.center_mean:.1f} ± {stat.center_std:.1f}",
-            f"{stat.height_mean:.1f} ± {stat.height_std:.1f}",
+            f"{stat.intensity_mean:.1f} ± {stat.intensity_std:.1f}",
             f"{stat.fwhm_mean:.1f} ± {stat.fwhm_std:.1f}",
             str(stat.n),
         ]

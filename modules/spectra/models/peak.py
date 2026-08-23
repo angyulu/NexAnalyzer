@@ -21,10 +21,10 @@ class PeakDefinition:
     ----------
     center : float
         Peak center position (cm⁻¹ or nm).
-    amplitude : float
+    intensity : float
         Placeholder field; required > 0 for backward-compatible serialization.
         The runtime initial guess is auto-estimated from data at fit time, and
-        ``height_max`` is derived from ``y_max`` (5× max intensity), so this
+        ``intensity_max`` is derived from ``y_max`` (5× max intensity), so this
         value is not consulted by the fitter. Optional in the Excel preset
         format (defaults to 1.0 when absent).
     width_fwhm : float
@@ -43,15 +43,15 @@ class PeakDefinition:
         Minimum FWHM (auto-calculated if None).
     width_max : Optional[float]
         Maximum FWHM (auto-calculated if None).
-    height_max : Optional[float]
-        Maximum peak height (auto-calculated if None). A height, not an area:
-        `fitting.py` multiplies it by FWHM × 1.064 before handing it to lmfit,
-        whose "amplitude" parameter is the integrated area (see
+    intensity_max : Optional[float]
+        Maximum peak intensity (auto-calculated if None). An intensity, not an
+        area: `fitting.py` multiplies it by FWHM × 1.064 before handing it to
+        lmfit, whose "amplitude" parameter is the integrated area (see
         ``FittedPeak.area``).
     """
 
     center: float
-    amplitude: float
+    intensity: float
     width_fwhm: float
     label: str = ""
     shape: float = 0.5
@@ -60,12 +60,12 @@ class PeakDefinition:
     center_max: Optional[float] = None
     width_min: Optional[float] = None
     width_max: Optional[float] = None
-    height_max: Optional[float] = None
+    intensity_max: Optional[float] = None
 
     def __post_init__(self):
         """Validate attributes."""
-        if self.amplitude <= 0:
-            raise ValueError(f"amplitude must be > 0 (got {self.amplitude})")
+        if self.intensity <= 0:
+            raise ValueError(f"intensity must be > 0 (got {self.intensity})")
 
         if self.width_fwhm <= 0:
             raise ValueError(f"width_fwhm must be > 0 (got {self.width_fwhm})")
@@ -108,7 +108,7 @@ class PeakDefinition:
         - PL: center ± 30 nm
         - width_min: 2-3 × spectral_resolution
         - width_max: 50% of X range
-        - height_max: 5 × max(Y)
+        - intensity_max: 5 × max(Y)
         """
         # Center bounds (adaptive: wider tolerance for broader peaks)
         if mode == "Raman":
@@ -130,17 +130,17 @@ class PeakDefinition:
         # At most 50% of X range, or 3× initial guess (prevents runaway fitting)
         self.width_max = min(0.5 * (x_range[1] - x_range[0]), 3.0 * self.width_fwhm)
 
-        # Height ceiling (wider range for uncertain peaks)
-        if self.height_max is None:
+        # Intensity ceiling (wider range for uncertain peaks)
+        if self.intensity_max is None:
             # Allow up to 5× max intensity (accounts for sharp peaks above baseline)
-            self.height_max = 5.0 * y_max
+            self.intensity_max = 5.0 * y_max
 
     def to_dict(self) -> dict:
         """Serialize to dictionary for JSON export."""
         return {
             "label": self.label,
             "center": self.center,
-            "amplitude": self.amplitude,
+            "intensity": self.intensity,
             "width_fwhm": self.width_fwhm,
             "shape": self.shape,
             "color": self.color,
@@ -148,7 +148,7 @@ class PeakDefinition:
             "center_max": self.center_max,
             "width_min": self.width_min,
             "width_max": self.width_max,
-            "height_max": self.height_max
+            "intensity_max": self.intensity_max
         }
 
     @classmethod
@@ -171,11 +171,11 @@ class FittedPeak:
     center_stderr : float
         Standard error in center from lmfit covariance.
     area : float
-        Integrated intensity — the area under the peak, which is the quantity
-        lmfit solves for and calls "amplitude". Deliberately *not* named
-        amplitude here: the UI, the CSV export and the Sample Report all use
-        "Amplitude" to mean peak *height* (see peak_metrics.peak_height), and
-        the two differ by roughly FWHM x 1.064.
+        The area under the peak, which is the quantity lmfit solves for and
+        calls "amplitude". Deliberately *not* named amplitude here: the UI, the
+        CSV export and the Sample Report all report peak *intensity* — the
+        curve's maximum, see peak_metrics.peak_intensity — and the two differ
+        by roughly FWHM x 1.064.
     area_stderr : float
         Standard error in area.
     width_fwhm : float

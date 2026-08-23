@@ -57,21 +57,22 @@ class TestLoadSaveRoundTrip:
         assert set(loaded.keys()) == {("WSe2", "Raman"), ("MoS2", "Raman")}
 
 
-class TestPeakTemplateHasNoAmplitude:
-    def test_amplitude_field_removed(self):
-        # v2.11.0: amplitude was dropped from PeakTemplate since the fitter
+class TestPeakTemplateHasNoIntensity:
+    def test_intensity_field_removed(self):
+        # v2.11.0: the initial-guess field was dropped from PeakTemplate since the fitter
         # auto-estimates it from data and never consults the preset value.
         template = PeakTemplate(peak_label="Si", center=520.0, center_tolerance=3.0,
                                  width_fwhm=8.0, shape=0.2, color="#2ca02c")
         assert not hasattr(template, "amplitude")
+        assert not hasattr(template, "intensity")
 
-    def test_to_peak_definition_still_produces_valid_amplitude(self):
+    def test_to_peak_definition_still_produces_valid_intensity(self):
         template = PeakTemplate(peak_label="Si", center=520.0, center_tolerance=3.0,
                                  width_fwhm=8.0, shape=0.2, color="#2ca02c")
         peak_def = template.to_peak_definition(
             mode="Raman", x_range=(100.0, 1000.0), y_max=1000.0, spectral_resolution=1.0
         )
-        assert peak_def.amplitude > 0
+        assert peak_def.intensity > 0
 
 
 class TestParseExclusionRanges:

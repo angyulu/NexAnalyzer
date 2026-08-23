@@ -8,35 +8,35 @@ Two shapes, one row-builder:
   (auto-detected mode, X-range crop, convergence time) and, for PL, a leading
   "Raw" row per file. This is the batch/archival table.
 
-Both report Amplitude as peak *height* via `peak_metrics.peak_height_and_stderr`
-rather than lmfit's integrated amplitude — see that module for the two
-conventions in play.
+Both report Intensity — the fitted curve's maximum, via
+`peak_metrics.peak_intensity_and_stderr` — not `FittedPeak.area`. See that
+module for the two quantities and their names.
 """
 
 from typing import Dict, List
 
 import pandas as pd
 
-from ..processing.peak_metrics import peak_height_and_stderr, raw_peak_stats
+from ..processing.peak_metrics import peak_intensity_and_stderr, raw_peak_stats
 
 # Columns shared by both CSVs, in order.
 _PEAK_COLUMNS = [
-    "Peak_Label", "Center", "Center_Stderr", "Amplitude", "Amplitude_Stderr",
+    "Peak_Label", "Center", "Center_Stderr", "Intensity", "Intensity_Stderr",
     "FWHM", "FWHM_Stderr", "Shape", "R_Squared", "Chi_Squared",
 ]
 
 
 def _peak_row(filename: str, spectrum, peak) -> dict:
     """One fitted peak's row: identity, then the shared measurement columns."""
-    height, height_stderr = peak_height_and_stderr(peak)
+    intensity, intensity_stderr = peak_intensity_and_stderr(peak)
     return {
         "Filename": filename,
         "Mode": spectrum.mode,
         "Peak_Label": peak.label,
         "Center": peak.center,
         "Center_Stderr": peak.center_stderr,
-        "Amplitude": height,
-        "Amplitude_Stderr": height_stderr,
+        "Intensity": intensity,
+        "Intensity_Stderr": intensity_stderr,
         "FWHM": peak.width_fwhm,
         "FWHM_Stderr": peak.width_stderr,
         "Shape": peak.shape,
@@ -65,8 +65,8 @@ def _raw_row(filename: str, spectrum) -> dict:
         "Peak_Label": "Raw",
         "Center": stats.center,
         "Center_Stderr": "",
-        "Amplitude": stats.intensity,
-        "Amplitude_Stderr": "",
+        "Intensity": stats.intensity,
+        "Intensity_Stderr": "",
         "FWHM": stats.fwhm if stats.fwhm is not None else "",
         "FWHM_Stderr": "",
         "Shape": "",
