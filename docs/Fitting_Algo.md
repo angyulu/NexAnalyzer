@@ -1,7 +1,14 @@
 # Voigt Fitting Algorithm Documentation (modules/spectra)
 
 **Author:** Claude Code
-**Original analysis date:** 2025-12-21 (v2.2.0) · **Last reviewed:** 2026-08-12 (v2.9.0)
+**Original analysis date:** 2025-12-21 (v2.2.0) · **Last reviewed:** 2026-08-23 (v3.6.0)
+
+**Scope of that review:** §1–§4, which describe how the code works *today*, were
+checked line by line against `modules/spectra/`. §5–§8 are a historical record —
+issues found against v2.2.0 and the fixes that followed — and their code listings
+quote the code as it stood at the time, not as it is now. Read them as history.
+File links point at the current module paths; line numbers were dropped rather
+than left to rot on the next edit.
 **Purpose:** Comprehensive documentation of the Voigt peak fitting algorithm — fundamental theory, workflow, and the history of issues found and fixed against it.
 
 This document originally proposed a set of fixes against v2.2.0. Most were implemented in v2.2.1 (see [§8 Implementation History](#8-implementation-history)); each item in §5 and §6 below is now marked with its current status rather than living in a separate changelog file.
@@ -38,7 +45,7 @@ Where:
 - **G(x; center, σ)**: Gaussian component with standard deviation σ
 - **L(x; γ)**: Lorentzian component with half-width-at-half-maximum γ
 - **center**: Peak position
-- **amplitude**: Integrated intensity (area under curve)
+- **amplitude**: lmfit's name for the area under the curve
 
 **Parameter Relationships:**
 - Gaussian FWHM: `FWHM_G = 2.355 × σ`
@@ -53,17 +60,29 @@ from lmfit.models import VoigtModel
 
 # VoigtModel parameters:
 # - center: peak position (cm⁻¹ or nm)
-# - amplitude: height × width (NOT peak height!)
+# - amplitude: the AREA under the peak (NOT the peak's maximum!)
 # - sigma: Gaussian width parameter
 # - gamma: Lorentzian width parameter
 ```
 
-**Critical Detail**: `amplitude` in lmfit is **NOT** the peak height, but rather:
+**Critical Detail**: `amplitude` in lmfit is **NOT** the peak's maximum value, but
+rather:
 ```
-amplitude ≈ peak_height × effective_width
+amplitude ≈ intensity × effective_width
 ```
 
-This is a common source of confusion and can lead to poor initial guesses.
+This is a common source of confusion and can lead to poor initial guesses, so
+NexAnalyzer never uses the word. Two quantities, two names, everywhere in the
+codebase and on every reporting surface:
+
+| Quantity | Our name | lmfit's name |
+|---|---|---|
+| The fitted curve's maximum | **intensity** (`peak_metrics.peak_intensity`, `PeakDefinition.intensity`, `PeakStat.intensity_*`, the `Intensity` column) | — |
+| The area under the peak | **area** (`FittedPeak.area`) | `amplitude` |
+
+`amplitude` appears only where lmfit's own parameter is being addressed by name,
+and in the historical sections below (§5, §6, §8), which quote code as it stood
+at the time.
 
 ---
 
@@ -78,7 +97,7 @@ User Input: Baseline-corrected spectrum (X, Y) + Peak guesses
     ↓ (Uses scipy.signal.find_peaks)
     ↓
 Peak Table: List[PeakDefinition]
-    ↓ (center, amplitude, width_fwhm, bounds)
+    ↓ (center, intensity, width_fwhm, bounds)
     ↓
 [Voigt Fitting] fit_voigt_peaks()
     ↓
@@ -95,7 +114,7 @@ FitResult: success, fitted_peaks, total_fit_curve, R², χ²
 
 ### 2.2 Step-by-Step Fitting Process
 
-**Step 1: Validation** ([fitting.py:79-87](src/processing/fitting.py#L79-L87))
+**Step 1: Validation** ([fitting.py](../modules/spectra/processing/fitting.py))
 ```python
 if len(peak_table) == 0:
     raise ValueError("peak_table must have at least 1 peak")
@@ -105,7 +124,7 @@ if len(x) != len(y):
     raise ValueError(f"x and y must have same length")
 ```
 
-**Step 2: Auto-bounds Calculation** ([fitting.py:89-95](src/processing/fitting.py#L89-L95))
+**Step 2: Auto-bounds Calculation** ([fitting.py](../modules/spectra/processing/fitting.py))
 ```python
 x_range = (x.min(), x.max())
 y_max = y.max()
@@ -115,14 +134,14 @@ for peak in peak_table:
     peak.calculate_auto_bounds(mode, x_range, y_max, spectral_resolution)
 ```
 
-**Auto-bounds logic** ([peak.py:76-127](src/models/peak.py#L76-L127)):
+**Auto-bounds logic** ([peak.py](../modules/spectra/models/peak.py)):
 - **Raman mode**: center ± 5 cm⁻¹
 - **PL mode**: center ± 30 nm
 - **width_min**: 2.5 × spectral_resolution
 - **width_max**: 50% of X range
-- **amplitude_max**: 5 × max(Y) (raised from 2× in v2.2.1, §6.4)
+- **intensity_max**: 5 × max(Y) (raised from 2× in v2.2.1, §6.4; named `amplitude_max` until v3.4.2 and `height_max` until v3.6.0)
 
-**Step 3: Build Composite Model** ([fitting.py:97-124](src/processing/fitting.py#L97-L124))
+**Step 3: Build Composite Model** ([fitting.py](../modules/spectra/processing/fitting.py))
 ```python
 composite_model = None
 params = Parameters()
@@ -140,40 +159,52 @@ for i, peak in enumerate(peak_table):
     sigma_guess = peak.width_fwhm / (2 * 2.355)  # FWHM_G = 2.355 × σ
     gamma_guess = peak.width_fwhm / 4.0          # FWHM_L = 2 × γ
 
+    # Auto-estimated from the data, then converted to lmfit's area
+    idx = int(np.argmin(np.abs(x - peak.center)))
+    intensity_guess = max(float(y[idx]), 1e-6)
+    fwhm_eff = peak.width_fwhm
+    area_guess = intensity_guess * fwhm_eff * 1.064
+    area_max = peak.intensity_max * fwhm_eff * 1.064
+
     # Add parameters with bounds
     params.add(f"{prefix}center", value=peak.center,
                min=peak.center_min, max=peak.center_max)
-    params.add(f"{prefix}amplitude", value=peak.amplitude,
-               min=0, max=peak.amplitude_max)
+    params.add(f"{prefix}amplitude", value=area_guess,
+               min=0, max=area_max)
     params.add(f"{prefix}sigma", value=sigma_guess,
                min=peak.width_min / (2 * 2.355), max=peak.width_max / (2 * 2.355))
     params.add(f"{prefix}gamma", value=gamma_guess,
                min=peak.width_min / 4.0, max=peak.width_max / 4.0)
 ```
 
-**Step 4: Levenberg-Marquardt Optimization** ([fitting.py:126-166](src/processing/fitting.py#L126-L166))
+**Step 4: Levenberg-Marquardt Optimization** ([fitting.py](../modules/spectra/processing/fitting.py))
 ```python
 result = composite_model.fit(
     y, params, x=x,
     method='leastsq',       # Levenberg-Marquardt
-    max_nfev=2000,          # Max function evaluations
+    max_nfev=max_iterations,  # Max function evaluations (default 2000)
     fit_kws={'ftol': 1e-6, 'xtol': 1e-6}  # Convergence tolerances
 )
 ```
 
-**Step 5: Extract Fitted Parameters** ([fitting.py:168-238](src/processing/fitting.py#L168-L238))
+**Step 5: Extract Fitted Parameters** ([fitting.py](../modules/spectra/processing/fitting.py))
+
+> Until v3.4.0 this step computed `width_fwhm_fit = 2.355 * sigma_fit` — the
+> Gaussian FWHM, ignoring the Lorentzian `gamma` entirely, which under-reported
+> the width of every fitted peak. It now calls `voigt_fwhm()` (§1.1's
+> approximation). Reported widths jumped when that landed; nothing else changed.
 ```python
 for i, peak in enumerate(peak_table):
     prefix = f"p{i}_"
 
     # Extract values with defensive coding
     center_fit = get_param_value(result.params[f"{prefix}center"])
-    amplitude_fit = get_param_value(result.params[f"{prefix}amplitude"])
+    area_fit = get_param_value(result.params[f"{prefix}amplitude"])  # lmfit's "amplitude" is the area
     sigma_fit = get_param_value(result.params[f"{prefix}sigma"])
     gamma_fit = get_param_value(result.params[f"{prefix}gamma"])
 
-    # Convert back to FWHM
-    width_fwhm_fit = 2.355 * sigma_fit
+    # Convert back to FWHM — the *Voigt* width, not the Gaussian half of it
+    width_fwhm_fit = voigt_fwhm(sigma_fit, gamma_fit)
 
     # Calculate shape parameter (Lorentzian fraction)
     shape_fit = gamma_fit / (gamma_fit + sigma_fit)
@@ -182,7 +213,7 @@ for i, peak in enumerate(peak_table):
     component_curve = voigt_component.eval(x=x, **{...})
 ```
 
-**Step 6: Quality Metrics** ([fitting.py:240-247](src/processing/fitting.py#L240-L247))
+**Step 6: Quality Metrics** ([fitting.py](../modules/spectra/processing/fitting.py))
 ```python
 residuals = result.residual
 chi_squared = result.chisqr
@@ -223,7 +254,7 @@ The **Levenberg-Marquardt (LM)** algorithm is a hybrid optimization method combi
 
 ### 3.2 Parameter Initialization Strategy
 
-**Current approach** ([fitting.py:113-114](src/processing/fitting.py#L113-L114)):
+**Current approach** ([fitting.py](../modules/spectra/processing/fitting.py)):
 ```python
 sigma_guess = peak.width_fwhm / (2 * 2.355)  # Assume equal Gaussian/Lorentzian
 gamma_guess = peak.width_fwhm / 4.0          # contribution
@@ -235,11 +266,11 @@ gamma_guess = peak.width_fwhm / 4.0          # contribution
 - **Raman spectra**: Often more Lorentzian (lifetime-dominated)
 - **PL spectra**: Often more Gaussian (instrumental broadening)
 
-**Impact on amplitude**: Since `amplitude ≈ height × width`, if the width guess is wrong, the amplitude will be wrong by a proportional factor.
+**Impact on the area**: Since `area ≈ intensity × width`, if the width guess is wrong, the area will be wrong by a proportional factor.
 
 ### 3.3 Auto-Find Peaks Algorithm
 
-**Implementation** ([fitting.py:261-377](src/processing/fitting.py#L261-L377)):
+**Implementation** ([fitting.py](../modules/spectra/processing/fitting.py)):
 
 ```python
 def auto_find_peaks(x, y, mode="Raman", min_peaks=2, max_peaks=5, prominence_threshold=0.05):
@@ -273,13 +304,13 @@ def auto_find_peaks(x, y, mode="Raman", min_peaks=2, max_peaks=5, prominence_thr
     # 6. Create PeakDefinition objects
     peak_table.append(PeakDefinition(
         center=center,
-        amplitude=amplitude,  # Uses peak height (NOT lmfit amplitude!)
+        intensity=intensity,  # the curve's maximum (NOT lmfit's amplitude!)
         width_fwhm=width_fwhm,
         shape=0.5  # Equal Gaussian/Lorentzian
     ))
 ```
 
-**Key issue**: `amplitude` is set to peak height, but lmfit expects `amplitude = height × width`.
+**Note**: `PeakDefinition.intensity` is the peak's maximum, while lmfit expects an area. `fit_voigt_peaks()` does the `× FWHM × 1.064` conversion on the way in (§6.1), so the two never meet unconverted.
 
 ---
 
@@ -288,12 +319,12 @@ def auto_find_peaks(x, y, mode="Raman", min_peaks=2, max_peaks=5, prominence_thr
 ### 4.1 File Organization
 
 ```
-src/processing/fitting.py (412 lines)
+modules/spectra/processing/fitting.py (563 lines)
 ├── fit_voigt_peaks()           # Main fitting function
 ├── auto_find_peaks()           # Peak detection
 └── estimate_peak_bounds()      # Convenience wrapper
 
-src/models/peak.py (293 lines)
+modules/spectra/models/peak.py (311 lines)
 ├── PeakDefinition              # User-defined peak guess
 │   ├── __post_init__()         # Validation
 │   ├── calculate_auto_bounds() # Mode-dependent bounds
@@ -305,7 +336,7 @@ src/models/peak.py (293 lines)
 
 ### 4.2 Critical Code Sections with Explanations
 
-**Section 1: Amplitude Initialization** ([fitting.py:119-120](src/processing/fitting.py#L119-L120))
+**Section 1: Amplitude Initialization** ([fitting.py](../modules/spectra/processing/fitting.py))
 
 ```python
 params.add(f"{prefix}amplitude", value=peak.amplitude,
@@ -316,7 +347,7 @@ params.add(f"{prefix}amplitude", value=peak.amplitude,
 - **Over-estimation** if amplitude is too large → optimizer struggles
 - **Under-estimation** if amplitude is too small → fit doesn't reach true peak height
 
-**Section 2: Width Parameter Conversion** ([fitting.py:113-114](src/processing/fitting.py#L113-L114))
+**Section 2: Width Parameter Conversion** ([fitting.py](../modules/spectra/processing/fitting.py))
 
 ```python
 sigma_guess = peak.width_fwhm / (2 * 2.355)  # Gaussian FWHM = 2.355 × sigma
@@ -339,7 +370,7 @@ else:  # More Lorentzian
     gamma_guess = peak.width_fwhm / 2
 ```
 
-**Section 3: Convergence Tolerance Handling** ([fitting.py:138-153](src/processing/fitting.py#L138-L153))
+**Section 3: Convergence Tolerance Handling** ([fitting.py](../modules/spectra/processing/fitting.py))
 
 ```python
 # Accept fit even if error bars couldn't be estimated (common with tight fits)
@@ -358,7 +389,7 @@ if not result.success and "Tolerance seems to be too small" not in str(result.me
 
 **Comment**: This is a workaround for a common lmfit behavior where the fit converges but uncertainties cannot be calculated. The fit is still valid, but we accept it with `stderr=0.0`. **Better approach**: Check `result.errorbars` flag instead of string matching.
 
-**Section 4: Parameter Extraction Defensive Coding** ([fitting.py:172-205](src/processing/fitting.py#L172-L205))
+**Section 4: Parameter Extraction Defensive Coding** ([fitting.py](../modules/spectra/processing/fitting.py))
 
 ```python
 def get_param_value(param):
@@ -431,7 +462,7 @@ Raman spectrum (naturally Lorentzian-dominated):
 - Poor initial fit quality
 - May not converge if widths are way off
 
-**Code** ([fitting.py:346-353](src/processing/fitting.py#L346-L353)):
+**Code** ([fitting.py](../modules/spectra/processing/fitting.py)):
 ```python
 if 'widths' in properties:
     width_points = properties['widths'][idx]
@@ -448,7 +479,7 @@ else:
 
 **Problem**: Auto-bounds may constrain parameters too tightly, preventing convergence to true minimum.
 
-**Example** ([peak.py:107-115](src/models/peak.py#L107-L115)):
+**Example** ([peak.py](../modules/spectra/models/peak.py)):
 ```python
 if mode == "Raman":
     center_tolerance = 5.0  # cm⁻¹
@@ -505,13 +536,13 @@ params.add(f"{prefix}amplitude", value=amplitude_lmfit,
            min=0, max=peak.amplitude_max * fwhm_eff * 1.064)
 ```
 
-**Refined further since**: the current code (`src/processing/fitting.py`) no longer
+**Refined further since**: the current code (`modules/spectra/processing/fitting.py`) no longer
 seeds the amplitude from `peak.amplitude` at all — it auto-estimates the initial
 height directly from the data at `peak.center` (`height_guess = max(float(y[idx]), 1e-6)`),
-since amplitude depends on measurement conditions while position/FWHM come from
-the material preset. `peak.amplitude` itself is now a required-but-unused
+since intensity depends on measurement conditions while position/FWHM come from
+the material preset. `peak.intensity` itself is now a required-but-unused
 placeholder field, kept only for backward-compatible (de)serialization
-(see `PeakDefinition.amplitude` in `src/models/peak.py`).
+(see `PeakDefinition.intensity` in `modules/spectra/models/peak.py`).
 
 **Impact**: Better initial guesses → faster convergence, fewer local minima.
 
@@ -678,7 +709,7 @@ else:
 
 **Solution**: Check for peaks closer than 2× FWHM and suggest merging.
 `detect_overlapping_peaks()` (and `auto_find_peaks()`, §3.3/§6.3) are still
-defined and tested in `src/processing/fitting.py`, but as of v2.9.0 have no
+defined and tested in `modules/spectra/processing/fitting.py`, but as of v2.9.0 have no
 call site anywhere in the app: the manual peak-fitting UI that called them
 (`src/ui/control_panel/peak_fit.py`) was removed in favor of preset-driven
 processing, and `execute_auto_workflow()` builds the peak table directly
@@ -808,7 +839,7 @@ single pass. Two items were explicitly deferred: multi-stage fitting (§6.5,
 high effort/complexity) and the string-matching→flag-based error handling
 cleanup (§6.6, low impact).
 
-**Files touched:** `src/processing/fitting.py`, `src/models/peak.py`,
+**Files touched:** `modules/spectra/processing/fitting.py`, `modules/spectra/models/peak.py`,
 `src/ui/control_panel.py` (peak-fitting section — moved to
 `src/ui/control_panel/peak_fit.py` in the v2.8.0 package refactor, then
 removed entirely in v2.9.0 — see below).
@@ -833,7 +864,7 @@ confirm the overlap warning fires before fitting.
 
 - Added `tests/unit/test_fitting.py` (see §7.4).
 - `fit_voigt_peaks()`'s amplitude initialization (§6.1) was refined further:
-  it no longer seeds from `peak.amplitude` at all, instead auto-estimating
+  it no longer seeds from `peak.intensity` at all, instead auto-estimating
   the initial height directly from the data at each peak's center (see the
   note under §6.1).
 - `auto_find_peaks()`'s peak-count formula was simplified for clarity (its
@@ -846,13 +877,13 @@ confirm the overlap warning fires before fitting.
 
 `src/ui/control_panel/peak_fit.py` (referenced above) no longer exists.
 Processing is now exclusively preset-driven
-(`execute_auto_workflow()` in `src/processing/auto_workflow.py`, triggered
-from `src/ui/sidebar.py`); the peak table comes directly from the preset's
+(`execute_auto_workflow()` in `modules/spectra/processing/auto_workflow.py`, triggered
+from `modules/spectra/ui/sidebar.py`); the peak table comes directly from the preset's
 `peak_templates` instead of manual entry or `auto_find_peaks()`. This
 doesn't change any theory or algorithm described above — `fit_voigt_peaks()`
 is called exactly the same way, just from `auto_workflow.py` instead of a
 UI button handler. `auto_find_peaks()` and `detect_overlapping_peaks()`
-(§3.3, §6.3, §6.7) remain in `src/processing/fitting.py`, still tested, but
+(§3.3, §6.3, §6.7) remain in `modules/spectra/processing/fitting.py`, still tested, but
 currently have no caller anywhere in the app.
 
 ---

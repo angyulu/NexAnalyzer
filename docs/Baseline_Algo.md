@@ -3,7 +3,8 @@
 **Date:** 2025-12-21
 **Version:** v2.2+ (now modules/spectra/processing/baseline.py)
 **Status:** Analysis Complete
-**Last reviewed:** 2026-08-12 (v2.9.0) — see the implementation-status note at the end of [§6](#6-proposed-solutions): most short- and medium-term solutions proposed below (§6.1, §6.2) have since been implemented; only the long-term ML/interactive-editing proposals (§6.3) remain open. Code references to `src/ui/control_panel.py` below refer to a UI module that no longer exists: it held a manual baseline-tuning UI (widgets for algorithm/parameter selection, live preview) that was removed in v2.9.0 in favor of preset-driven auto-processing (`src/processing/auto_workflow.py`). The baseline *algorithms* referenced throughout this document are unaffected and still live in `src/processing/baseline.py`.
+**Last reviewed:** 2026-08-12 (v2.9.0); file paths repointed 2026-08-23 (v3.6.0),
+algorithm content not re-verified since v2.9.0 — see the implementation-status note at the end of [§6](#6-proposed-solutions): most short- and medium-term solutions proposed below (§6.1, §6.2) have since been implemented; only the long-term ML/interactive-editing proposals (§6.3) remain open. Code references to `src/ui/control_panel.py` below refer to a UI module that no longer exists: it held a manual baseline-tuning UI (widgets for algorithm/parameter selection, live preview) that was removed in v2.9.0 in favor of preset-driven auto-processing (`modules/spectra/processing/auto_workflow.py`). The baseline *algorithms* referenced throughout this document are unaffected and still live in `modules/spectra/processing/baseline.py`.
 
 ---
 
@@ -192,7 +193,7 @@ for iteration in range(max_iter):
 
 ### 3.1 Code Structure
 
-**File:** `src/processing/baseline.py` (393 lines)
+**File:** `modules/spectra/processing/baseline.py` (393 lines)
 
 **Functions:**
 1. `baseline_polynomial(x, y, degree)` - Core polynomial fitting
@@ -432,7 +433,7 @@ if st.button("Apply Baseline Correction", ...):
 
 ### 3.6 Default Values
 
-**From `src/models/spectrum.py` (ProcessingSettings dataclass):**
+**From `modules/spectra/models/spectrum.py` (ProcessingSettings dataclass):**
 ```python
 despike_threshold: float = 6.0
 baseline_algorithm: Literal["Polynomial", "ALS"] = "Polynomial"
@@ -538,7 +539,7 @@ High-degree polynomials oscillate through data points to minimize global squared
 
 **Mathematical Reason:**
 - Polynomial minimizes `Σ[Y - Baseline]²` globally
-- Peak has high amplitude → large squared error if ignored
+- Peak has high intensity → large squared error if ignored
 - High degree gives flexibility to "capture" peak shape
 - **No asymmetry:** Peak points get same weight as baseline points
 
@@ -1106,9 +1107,9 @@ def baseline_als_with_mask(x, y, lambda_, p, max_iter, exclusions):
 - ✅ Matches industry standard tools (Bruker OPUS, LabSpec)
 
 **Files to Modify:**
-1. `src/processing/baseline.py` - Add mask parameter to functions
+1. `modules/spectra/processing/baseline.py` - Add mask parameter to functions
 2. `src/ui/control_panel.py` - Add exclusion UI
-3. `src/models/spectrum.py` - Add `baseline_exclusions: List[Tuple[float, float]]` to ProcessingSettings
+3. `modules/spectra/models/spectrum.py` - Add `baseline_exclusions: List[Tuple[float, float]]` to ProcessingSettings
 
 **Estimated Time:** 2-3 hours (implementation + testing)
 
@@ -1329,7 +1330,7 @@ Solutions 1-9 (§6.1, §6.2) were implemented as manual-UI conveniences in
 `src/ui/control_panel/baseline.py` during v2.2.1 — but that whole UI module
 was **removed in v2.9.0**: SpectralFit no longer has a manual parameter-tuning
 UI at all (see [CHANGELOG.md](CHANGELOG.md) v2.9.0). Processing is now
-preset-driven (`src/processing/auto_workflow.py`), so UI-only conveniences
+preset-driven (`modules/spectra/processing/auto_workflow.py`), so UI-only conveniences
 like sliders, warnings, and live preview no longer apply — there's nothing
 to tune interactively. The underlying **algorithm capabilities**, however,
 mostly still exist and are still exercised by the preset-driven pipeline:
@@ -1340,9 +1341,9 @@ mostly still exist and are still exercised by the preset-driven pipeline:
 | 3. Rephrase asymmetry parameter (p) | N/A (UI-only) | ⬜ Removed |
 | 4. Polynomial degree warning | N/A (UI-only) | ⬜ Removed |
 | 5. Enable preview by default | N/A (no preview UI) | ⬜ Removed |
-| 6. Auto-suggest polynomial degree | ✅ `estimate_baseline_degree()` still exists in `src/processing/baseline.py` | ⬜ Not called by `auto_workflow.py` (preset specifies degree directly) |
-| 7. Peak masking / region exclusion | ✅ Still supported end-to-end — presets set an `exclusion_ranges` field, parsed by `parse_exclusion_ranges()` in `src/models/preset.py` and passed to the `*_with_mask` algorithm variants | N/A (no manual text-area; driven by the material preset instead) |
-| 8. Alternative baseline algorithms | ✅ Rolling Ball, Spline, and airPLS all still in `src/processing/baseline.py` | ⬜ Not currently selectable via presets — `auto_workflow.py` only routes `"Polynomial"` / `"ALS"` / `"None (Skip)"` |
+| 6. Auto-suggest polynomial degree | ✅ `estimate_baseline_degree()` still exists in `modules/spectra/processing/baseline.py` | ⬜ Not called by `auto_workflow.py` (preset specifies degree directly) |
+| 7. Peak masking / region exclusion | ✅ Still supported end-to-end — presets set an `exclusion_ranges` field, parsed by `parse_exclusion_ranges()` in `modules/spectra/models/preset.py` and passed to the `*_with_mask` algorithm variants | N/A (no manual text-area; driven by the material preset instead) |
+| 8. Alternative baseline algorithms | ✅ Rolling Ball, Spline, and airPLS all still in `modules/spectra/processing/baseline.py` | ⬜ Not currently selectable via presets — `auto_workflow.py` only routes `"Polynomial"` / `"ALS"` / `"None (Skip)"` |
 | 9. Baseline quality metrics | ✅ `calculate_baseline_quality_metrics()` still exists | ⬜ Not surfaced anywhere post-v2.9.0 (no UI displays it) |
 | 10. ML baseline prediction | ⬜ Not implemented (not recommended per this doc's own analysis) | — |
 | 11. Interactive baseline editing | ⬜ Not implemented, and inherently UI-driven — moot without a manual UI | — |
