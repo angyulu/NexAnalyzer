@@ -167,10 +167,14 @@ class FittedPeak:
         Fitted peak center (cm⁻¹ or nm).
     center_stderr : float
         Standard error in center from lmfit covariance.
-    amplitude : float
-        Fitted amplitude (raw units).
-    amplitude_stderr : float
-        Standard error in amplitude.
+    area : float
+        Integrated intensity — the area under the peak, which is the quantity
+        lmfit solves for and calls "amplitude". Deliberately *not* named
+        amplitude here: the UI, the CSV export and the Sample Report all use
+        "Amplitude" to mean peak *height* (see peak_metrics.peak_height), and
+        the two differ by roughly FWHM x 1.064.
+    area_stderr : float
+        Standard error in area.
     width_fwhm : float
         Fitted FWHM (cm⁻¹ or nm).
     width_stderr : float
@@ -186,8 +190,8 @@ class FittedPeak:
     label: str
     center: float
     center_stderr: float
-    amplitude: float
-    amplitude_stderr: float
+    area: float
+    area_stderr: float
     width_fwhm: float
     width_stderr: float
     shape: float
@@ -200,8 +204,8 @@ class FittedPeak:
             "label": self.label,
             "center": self.center,
             "center_stderr": self.center_stderr,
-            "amplitude": self.amplitude,
-            "amplitude_stderr": self.amplitude_stderr,
+            "area": self.area,
+            "area_stderr": self.area_stderr,
             "width_fwhm": self.width_fwhm,
             "width_stderr": self.width_stderr,
             "shape": self.shape,
@@ -217,8 +221,8 @@ class FittedPeak:
             label=data["label"],
             center=data["center"],
             center_stderr=data["center_stderr"],
-            amplitude=data["amplitude"],
-            amplitude_stderr=data["amplitude_stderr"],
+            area=data["area"],
+            area_stderr=data["area_stderr"],
             width_fwhm=data["width_fwhm"],
             width_stderr=data["width_stderr"],
             shape=data["shape"],

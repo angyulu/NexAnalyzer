@@ -12,19 +12,19 @@ from modules.spectra.processing.peak_metrics import (
 )
 
 
-def _peak(label, center, height, width_fwhm, amplitude=None):
+def _peak(label, center, height, width_fwhm, area=None):
     """A fitted peak whose component curve peaks at `height`.
 
-    `amplitude` is lmfit's integrated intensity, a different quantity. It
-    defaults to a value clearly unlike the height so that anything reading the
-    wrong one fails loudly rather than looking plausible.
+    `area` is the integrated intensity, a different quantity. It defaults to a
+    value clearly unlike the height so that anything reading the wrong one
+    fails loudly rather than looking plausible.
     """
     curve = np.zeros(10)
     curve[5] = height
     return FittedPeak(
         label=label, center=center, center_stderr=0.1,
-        amplitude=height * 7.0 if amplitude is None else amplitude,
-        amplitude_stderr=1.0,
+        area=height * 7.0 if area is None else area,
+        area_stderr=1.0,
         width_fwhm=width_fwhm, width_stderr=0.1,
         shape=0.3, component_curve=curve,
     )
@@ -90,7 +90,7 @@ class TestAggregateFitResults:
         """The two differ by FWHM x 1.064. Reporting area under a heading the
         CSV uses for height is what made the .pptx disagree with every other
         surface in the app."""
-        fits = [_fit_result([_peak("LA", 130.0, height=36.0, width_fwhm=22.0, amplitude=1800.0)])]
+        fits = [_fit_result([_peak("LA", 130.0, height=36.0, width_fwhm=22.0, area=1800.0)])]
 
         assert aggregate_fit_results(fits)[0].height_mean == 36.0
 
@@ -106,13 +106,13 @@ class TestComputePeakHeightRatio:
         """LA is ~6x broader than E2g+A1g here, so the area ratio and the
         height ratio are nothing like each other."""
         fits = [_fit_result([
-            _peak("LA", 130.0, height=10.0, width_fwhm=20.0, amplitude=900.0),
-            _peak("E2g+A1g", 250.0, height=100.0, width_fwhm=4.0, amplitude=300.0),
+            _peak("LA", 130.0, height=10.0, width_fwhm=20.0, area=900.0),
+            _peak("E2g+A1g", 250.0, height=100.0, width_fwhm=4.0, area=300.0),
         ])]
         median, _mad, _n = compute_peak_height_ratio(fits, "LA", "E2g+A1g")
 
         assert median == 0.1  # heights, 10/100
-        assert median != 900.0 / 300.0  # not the integrated-intensity ratio
+        assert median != 900.0 / 300.0  # not the area ratio
 
     def test_ratio_formed_per_point_not_from_the_two_means(self):
         fits = [self._pair(100.0, 200.0), self._pair(300.0, 100.0)]  # ratios 0.5 and 3.0
@@ -168,12 +168,32 @@ class TestComputePeakHeightRatio:
         assert compute_peak_height_ratio([], "LA", "E2g+A1g") is None
 
 
+class TestAmplitudeNamingIsUnambiguous:
+    """The .pptx once reported integrated intensity under a heading the CSV
+    used for height. Neither quantity is called "amplitude" on the model any
+    more, so the two can't be silently swapped again."""
+
+    def test_fitted_peak_has_no_attribute_called_amplitude(self):
+        peak = _peak("LA", 130.0, height=10.0, width_fwhm=20.0)
+
+        assert not hasattr(peak, "amplitude")
+        assert not hasattr(peak, "amplitude_stderr")
+        assert peak.area == 70.0  # the integrated quantity, named for what it is
+
+    def test_peak_stat_has_no_attribute_called_amplitude(self):
+        fits = [_fit_result([_peak("LA", 130.0, height=36.0, width_fwhm=22.0)])]
+        stat = aggregate_fit_results(fits)[0]
+
+        assert not hasattr(stat, "amplitude_mean")
+        assert stat.height_mean == 36.0
+
+
 class TestPeakHeightAndStderr:
     def test_height_comes_from_the_component_curve_not_the_amplitude(self):
         curve = np.array([0.0, 25.0, 100.0, 25.0, 0.0])
         peak = FittedPeak(
             label="LA", center=250.0, center_stderr=0.1,
-            amplitude=1000.0, amplitude_stderr=50.0,
+            area=1000.0, area_stderr=50.0,
             width_fwhm=10.0, width_stderr=0.1, shape=0.3, component_curve=curve,
         )
 
@@ -186,7 +206,7 @@ class TestPeakHeightAndStderr:
     def test_falls_back_to_amplitude_when_no_component_curve(self):
         peak = FittedPeak(
             label="LA", center=250.0, center_stderr=0.1,
-            amplitude=42.0, amplitude_stderr=3.0,
+            area=42.0, area_stderr=3.0,
             width_fwhm=10.0, width_stderr=0.1, shape=0.3, component_curve=None,
         )
 
@@ -195,7 +215,7 @@ class TestPeakHeightAndStderr:
     def test_zero_amplitude_gives_zero_stderr_rather_than_dividing_by_zero(self):
         peak = FittedPeak(
             label="Flat", center=250.0, center_stderr=0.1,
-            amplitude=0.0, amplitude_stderr=5.0,
+            area=0.0, area_stderr=5.0,
             width_fwhm=10.0, width_stderr=0.1, shape=0.3,
             component_curve=np.array([0.0, 1.0, 0.0]),
         )

@@ -24,7 +24,7 @@ def _make_spectrum_file(filename="sample_raman.txt", mode="Raman", with_fit=True
             fitted_peaks=[
                 FittedPeak(
                     label="Peak 1", center=500.0, center_stderr=0.5,
-                    amplitude=1000.0, amplitude_stderr=10.0,
+                    area=1000.0, area_stderr=10.0,
                     width_fwhm=40.0, width_stderr=1.0, shape=0.5,
                     component_curve=component, color="#1f77b4",
                 )

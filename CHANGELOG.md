@@ -5,6 +5,21 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.1] - 2026-08-22
+
+### Changed
+- **The integrated quantity is now called `area`.** `FittedPeak.amplitude` and
+  `amplitude_stderr` become `FittedPeak.area` and `area_stderr`. "Amplitude"
+  now means peak height consistently — in the UI, the CSV export and the
+  Sample Report — while the area under the peak, which is what lmfit solves
+  for and what lmfit itself calls "amplitude", says so in its name. Reporting
+  one under the other's heading is what made the .pptx disagree with the CSV
+  in 3.3.0; nothing on the model carries the ambiguous name any more, and
+  tests assert that both `FittedPeak.amplitude` and `PeakStat.amplitude_mean`
+  stay gone.
+- No numbers change: heights, widths and the LA/E2g+A1g ratio are identical
+  either side of the rename.
+
 ## [3.4.0] - 2026-08-22
 
 ### Fixed

@@ -49,10 +49,10 @@ class PeakStat:
 
     ``height_*`` is peak height — the maximum of the fitted component curve —
     which is the same quantity the CSV export and the on-screen Fit Results
-    table call "Amplitude". It is deliberately *not* lmfit's
-    ``FittedPeak.amplitude``, which is integrated intensity (area) and differs
-    by a factor of FWHM x 1.064; reporting that here made the .pptx disagree
-    with every other surface while using the same column heading.
+    table call "Amplitude". It is deliberately *not* ``FittedPeak.area``, the
+    integrated intensity lmfit solves for, which differs by a factor of
+    FWHM x 1.064; reporting that here made the .pptx disagree with every other
+    surface while using the same column heading.
     """
 
     label: str

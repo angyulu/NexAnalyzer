@@ -35,8 +35,8 @@ def _make_fit_result():
     return FitResult(
         success=True,
         fitted_peaks=[
-            FittedPeak(label="Si", center=520.0, center_stderr=0.1, amplitude=1000.0,
-                       amplitude_stderr=5.0, width_fwhm=8.0, width_stderr=0.2, shape=0.2,
+            FittedPeak(label="Si", center=520.0, center_stderr=0.1, area=1000.0,
+                       area_stderr=5.0, width_fwhm=8.0, width_stderr=0.2, shape=0.2,
                        component_curve=None, color="#2ca02c")
         ],
         total_fit_curve=None,

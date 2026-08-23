@@ -283,8 +283,9 @@ def fit_voigt_peaks(
             # Get fitted values - robust to both Parameter objects and raw floats
             center_fit = get_param_value(result.params[f"{prefix}center"])
             center_stderr = get_param_stderr(result.params[f"{prefix}center"])
-            amplitude_fit = get_param_value(result.params[f"{prefix}amplitude"])
-            amplitude_stderr = get_param_stderr(result.params[f"{prefix}amplitude"])
+            # lmfit's "amplitude" parameter is the integrated area under the peak.
+            area_fit = get_param_value(result.params[f"{prefix}amplitude"])
+            area_stderr = get_param_stderr(result.params[f"{prefix}amplitude"])
             sigma_fit = get_param_value(result.params[f"{prefix}sigma"])
             sigma_stderr = get_param_stderr(result.params[f"{prefix}sigma"])
             gamma_fit = get_param_value(result.params[f"{prefix}gamma"])
@@ -319,7 +320,7 @@ def fit_voigt_peaks(
             x=x,
             **{
                 f"{prefix}center": center_fit,
-                f"{prefix}amplitude": amplitude_fit,
+                f"{prefix}amplitude": area_fit,
                 f"{prefix}sigma": sigma_fit,
                 f"{prefix}gamma": gamma_fit
             }
@@ -329,8 +330,8 @@ def fit_voigt_peaks(
             label=peak.label,
             center=center_fit,
             center_stderr=center_stderr,
-            amplitude=amplitude_fit,
-            amplitude_stderr=amplitude_stderr,
+            area=area_fit,
+            area_stderr=area_stderr,
             width_fwhm=width_fwhm_fit,
             width_stderr=width_stderr,
             shape=shape_fit,

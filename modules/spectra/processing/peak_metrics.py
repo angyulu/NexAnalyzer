@@ -7,16 +7,17 @@ Every reporting surface uses **height** — the fitted curve's maximum, via
 plot. The on-screen Fit Results table, the exported CSVs, the Sample Report's
 summary tables and its LA/E2g+A1g ratio all agree on it.
 
-The other convention still exists on the model: `FittedPeak.amplitude` is
-lmfit's own amplitude, i.e. **integrated intensity** — area under the peak,
-height x FWHM x 1.064 for a Voigt. It is what the fitter solves for, and the
-two diverge whenever peaks have unequal widths: WSe2's LA mode is ~6x broader
-than E2g+A1g, so their area ratio is ~4.3x their height ratio. The Sample
-Report used to report area under an "Amplitude" heading, which made it
-disagree with the CSV that named the same column the same thing.
+The other convention still exists on the model as `FittedPeak.area`:
+**integrated intensity**, the area under the peak — height x FWHM x 1.064 for
+a Voigt. It is what lmfit solves for and what lmfit itself calls "amplitude",
+which is exactly why it is named `area` here. The two diverge whenever peaks
+have unequal widths: WSe2's LA mode is ~6x broader than E2g+A1g, so their area
+ratio is ~4.3x their height ratio. The Sample Report used to report area under
+an "Amplitude" heading, which made it disagree with the CSV that named the same
+column the same thing.
 
-Don't reintroduce that. If a caller genuinely wants area, take
-`FittedPeak.amplitude` explicitly and label it "integrated".
+Don't reintroduce that. A caller that genuinely wants the integrated quantity
+should take `FittedPeak.area` and label it "area".
 """
 
 from typing import List, NamedTuple, Optional, Tuple
@@ -31,22 +32,22 @@ def peak_height_and_stderr(peak) -> Tuple[float, float]:
     """
     A fitted peak's height and the standard error on that height.
 
-    Height is the maximum of the fitted component curve, not
-    `FittedPeak.amplitude` (which lmfit reports as integrated intensity).
-    The reported stderr is `amplitude_stderr` rescaled by the same
-    height/amplitude ratio — a linear approximation, but the only sensible
-    one without re-propagating the covariance matrix.
+    Height is the maximum of the fitted component curve, not `FittedPeak.area`
+    (the integrated intensity lmfit solves for). The reported stderr is
+    `area_stderr` rescaled by the same height/area ratio — a linear
+    approximation, but the only sensible one without re-propagating the
+    covariance matrix.
 
-    Falls back to the raw amplitude and its stderr when no component curve
-    was generated (e.g. a fit that converged without per-peak curves).
+    Falls back to the area and its stderr when no component curve was
+    generated (e.g. a fit that converged without per-peak curves).
     """
     curve = getattr(peak, "component_curve", None)
     if curve is None or len(curve) == 0:
-        return float(peak.amplitude), float(peak.amplitude_stderr)
+        return float(peak.area), float(peak.area_stderr)
 
     height = float(np.max(curve))
-    if peak.amplitude > 0:
-        return height, float(peak.amplitude_stderr) * (height / peak.amplitude)
+    if peak.area > 0:
+        return height, float(peak.area_stderr) * (height / peak.area)
     return height, 0.0
 
 
