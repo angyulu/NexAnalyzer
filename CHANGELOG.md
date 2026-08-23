@@ -5,6 +5,29 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-08-22
+
+### Fixed
+- **Reported FWHM was the Gaussian width, not the Voigt width.** `fitting.py`
+  computed `width_fwhm = 2.355 * sigma`, ignoring the Lorentzian `gamma`
+  entirely, so every width in the app — the Fit Results table, the CSV export
+  and the Sample Report — understated the peak actually drawn by 59-108%. On
+  VBBA14, E2g+A1g was quoted as 3.88 where its fitted curve is 8.06 wide, and
+  LA as 22.14 where it is 36.50. `docs/Fitting_Algo.md` already documented the
+  correct Olivero & Longbothum formula; only the implementation was missing it.
+  Widths are now verified against the measured half-maximum of the fitted
+  component curves, agreeing to within a few tenths of a percent.
+- **FWHM uncertainty propagated only sigma's error.** `2.355 * sigma_stderr`
+  describes the Gaussian component rather than the width, and sigma and gamma
+  trade off strongly against each other (lmfit reports correlations of -0.82 to
+  -0.97 here), so each is poorly determined alone while their combination is
+  not. The uncertainty now propagates from both parameters and uses lmfit's
+  fitted correlation, falling back to quadrature — an upper bound — when the
+  covariance is unavailable.
+
+Peak heights, and therefore the LA/E2g+A1g ratio, are unaffected: they come
+from the maximum of the component curve, not from any width parameter.
+
 ## [3.3.0] - 2026-08-22
 
 ### Fixed

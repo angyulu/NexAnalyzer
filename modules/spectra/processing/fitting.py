@@ -22,6 +22,73 @@ from typing import List
 from ..models.peak import PeakDefinition, FittedPeak, FitResult
 
 
+# FWHM of a unit-sigma Gaussian: 2*sqrt(2*ln 2). The bounds and initial
+# guesses elsewhere in this module use the rounded 2.355; the difference is
+# under 0.01% and they are left as they are so fits don't shift.
+_GAUSSIAN_FWHM_PER_SIGMA = 2.3548200450309493
+
+
+def voigt_fwhm(sigma: float, gamma: float) -> float:
+    """
+    Full width at half maximum of a Voigt profile.
+
+    A Voigt is a Gaussian convolved with a Lorentzian, and its width depends on
+    both: 2.355*sigma is the Gaussian contribution alone and understates the
+    real width by 60-110% at the shapes this fitter converges to. There is no
+    closed form, so this uses the Olivero & Longbothum approximation, accurate
+    to ~0.02%:
+
+        f_V ~= 0.5346*f_L + sqrt(0.2166*f_L^2 + f_G^2)
+
+    with f_G = 2*sqrt(2 ln 2)*sigma and f_L = 2*gamma. Verified against the
+    measured half-maximum width of the fitted component curves.
+    """
+    f_g = _GAUSSIAN_FWHM_PER_SIGMA * float(sigma)
+    f_l = 2.0 * float(gamma)
+    return 0.5346 * f_l + np.sqrt(0.2166 * f_l * f_l + f_g * f_g)
+
+
+def _correlation(param, other_name: str):
+    """lmfit's fitted correlation between `param` and `other_name`, or None."""
+    correl = getattr(param, "correl", None)
+    if not correl:
+        return None
+    return correl.get(other_name)
+
+
+def voigt_fwhm_stderr(
+    sigma: float, gamma: float, sigma_stderr: float, gamma_stderr: float, correlation=None
+) -> float:
+    """
+    Standard error on `voigt_fwhm`, propagated from both width parameters.
+
+    Taking 2.355*sigma_stderr — the previous behaviour — reports the
+    uncertainty of the Gaussian component rather than of the width, and
+    overstates it badly: sigma and gamma trade off against each other, so each
+    is poorly determined on its own while their combination is not. That
+    produced widths quoted as 2.07 +/- 133.29.
+
+    Uses lmfit's fitted correlation between the two when it is available, which
+    is what cancels most of that; without it the terms add in quadrature, which
+    is an upper bound rather than a wrong answer.
+    """
+    f_g = _GAUSSIAN_FWHM_PER_SIGMA * float(sigma)
+    f_l = 2.0 * float(gamma)
+    root = np.sqrt(0.2166 * f_l * f_l + f_g * f_g)
+    if root == 0:
+        return 0.0
+
+    # d(f_V)/d(sigma) and d(f_V)/d(gamma), via f_G and f_L.
+    d_sigma = _GAUSSIAN_FWHM_PER_SIGMA * (f_g / root)
+    d_gamma = 2.0 * (0.5346 + 0.2166 * f_l / root)
+
+    variance = (d_sigma * sigma_stderr) ** 2 + (d_gamma * gamma_stderr) ** 2
+    if correlation is not None:
+        variance += 2.0 * d_sigma * d_gamma * correlation * sigma_stderr * gamma_stderr
+
+    return float(np.sqrt(variance)) if variance > 0 else 0.0
+
+
 def fit_voigt_peaks(
     x: np.ndarray,
     y: np.ndarray,
@@ -232,9 +299,14 @@ def fit_voigt_peaks(
                 f"Original error: {e}"
             )
 
-        # Convert sigma back to FWHM
-        width_fwhm_fit = 2.355 * sigma_fit  # Approximate
-        width_stderr = 2.355 * sigma_stderr
+        # A Voigt's width comes from both of its components, so 2.355*sigma
+        # is only the Gaussian half of it (see voigt_fwhm).
+        gamma_stderr = get_param_stderr(result.params[f"{prefix}gamma"])
+        sigma_gamma_correl = _correlation(result.params[f"{prefix}sigma"], f"{prefix}gamma")
+        width_fwhm_fit = voigt_fwhm(sigma_fit, gamma_fit)
+        width_stderr = voigt_fwhm_stderr(
+            sigma_fit, gamma_fit, sigma_stderr, gamma_stderr, sigma_gamma_correl
+        )
 
         # Calculate shape parameter (Lorentzian fraction)
         # shape = gamma / (gamma + sigma)

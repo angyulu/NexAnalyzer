@@ -3,7 +3,13 @@
 import numpy as np
 import pytest
 
-from modules.spectra.processing.fitting import fit_voigt_peaks, auto_find_peaks, detect_overlapping_peaks
+from modules.spectra.processing.fitting import (
+    auto_find_peaks,
+    detect_overlapping_peaks,
+    fit_voigt_peaks,
+    voigt_fwhm,
+    voigt_fwhm_stderr,
+)
 from modules.spectra.models.peak import PeakDefinition
 
 
@@ -118,3 +124,73 @@ class TestDetectOverlappingPeaks:
         warnings = detect_overlapping_peaks(peaks, merge_threshold=2.0)
         assert len(warnings) == 1
         assert "A" in warnings[0] and "B" in warnings[0]
+
+
+class TestVoigtFwhm:
+    """A Voigt's width comes from both of its components. Reporting
+    2.355*sigma described only the Gaussian half and understated every width
+    in the app by 60-110%."""
+
+    def _measured_fwhm(self, sigma, gamma):
+        """Half-maximum width read off an actual Voigt curve, on a grid fine
+        enough that the reading is the reference and not the approximation."""
+        from lmfit.models import VoigtModel
+
+        x = np.linspace(-400.0, 400.0, 400001)
+        curve = VoigtModel().eval(x=x, center=0.0, amplitude=1.0, sigma=sigma, gamma=gamma)
+        above = np.where(curve >= curve.max() / 2.0)[0]
+        return float(x[above[-1]] - x[above[0]])
+
+    def test_pure_gaussian_reduces_to_the_gaussian_width(self):
+        assert voigt_fwhm(10.0, 0.0) == pytest.approx(2.3548 * 10.0, rel=1e-3)
+
+    def test_pure_lorentzian_reduces_to_twice_gamma(self):
+        assert voigt_fwhm(0.0, 7.0) == pytest.approx(14.0, rel=1e-3)
+
+    @pytest.mark.parametrize("sigma,gamma", [(2.0, 3.0), (9.0, 11.0), (1.9, 3.0), (0.5, 5.0), (5.0, 0.5)])
+    def test_matches_the_measured_width_of_a_real_voigt_curve(self, sigma, gamma):
+        assert voigt_fwhm(sigma, gamma) == pytest.approx(self._measured_fwhm(sigma, gamma), rel=0.005)
+
+    def test_always_at_least_the_gaussian_only_value(self):
+        """The old formula was a lower bound, never an estimate."""
+        for sigma, gamma in ((2.0, 3.0), (9.0, 11.0), (0.7, 1.5)):
+            assert voigt_fwhm(sigma, gamma) > 2.355 * sigma
+
+    def test_a_fitted_peak_reports_the_width_of_the_curve_it_drew(self):
+        """End to end: fit a synthetic peak, then check the reported FWHM
+        against its own component curve."""
+        x = np.linspace(900.0, 1100.0, 2000)
+        from lmfit.models import VoigtModel
+        y = VoigtModel().eval(x=x, center=1000.0, amplitude=5000.0, sigma=4.0, gamma=3.0)
+
+        result = fit_voigt_peaks(x, y, [PeakDefinition(center=1000.0, amplitude=1.0, width_fwhm=15.0)], mode="Raman")
+        peak = result.fitted_peaks[0]
+
+        curve = peak.component_curve
+        above = np.where(curve >= curve.max() / 2.0)[0]
+        measured = float(x[above[-1]] - x[above[0]])
+
+        assert peak.width_fwhm == pytest.approx(measured, rel=0.02)
+
+
+class TestVoigtFwhmStderr:
+    def test_zero_uncertainty_in_gives_zero_out(self):
+        assert voigt_fwhm_stderr(2.0, 3.0, 0.0, 0.0) == 0.0
+
+    def test_anticorrelation_shrinks_the_uncertainty(self):
+        """sigma and gamma trade off against each other, so each is poorly
+        determined alone while their sum is not. Ignoring that is what quoted
+        a width of 2.07 +/- 133.29."""
+        quadrature = voigt_fwhm_stderr(2.0, 3.0, 1.0, 1.5, correlation=None)
+        with_correl = voigt_fwhm_stderr(2.0, 3.0, 1.0, 1.5, correlation=-0.92)
+
+        assert with_correl < quadrature
+
+    def test_degenerate_widths_do_not_divide_by_zero(self):
+        assert voigt_fwhm_stderr(0.0, 0.0, 1.0, 1.0) == 0.0
+
+    def test_grows_with_the_input_uncertainty(self):
+        small = voigt_fwhm_stderr(2.0, 3.0, 0.1, 0.1)
+        large = voigt_fwhm_stderr(2.0, 3.0, 1.0, 1.0)
+
+        assert large > small > 0
