@@ -125,13 +125,13 @@ class TestBuildSampleReportPptx:
                 if shape.shape_type == 1 and shape.has_text_frame:  # AUTO_SHAPE (placeholder rectangles)
                     assert shape.text_frame.text == ""
 
-    def test_raman_amplitude_ratio_is_a_row_of_the_raman_table(self):
+    def test_a_ratio_becomes_a_row_of_the_raman_table(self):
         result = build_sample_report_pptx(
             sample_name="RatioTest", material_name="WSe2", report_date="2026-08-21",
             magnification_label=None, om_image_bytes={},
             raman_stats=[_stat("LA"), _stat("E2g+A1g")], raman_fit_columns={},
             pl_stats=None, pl_fit_columns={},
-            raman_amplitude_ratio=(0.59, 0.08, 9), raman_amplitude_ratio_label="LA / E2g+A1g ratio",
+            raman_ratios=[("LA / E2g+A1g (median)", (0.59, 0.08, 9))],
         )
 
         prs = Presentation(io.BytesIO(result))
@@ -140,31 +140,72 @@ class TestBuildSampleReportPptx:
         # header + 2 peaks + ratio row
         assert len(raman_table.rows) == 4
         ratio_row = [c.text for c in raman_table.rows[3].cells]
-        assert ratio_row[0] == "LA / E2g+A1g ratio"
+        assert ratio_row[0] == "LA / E2g+A1g (median)"
         # Median +/- MAD, to three decimals: these ratios run around 0.1, where
         # two decimals would round away the variation the row exists to show.
         assert ratio_row[2] == "0.590 ± 0.080"  # value sits in the Amplitude column
         assert ratio_row[4] == "9"
 
-        # ...and nowhere outside the table
-        overview_texts = [s.text_frame.text for s in prs.slides[0].shapes if s.has_text_frame]
-        assert not any("ratio" in t for t in overview_texts)
+        # The value belongs in the table and nowhere else on the slide.
+        outside = [s.text_frame.text for s in prs.slides[0].shapes if s.has_text_frame]
+        assert not any("0.590" in t for t in outside)
+        # The caption says which rows are means and which are medians, since
+        # the row labels no longer can without wrapping.
+        assert any("ratios median ± MAD" in t for t in outside)
 
-    def test_raman_amplitude_ratio_omitted_when_none(self):
+    def test_several_ratios_stack_below_the_peaks_in_order(self):
+        result = build_sample_report_pptx(
+            sample_name="TwoRatios", material_name="WSe2", report_date="2026-08-22",
+            magnification_label=None, om_image_bytes={},
+            raman_stats=[_stat("LA"), _stat("B2g"), _stat("E2g+A1g")], raman_fit_columns={},
+            pl_stats=None, pl_fit_columns={},
+            raman_ratios=[
+                ("LA / E2g+A1g (median)", (0.114, 0.007, 9)),
+                ("B2g / E2g+A1g (median)", (0.024, 0.011, 9)),
+            ],
+        )
+
+        prs = Presentation(io.BytesIO(result))
+        raman_table = _tables(prs.slides[0])[0]
+
+        assert len(raman_table.rows) == 6  # header + 3 peaks + 2 ratios
+        assert [c.text for c in raman_table.rows[4].cells][:1] == ["LA / E2g+A1g (median)"]
+        assert [c.text for c in raman_table.rows[5].cells][0] == "B2g / E2g+A1g (median)"
+        assert [c.text for c in raman_table.rows[5].cells][2] == "0.024 ± 0.011"
+
+    def test_ratio_rows_omitted_when_none_given(self):
         result = build_sample_report_pptx(
             sample_name="NoRatio", material_name="Silicon", report_date="2026-08-21",
             magnification_label=None, om_image_bytes={},
             raman_stats=[_stat("Si")], raman_fit_columns={},
             pl_stats=None, pl_fit_columns={},
-            raman_amplitude_ratio=None,
+            raman_ratios=None,
         )
 
         prs = Presentation(io.BytesIO(result))
         raman_table = _tables(prs.slides[0])[0]
         assert len(raman_table.rows) == 2  # header + the single peak, no ratio row
 
-        overview_texts = [s.text_frame.text for s in prs.slides[0].shapes if s.has_text_frame]
-        assert not any("ratio" in t for t in overview_texts)
+        # With no ratio rows the caption doesn't promise a statistic it isn't showing.
+        outside = [s.text_frame.text for s in prs.slides[0].shapes if s.has_text_frame]
+        assert not any("median" in t for t in outside)
+        assert any("Raman fit summary (mean ± std)" in t for t in outside)
+
+    def test_extra_ratio_rows_do_not_push_the_raman_table_into_the_pl_one(self):
+        """The two tables are stacked, so the Raman one's height has to follow
+        however many ratio rows it ended up with."""
+        result = build_sample_report_pptx(
+            sample_name="Tall", material_name="WSe2", report_date="2026-08-22",
+            magnification_label=None, om_image_bytes={},
+            raman_stats=[_stat(f"P{i}") for i in range(7)], raman_fit_columns={},
+            pl_stats=[_stat("Exciton"), _stat("Trion")], pl_fit_columns={},
+            raman_ratios=[("A (median)", (0.1, 0.01, 9)), ("B (median)", (0.2, 0.02, 9))],
+        )
+
+        prs = Presentation(io.BytesIO(result))
+        raman_shape, pl_shape = [s for s in prs.slides[0].shapes if s.has_table]
+
+        assert raman_shape.top + raman_shape.height <= pl_shape.top
 
 
 class TestFitGridLegendAndAxisTitles:

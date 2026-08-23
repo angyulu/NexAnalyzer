@@ -5,6 +5,26 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-08-23
+
+### Added
+- **B2g / E2g+A1g alongside LA / E2g+A1g in the Raman fit summary.** The table
+  takes a list of ratios rather than a single one, so further pairs are a
+  one-line change to `_RAMAN_RATIO_PAIRS`. Any pair whose peaks aren't both
+  present in a fit is dropped automatically, so the list stays safe for
+  materials that don't have those modes.
+
+### Changed
+- **The two summary tables now size themselves from their row counts.** They
+  are stacked, and both heights were fixed, so a second ratio row pushed the
+  Raman table straight through the PL one. The Raman height is now derived and
+  the PL table placed below whatever it needs.
+- **Ratio rows are labelled `LA / E2g+A1g`, with the statistic named in the
+  caption** — "peaks mean ± std, ratios median ± MAD" — rather than "(median)"
+  on each row. The longer labels wrapped inside the Peak column, and a wrapped
+  cell doubles its row height, which is what overran the table below even after
+  the heights were derived. The Peak column is also wider now.
+
 ## [3.4.2] - 2026-08-22
 
 ### Changed

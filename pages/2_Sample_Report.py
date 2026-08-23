@@ -31,14 +31,13 @@ from modules.spectra.viz.fit_plot import (
     y_axis_title,
 )
 
-# WSe2-specific defect/strain indicator: LA mode height relative to the
-# E2g+A1g in-plane mode, appended as an extra row of the Raman fit-summary
-# table. Omitted automatically for any material/fit where either peak label
-# isn't present (see compute_peak_height_ratio). The label marks it as a
-# median, because the peak rows above it are means.
-_RAMAN_RATIO_NUMERATOR = "LA"
-_RAMAN_RATIO_DENOMINATOR = "E2g+A1g"
-_RAMAN_RATIO_LABEL = f"{_RAMAN_RATIO_NUMERATOR} / {_RAMAN_RATIO_DENOMINATOR} (median)"
+# WSe2-specific defect/strain indicators: mode heights relative to the E2g+A1g
+# in-plane mode, appended as extra rows of the Raman fit-summary table. Any pair
+# whose labels aren't both present in a fit is dropped automatically (see
+# compute_peak_height_ratio), so this list is safe for other materials. The
+# table's caption says which rows are medians; putting it on each label instead
+# wrapped the cell, which doubled the row's height and overran the table below.
+_RAMAN_RATIO_PAIRS = [("LA", "E2g+A1g"), ("B2g", "E2g+A1g")]
 
 _SLIDE_CAPTIONS = ["Overview — OM + fit summary", "Raman — fitted spectra", "PL — fitted spectra"]
 
@@ -227,13 +226,12 @@ if scan is not None:
                 aggregate_fit_results([s.fit_result for _, s in batch_result.pl_spectra])
                 if batch_result.pl_spectra else None
             )
-            raman_ratio = (
-                compute_peak_height_ratio(
-                    [s.fit_result for _, s in batch_result.raman_spectra],
-                    _RAMAN_RATIO_NUMERATOR, _RAMAN_RATIO_DENOMINATOR,
-                )
-                if batch_result.raman_spectra else None
-            )
+            raman_fits = [s.fit_result for _, s in batch_result.raman_spectra]
+            raman_ratios = []
+            for numerator, denominator in _RAMAN_RATIO_PAIRS:
+                ratio = compute_peak_height_ratio(raman_fits, numerator, denominator)
+                if ratio is not None:
+                    raman_ratios.append((f"{numerator} / {denominator}", ratio))
 
             om_png_bytes = {}
             for point, path in scan.image_files.get(state["magnification"], {}).items():
@@ -256,8 +254,7 @@ if scan is not None:
                 raman_fit_columns=raman_fit_columns,
                 pl_stats=state["pl_stats"],
                 pl_fit_columns=pl_fit_columns,
-                raman_amplitude_ratio=raman_ratio,
-                raman_amplitude_ratio_label=_RAMAN_RATIO_LABEL,
+                raman_ratios=raman_ratios,
                 raman_fit_legend=raman_legend,
                 pl_fit_legend=pl_legend,
                 fit_y_label=y_axis_title(normalized=True),

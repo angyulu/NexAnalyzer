@@ -12,7 +12,7 @@ Layout (16:9 slides):
 """
 
 import io
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from PIL import Image
 from pptx import Presentation
@@ -38,13 +38,14 @@ _GRID_CAPTION_TOP, _GRID_CAPTION_H = 5.52, 0.28
 # ---- Slide 1: stats tables (right half, stacked) ----
 _TABLE_LEFT = 6.70
 _TABLE_W = 6.33
-_TABLE_H = 2.45
 _TABLE_CAPTION_GAP = 0.27
 _RAMAN_TABLE_TOP = 1.22
-# The Raman table gets the extra height because it may carry an additional
-# amplitude-ratio row; PL never does.
-_RAMAN_TABLE_H = 2.73
-_PL_TABLE_TOP = 4.27
+# Both tables are sized from their own row counts and the PL one placed below
+# whatever the Raman one needs, rather than both being fixed: the Raman table
+# carries a ratio row per configured ratio, and hardcoded heights would push it
+# through the table underneath as soon as a second one was added.
+_TABLE_GAP = 0.54  # Raman table's bottom to the PL caption, which is 0.27 of it
+_TABLE_MIN_H = 0.90
 
 # ---- Slides 2 & 3: 3x3 fitted-spectrum grid, with one shared legend ----
 # The legend and axis titles live on the slide rather than inside each cell
@@ -89,8 +90,7 @@ def build_sample_report_pptx(
     raman_fit_columns: Dict[int, bytes],
     pl_stats: Optional[List[PeakStat]],
     pl_fit_columns: Dict[int, bytes],
-    raman_amplitude_ratio: Optional[Tuple[float, float, int]] = None,
-    raman_amplitude_ratio_label: str = "",
+    raman_ratios: Optional[Sequence[Tuple[str, Tuple[float, float, int]]]] = None,
     raman_fit_legend: Optional[List[Tuple[str, str]]] = None,
     pl_fit_legend: Optional[List[Tuple[str, str]]] = None,
     raman_x_label: str = "Raman Shift (cm⁻¹)",
@@ -99,10 +99,10 @@ def build_sample_report_pptx(
 ) -> bytes:
     """Build the three-slide sample report and return .pptx bytes.
 
-    `raman_amplitude_ratio`, if given, is (median, MAD, n) of a per-point
-    peak-height ratio (e.g. LA/E2g+A1g for WSe2 Raman — see
-    peak_metrics.compute_peak_height_ratio) appended as a final, bolded row
-    of the Raman fit-summary table; omitted entirely when None.
+    `raman_ratios` is a sequence of (label, (median, MAD, n)) — per-point
+    peak-height ratios (e.g. LA/E2g+A1g and B2g/E2g+A1g for WSe2 Raman, see
+    peak_metrics.compute_peak_height_ratio) appended as bolded rows below the
+    Raman fit summary, in the order given. Empty or None adds no rows.
 
     `raman_fit_columns`/`pl_fit_columns` map column index (0, 1, 2) to one PNG
     holding that column's three stacked points — 0 is points 1/4/7, 1 is 2/5/8,
@@ -120,11 +120,15 @@ def build_sample_report_pptx(
     overview_slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_title_bar(overview_slide, sample_name, material_name, report_date)
     _add_om_grid(overview_slide, om_image_bytes, magnification_label)
+    raman_height = _table_height(len(raman_stats or []) + len(raman_ratios or []))
     _add_stats_table(
-        overview_slide, "Raman", raman_stats, _TABLE_LEFT, _RAMAN_TABLE_TOP, _TABLE_W, _RAMAN_TABLE_H,
-        ratio=raman_amplitude_ratio, ratio_label=raman_amplitude_ratio_label,
+        overview_slide, "Raman", raman_stats, _TABLE_LEFT, _RAMAN_TABLE_TOP, _TABLE_W, raman_height,
+        ratios=raman_ratios,
     )
-    _add_stats_table(overview_slide, "PL", pl_stats, _TABLE_LEFT, _PL_TABLE_TOP, _TABLE_W, _TABLE_H)
+    _add_stats_table(
+        overview_slide, "PL", pl_stats, _TABLE_LEFT, _RAMAN_TABLE_TOP + raman_height + _TABLE_GAP,
+        _TABLE_W, _table_height(len(pl_stats or [])),
+    )
 
     raman_slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_title_bar(raman_slide, sample_name, material_name, report_date, subtitle="Raman — fitted spectra (9 points)")
@@ -282,21 +286,42 @@ def _add_fit_columns(slide, column_images: Dict[int, bytes]) -> None:
             _add_placeholder(slide, col_left, _FIT_GRID_TOP, _FIT_COLUMN_W, _FIT_GRID_H)
 
 
+def _table_font(n_data_rows: int) -> Pt:
+    """Font that keeps `n_data_rows` legible without overflowing the table."""
+    if n_data_rows <= 6:
+        return Pt(13)
+    return Pt(11) if n_data_rows <= 10 else Pt(9)
+
+
+def _table_height(n_data_rows: int) -> float:
+    """Inches a table of `n_data_rows` plus its header needs.
+
+    Derived rather than fixed so the caller can stack tables without knowing
+    how many ratio rows the one above it ended up with.
+    """
+    per_row = {13: 0.30, 11: 0.26}.get(_table_font(n_data_rows).pt, 0.22)
+    return max(_TABLE_MIN_H, (n_data_rows + 1) * per_row)
+
+
 def _add_stats_table(
     slide, technique_label: str, stats: Optional[List[PeakStat]], left: float, top: float, w: float, h: float,
-    ratio: Optional[Tuple[float, float, int]] = None, ratio_label: str = "",
+    ratios: Optional[Sequence[Tuple[str, Tuple[float, float, int]]]] = None,
 ) -> None:
     """One technique's fit-summary table.
 
-    `ratio`, if given, is appended as a final bolded row: its label in the
-    Peak column and `median ± MAD` in the Amplitude column (it is a ratio of
-    heights), with center/FWHM dashed out since they don't apply. The label is
-    expected to mark it as a median, since the peak rows above are means.
+    Each entry of `ratios` becomes a bolded row below the peaks: its label in
+    the Peak column and `median ± MAD` in the Amplitude column (they are ratios
+    of heights), with center/FWHM dashed out since they don't apply. Labels are
+    expected to mark themselves as medians, since the peak rows above are means.
     """
+    ratios = list(ratios or [])
     caption = slide.shapes.add_textbox(
         Inches(left), Inches(top - _TABLE_CAPTION_GAP), Inches(w), Inches(_TABLE_CAPTION_GAP)
     )
-    caption.text_frame.text = f"{technique_label} fit summary (mean ± std)"
+    caption.text_frame.text = (
+        f"{technique_label} fit summary (peaks mean ± std, ratios median ± MAD)"
+        if ratios else f"{technique_label} fit summary (mean ± std)"
+    )
     caption.text_frame.paragraphs[0].font.size = Pt(12)
     caption.text_frame.paragraphs[0].font.bold = True
 
@@ -304,15 +329,15 @@ def _add_stats_table(
         _add_placeholder(slide, left, top, w, h)
         return
 
-    n_data_rows = len(stats) + (1 if ratio is not None else 0)
+    n_data_rows = len(stats) + len(ratios)
     n_rows = n_data_rows + 1
-    font_size = Pt(13) if n_data_rows <= 6 else (Pt(11) if n_data_rows <= 10 else Pt(9))
+    font_size = _table_font(n_data_rows)
 
     table_shape = slide.shapes.add_table(n_rows, 5, Inches(left), Inches(top), Inches(w), Inches(h))
     table = table_shape.table
 
     headers = ["Peak", "Center", "Amplitude", "FWHM", "n"]
-    col_fracs = [0.22, 0.26, 0.26, 0.18, 0.08]
+    col_fracs = [0.30, 0.23, 0.23, 0.16, 0.08]
     for c, frac in enumerate(col_fracs):
         table.columns[c].width = Inches(w * frac)
 
@@ -335,13 +360,12 @@ def _add_stats_table(
             cell.text = value
             cell.text_frame.paragraphs[0].font.size = font_size
 
-    if ratio is not None:
-        median, mad, n = ratio
+    for r, (ratio_label, (median, mad, n)) in enumerate(ratios, start=len(stats) + 1):
         # Three decimals: these ratios run around 0.1, where two would round
-        # away most of the point-to-point variation the row exists to show.
+        # away most of the point-to-point variation the rows exist to show.
         values = [ratio_label, "—", f"{median:.3f} ± {mad:.3f}", "—", str(n)]
         for c, value in enumerate(values):
-            cell = table.cell(n_rows - 1, c)
+            cell = table.cell(r, c)
             cell.text = value
             cell.text_frame.paragraphs[0].font.size = font_size
             cell.text_frame.paragraphs[0].font.bold = True
