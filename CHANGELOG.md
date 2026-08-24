@@ -5,6 +5,34 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.1] - 2026-08-24
+
+### Fixed
+- **Clicking the launcher while an older NexAnalyzer was still running could
+  serve either version, at random.** `start.bat` pulls the new code, then starts
+  a server — but Streamlit does not reload modules an existing server already
+  imported, and on Windows a second Streamlit binds the same port *without
+  error*. Both servers then listen on 8501 and incoming requests are split
+  between them unpredictably: measured directly, three requests to 8501 were
+  answered by both PIDs. The browser could show the new version, the old one, or
+  flip between them on refresh, and a stale server is also what raises
+  `ImportError` on a renamed symbol.
+- **The launcher now frees the port before starting.** It finds whatever is
+  listening on 8501, and:
+  - if it is a Python/Streamlit process, explains that it is running the old
+    version and offers to stop it — defaulting to yes after 15 seconds, so the
+    double-click path resolves correctly on its own;
+  - if the answer is no, it does **not** start a second server, since that is the
+    broken state; it points at the running copy and says it may be older;
+  - if the owner is not a Python process, it refuses to touch it and suggests
+    another port;
+  - after stopping, it waits for the port to actually be released before
+    launching, and gives up with instructions rather than starting into a
+    contested port.
+- The port is defined once as `APP_PORT` and passed to `streamlit run`
+  explicitly, so the check, the URL printed to the user, and the server can no
+  longer disagree.
+
 ## [3.7.0] - 2026-08-24
 
 ### Added
