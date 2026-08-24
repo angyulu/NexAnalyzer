@@ -75,6 +75,66 @@ class TestSampleReportPageFlow:
         if state["slide_images"] is not None:
             assert len(state["slide_images"]) == 3
 
+    def _generated_app(self, tmp_path):
+        """The page, with a Raman-only Silicon sample, after Generate Report."""
+        for point in range(1, 10):
+            _write_silicon_raman_file(tmp_path / f"RM_{point}.txt", seed=point)
+            _write_tiny_image(tmp_path / f"100x_{point}.png")
+
+        at = AppTest.from_file("pages/2_Sample_Report.py", default_timeout=120)
+        at.session_state["sample_report"] = {
+            "folder": str(tmp_path),
+            "scan": scan_sample_folder(str(tmp_path)),
+            "magnification": "100x",
+            "material": "Silicon",
+            "batch_result": None,
+            "raman_stats": None,
+            "pl_stats": None,
+            "pptx_bytes": None,
+            "slide_images": None,
+        }
+        at.run()
+        next(b for b in at.button if "Generate Report" in b.label).click().run()
+        return at
+
+    def test_progress_status_resolves_to_complete(self, tmp_path):
+        """The user's question during a 25s build is "is this alive?". A status
+        that ends 'complete' answers it; one stuck on 'running' does not."""
+        at = self._generated_app(tmp_path)
+
+        assert not at.exception
+        assert len(at.status) == 1
+        assert at.status[0].state == "complete"
+
+    def test_the_final_label_names_the_sample(self, tmp_path):
+        at = self._generated_app(tmp_path)
+
+        assert "Report generated" in at.status[0].label
+
+    def test_failed_points_are_not_trapped_inside_the_collapsed_status(self, tmp_path):
+        """The status collapses itself when it completes. Anything the user
+        still needs to read has to be outside it."""
+        at = self._generated_app(tmp_path)
+
+        status = at.status[0]
+        assert not status.success, "the done message is hidden inside the collapsed status"
+        assert any("Report generated" in m.value for m in at.success)
+
+    def test_a_failure_mid_build_marks_the_status_errored_not_running(self, tmp_path, monkeypatch):
+        """Without the `with` form, an exception leaves the status spinning
+        forever -- indistinguishable from the hang it exists to rule out."""
+        import core.report.pptx as pptx_module
+
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("assembly failed")
+
+        monkeypatch.setattr(pptx_module, "build_sample_report_pptx", _boom)
+
+        at = self._generated_app(tmp_path)
+
+        assert len(at.status) == 1
+        assert at.status[0].state == "error", "a failed build must not look like it is still working"
+
     def test_empty_state_renders_without_error(self):
         # No folder selected yet -> most of the page is skipped, but the
         # top section (title, folder-pick button) must still render cleanly.

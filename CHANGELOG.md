@@ -5,6 +5,65 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.8.0] - 2026-08-24
+
+### Added
+- **Generate Report now reports progress for the whole build, not just the
+  fitting.** A single `st.status` names the stage in flight while a bar tracks
+  the measured position through it, so a 25-second build no longer looks like a
+  crash.
+
+  The old bar covered only `run_sample_batch`, then called `.empty()` on itself
+  and left the remaining ~78% of the wall time completely silent — figure
+  rendering, optical-image loading, .pptx assembly and the PowerPoint preview.
+  Filling a bar to 100%, deleting it, and then working for another twenty
+  seconds is a worse signal than showing nothing at all.
+
+- **The stage weights are measured, not guessed** (`core/report/progress.py`).
+  Profiled on a real 9-point sample (`Example/HADG06`: 9 Raman + 9 PL
+  2000-point spectra, 9x 2240x1680 BMP images), total 24.5 s:
+
+  | Stage | Time | Share |
+  | --- | --- | --- |
+  | Fitting spectra | 5.28 s | 21.5% |
+  | Rendering Raman figures | 3.98 s | 16.2% |
+  | Rendering PL figures | 4.66 s | 19.0% |
+  | Loading optical images | 5.37 s | 21.9% |
+  | Assembling the report | 2.09 s | 8.5% |
+  | Rendering preview in PowerPoint | 3.17 s | 12.9% |
+
+  Equal weights would put the bar at 50% with 78% of the time still to run —
+  the same lie in a different shape. Aggregation is excluded deliberately: at
+  4 ms a step for it would only flicker.
+
+- **The bar keeps moving through the long stages.** Fitting reports per point
+  (18 updates) off the callback `run_sample_batch` already had; each figure
+  column and each optical image reports as it completes. 43 updates across the
+  build, with the longest motionless stretch 3.17 s — the PowerPoint preview,
+  which is one opaque call and is now labelled as such, with the status spinner
+  animating throughout.
+
+- **Stages absent from a run are dropped and the rest renormalize.** A
+  Raman-only sample does not reserve 19% of the bar for PL figures it will
+  never render, and an images-only folder skips fitting entirely instead of
+  raising.
+
+### Fixed
+- **The fitting stage would have sat still through the entire second
+  technique.** `run_sample_batch` fits Raman then PL, restarting its count for
+  each, so Raman's 9/9 filled the stage and PL's 1/9 computed a lower fraction
+  that the monotonic guard then pinned in place — the bar frozen for 2.9 s of a
+  5.3 s stage. The adapter now sums against the combined total, so all 18
+  points advance it. Caught by replaying the page's real call sequence against
+  the measured timings rather than by reading the code.
+- **A build that fails mid-way no longer leaves the status spinning forever.**
+  The `with st.status(...)` form resolves to `error` on the way out; a bare
+  handle leaves it at `running`, which is indistinguishable from the hang the
+  progress exists to rule out. An integration test asserts the errored state.
+- **The failed-points list is no longer trapped inside the collapsed status.**
+  The status collapses itself on completion, which is no place for the list of
+  points that were excluded from the report.
+
 ## [3.7.1] - 2026-08-24
 
 ### Fixed
