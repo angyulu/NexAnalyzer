@@ -5,6 +5,63 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.0] - 2026-08-24
+
+### Added
+- **The Sample Report's PL table now leads with the empirical measurement.** A
+  "Raw" row carrying center, Intensity and FWHM — read straight off each
+  processed spectrum's tallest point, no fit involved — sits above the fitted
+  peaks, as mean ± std across the sample's points like every other row. The
+  on-screen Fit Results table and the master CSV already showed a "Raw" row for
+  PL; the .pptx was the one surface missing it, and now all three agree.
+  `peak_metrics.aggregate_raw_peak_stats()` does the aggregation, returning a
+  `PeakStat` labelled "Raw" so the existing table renderer needed no new
+  plumbing.
+- Measured off `processed_data` — after de-spiking and baseline correction, the
+  same layer the fit sees — so the empirical intensity is directly comparable to
+  the fitted intensities below it rather than being inflated by a baseline
+  offset. On a synthetic 9-point sample the two agree to well under a percent,
+  which is what makes the row a useful check on the fit.
+
+### Fixed
+- **The Sample Report's spectra didn't look like the spectra on screen.** The two
+  plotters each picked their own colors, so a fit drawn black and dashed over
+  blue points on the Spectra page came out as a solid orange line over
+  muted-blue points in the .pptx, and components swapped dashed for solid. The
+  report now draws what the screen draws: blue data points, a black dashed total
+  fit, solid semi-transparent components in their preset colors, green
+  residuals.
+- **The colors live in one place, `modules/spectra/viz/palette.py`**, imported by
+  both plotters, because two independent definitions is how they drifted apart.
+  Only the traces both surfaces draw are shared; the Spectra page's own layers
+  (de-spiked, baseline-corrected, live previews) stay its own. A test asserts
+  neither plotter hardcodes a shared trace color again, and that both agree
+  trace by trace.
+- Colors are hex rather than CSS names, because the .pptx legend parses them
+  with `_hex_to_rgb`, which falls back to black for anything unreadable — a
+  `"blue"` there would have plotted in blue and drawn a black swatch beside it.
+- Marker and line *weights* still differ deliberately: a panel shrunk into a 3x3
+  grid needs heavier strokes than the full-width on-screen plot, or it reads as
+  blank on a projector. Only color and dash are shared.
+- Y-axis unchanged: each panel is still normalized to its own tallest peak, which
+  is what keeps the nine points comparable on one shared axis.
+
+### Changed
+- **A table carrying the empirical row is no longer captioned a "fit summary".**
+  The PL table now reads `PL summary (empirical + fitted, mean ± std)`; Raman,
+  which has no such row, keeps `Raman fit summary (...)`. The renderer decides
+  from the rows it is handed, so the caption cannot drift from the contents.
+  `RAW_STAT_LABEL` moved to `core/report/models.py` alongside `PeakStat` to make
+  that possible without `core` importing from `modules` — the one rule.
+- **`PeakStat.fwhm_mean` / `fwhm_std` are now `Optional[float]`**, and the report
+  renders "—" when they are None. A flat or non-positive spectrum has no
+  half-maximum crossing, so its empirical width genuinely cannot be measured;
+  printing "0.0 ± 0.0" there would read as a measurement. A width is also
+  withheld when only some of the sample's points could be measured, since
+  averaging that subset while `n` reports the full count would describe a width
+  the sample never had. Fitted peaks always carry a width, so their rows are
+  unaffected.
+
 ## [3.6.0] - 2026-08-23
 
 ### Changed

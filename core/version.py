@@ -2,6 +2,6 @@
 
 APP_NAME = "NexAnalyzer"
 APP_TAGLINE = "Nexstrom's measurement data analyzer"
-__version__ = "3.6.0"
+__version__ = "3.7.0"
 
 REPO_URL = "https://github.com/angyulu/nexanalyzer"
