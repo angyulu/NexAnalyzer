@@ -17,9 +17,14 @@ from plotly.subplots import make_subplots
 
 # Data and total-fit colors, named because a legend drawn outside these figures
 # (the Sample Report draws one per slide) has to match the lines it describes.
-DATA_COLOR = "#1f77b4"
-FIT_COLOR = "#ff7f0e"
-RESIDUAL_COLOR = "#d62728"
+from .palette import (  # noqa: F401  (DATA_COLOR is re-exported for callers)
+    COMPONENT_DASH,
+    COMPONENT_OPACITY,
+    DATA_COLOR,
+    FIT_TOTAL_COLOR,
+    FIT_TOTAL_DASH,
+    RESIDUAL_COLOR,
+)
 
 # A compact figure is rendered small and then placed in a grid cell under 2
 # inches high, so one figure pixel is roughly a third of a point on the slide.
@@ -108,7 +113,7 @@ def _add_spectrum_traces(
         y=np.asarray(fit_result.total_fit_curve) / scale,
         mode='lines',
         name='Total Fit',
-        line=dict(width=fit_line_px, color=FIT_COLOR),
+        line=dict(width=fit_line_px, color=FIT_TOTAL_COLOR, dash=FIT_TOTAL_DASH),
         showlegend=showlegend,
         hovertemplate=f'{x_label}: %{{x:.2f}}<br>Fit: %{{y:.3g}}<extra></extra>'
     ), row=row, col=1)
@@ -128,8 +133,8 @@ def _add_spectrum_traces(
                 # Plotly's automatic cycling: the same peak then draws the same
                 # color in every point's plot, which is what lets one legend
                 # describe all nine of them.
-                line=dict(width=component_line_px, dash='dash', color=peak.color or None),
-                opacity=0.7,
+                line=dict(width=component_line_px, dash=COMPONENT_DASH, color=peak.color or None),
+                opacity=COMPONENT_OPACITY,
                 showlegend=showlegend,
                 hovertemplate=f'{x_label}: %{{x:.2f}}<br>Component: %{{y:.3g}}<extra></extra>'
             ), row=row, col=1)
@@ -446,7 +451,7 @@ def fit_legend_entries(fit_results: Sequence) -> List[Tuple[str, str]]:
     first seen across `fit_results` — taking the union rather than reading one
     fit, so a point that failed to resolve a peak doesn't drop it from the key.
     """
-    entries = [("Data", DATA_COLOR), ("Total Fit", FIT_COLOR)]
+    entries = [("Data", DATA_COLOR), ("Total Fit", FIT_TOTAL_COLOR)]
     seen = set()
 
     for result in fit_results:

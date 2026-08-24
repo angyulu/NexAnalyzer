@@ -36,6 +36,14 @@ import plotly.graph_objects as go  # Plotly graphing library (creates interactiv
 import streamlit as st  # Streamlit web framework (provides session_state, UI widgets)
 from typing import Optional, Dict  # Type hints for function parameters/returns
 from ..models.spectrum import SpectrumFile  # SpectrumFile dataclass (contains all spectrum data + metadata)
+from .palette import (
+    COMPONENT_DASH,
+    COMPONENT_OPACITY,
+    DATA_COLOR,
+    FIT_TOTAL_COLOR,
+    FIT_TOTAL_DASH,
+    RESIDUAL_COLOR,
+)
 
 
 def create_empty_figure() -> go.Figure:
@@ -217,7 +225,7 @@ def create_unified_figure(spectrum: SpectrumFile, layer_config: Optional[Dict[st
         y=spectrum.raw_data.Y,  # Y values from original file (intensity counts)
         mode="markers",  # Show as scatter points, not connected line
         name="Raw",  # Legend label
-        marker=dict(size=3, color="blue"),  # Small blue dots
+        marker=dict(size=3, color=DATA_COLOR),  # Small blue dots
         visible=layer_config.get("raw", True)  # Visibility controlled by layer_config dict
     ))
 
@@ -305,7 +313,7 @@ def create_unified_figure(spectrum: SpectrumFile, layer_config: Optional[Dict[st
                 y=spectrum.fit_result.total_fit_curve,  # Y values from sum of all peak components
                 mode="lines",  # Connected line
                 name="Fit Total",  # Legend label
-                line=dict(color="black", width=1.5,dash="dash"),  # Black solid line (standard for fit total)
+                line=dict(color=FIT_TOTAL_COLOR, width=1.5, dash=FIT_TOTAL_DASH),  # Black dashed, as in the report
                 visible=layer_config.get("fit_total", False)  # Hidden until fit stage
             ))
 
@@ -332,8 +340,8 @@ def create_unified_figure(spectrum: SpectrumFile, layer_config: Optional[Dict[st
                             y=peak.component_curve,  # Y values for this single Voigt peak
                             mode="lines",  # Connected line
                             name=peak_label,  # Legend shows peak label (e.g., "D-band")
-                            line=dict(color=peak_color, width=2.5),  # Dashed thinner line
-                            opacity=0.7,  # Semi-transparent to avoid cluttering plot
+                            line=dict(color=peak_color, width=2.5, dash=COMPONENT_DASH),  # Solid; the total fit is the dashed one
+                            opacity=COMPONENT_OPACITY,  # Semi-transparent to avoid cluttering plot
                             visible=True  # Always visible when components layer is enabled
                         ))
 
@@ -355,7 +363,7 @@ def create_unified_figure(spectrum: SpectrumFile, layer_config: Optional[Dict[st
                     y=spectrum.fit_result.residuals,  # Y = corrected - fit (from lmfit)
                     mode="markers",  # Scatter points (not line)
                     name="Residuals",  # Legend label
-                    marker=dict(size=3, color="green"),  # Small green dots
+                    marker=dict(size=3, color=RESIDUAL_COLOR),  # Small green dots
                     visible=True  # Always visible when residuals layer is enabled
                 ))
 
