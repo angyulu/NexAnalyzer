@@ -12,15 +12,32 @@ Colors are hex rather than CSS names ("#0000FF", not "blue") because the .pptx
 legend parses them with `core.report.pptx._hex_to_rgb`, which falls back to
 black for anything it can't read. A CSS name would still plot correctly and
 silently render a black swatch beside it. The values are the CSS names the
-on-screen plot used before this module existed: blue, black and green.
+on-screen plot used before this module existed: purple, black and green — and
+blue for the raw layer, which only that page draws.
 
 Only the traces *both* plotters draw belong here. The Spectra page's own layers
-— the de-spiked and baseline-corrected series, the live previews — are its
-alone, and stay in `live_plot`.
+— the raw and de-spiked series, the live previews — are its alone, and stay in
+`live_plot`.
 """
 
-# The measured spectrum: markers, not a line, in both plotters.
-DATA_COLOR = "#0000FF"  # CSS "blue"
+# The series that actually gets fitted: de-spiked and baseline-corrected. Both
+# surfaces plot exactly this one — the Spectra page as its "Baseline-corrected"
+# layer, the report and the exported figures as their only data trace — so both
+# have to draw it the same color, or a report doesn't look like the spectrum it
+# came from.
+#
+# The report used to paint it in RAW_COLOR below, which was wrong twice over: it
+# named the raw file's color for a series that is not the raw file, and on a
+# material whose preset assigns blue to a peak (WSe2's C and center are
+# #3276EC) it put the data and those peaks in the same hue, so the preset colors
+# stopped reading as preset colors. Purple is what the Spectra page has always
+# drawn here.
+PROCESSED_COLOR = "#800080"  # CSS "purple"
+
+# The file as read, before de-spiking or baseline removal. The Spectra page's
+# first layer and no one else's — the report never draws raw data. It lives here
+# anyway so that it can be seen not to collide with the shared colors above.
+RAW_COLOR = "#0000FF"  # CSS "blue"
 
 # The summed fit. Dashed so it stays readable where it sits on top of the data
 # it is fitting, which is most of its length.

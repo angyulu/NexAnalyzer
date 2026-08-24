@@ -53,6 +53,7 @@ class TestSampleReportPageFlow:
             "raman_stats": None,
             "pl_stats": None,
             "pptx_bytes": None,
+            "xlsx_bytes": None,
             "slide_images": None,
         }
         at.run()
@@ -69,6 +70,8 @@ class TestSampleReportPageFlow:
         assert state["raman_stats"][0].label == "Si"
         assert state["pptx_bytes"] is not None
         assert state["pptx_bytes"][:2] == b"PK"
+        assert state["xlsx_bytes"] is not None
+        assert state["xlsx_bytes"][:2] == b"PK"
         # Slide-image rendering needs PowerPoint COM automation (Windows-only,
         # same category of native dependency as the tkinter file dialogs) —
         # only assert its shape when it actually succeeded in this environment.
@@ -91,6 +94,7 @@ class TestSampleReportPageFlow:
             "raman_stats": None,
             "pl_stats": None,
             "pptx_bytes": None,
+            "xlsx_bytes": None,
             "slide_images": None,
         }
         at.run()
@@ -134,6 +138,31 @@ class TestSampleReportPageFlow:
 
         assert len(at.status) == 1
         assert at.status[0].state == "error", "a failed build must not look like it is still working"
+
+    def test_the_workbook_holds_every_point_the_deck_averaged(self, tmp_path):
+        """The .pptx table reports one mean over nine points; the workbook has
+        to be able to say which point was which, traced back to its file."""
+        from io import BytesIO
+
+        from openpyxl import load_workbook
+
+        at = self._generated_app(tmp_path)
+
+        wb = load_workbook(BytesIO(at.session_state["sample_report"]["xlsx_bytes"]))
+        assert wb.sheetnames == ["Summary", "Raman"], "PL wasn't measured; it gets no sheet"
+
+        ws = wb["Raman"]
+        headers = [cell.value for cell in ws[1]]
+        rows = list(ws.iter_rows(min_row=2, values_only=True))
+
+        # Silicon's preset is a single peak, so one row per point.
+        assert [row[headers.index("Point")] for row in rows] == list(range(1, 10))
+        assert [row[headers.index("Source_File")] for row in rows] == [
+            f"RM_{point}.txt" for point in range(1, 10)
+        ]
+        assert all(row[headers.index("Peak_Label")] == "Si" for row in rows)
+        # Near 520 cm-1 for every point, which is what the fixture generates.
+        assert all(515 < row[headers.index("Center")] < 525 for row in rows)
 
     def test_empty_state_renders_without_error(self):
         # No folder selected yet -> most of the page is skipped, but the

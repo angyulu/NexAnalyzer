@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 
 from modules.spectra.viz.fit_plot import (
-    DATA_COLOR,
     FIT_TOTAL_COLOR,
+    PROCESSED_COLOR,
     fit_legend_entries,
     peak_normalization_scale,
     plot_composite,
@@ -88,7 +88,7 @@ class TestFitLegendEntries:
     def test_data_and_total_fit_come_first(self):
         entries = fit_legend_entries([])
 
-        assert entries == [("Data", DATA_COLOR), ("Total Fit", FIT_TOTAL_COLOR)]
+        assert entries == [("Data", PROCESSED_COLOR), ("Total Fit", FIT_TOTAL_COLOR)]
 
     def test_peaks_follow_in_first_seen_order_with_their_colors(self):
         fit = _Fit([_Peak("E2g", "#EF482E"), _Peak("2LA", "#D5EF2E")])

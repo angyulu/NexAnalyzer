@@ -10,7 +10,7 @@ Architecture, data model and the reasoning behind them live in
 ## Commands
 
 ```bash
-pytest                  # 213 tests; pythonpath and testpaths come from pyproject.toml
+pytest                  # 323 tests; pythonpath and testpaths come from pyproject.toml
 python -m ruff check .   # F + E9 only — deliberately narrow, so a hit is real breakage
 streamlit run app.py     # or start.bat, which also creates venv and pulls updates
 ```

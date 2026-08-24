@@ -51,7 +51,7 @@ class TestBothPlottersShareOnePalette:
         )
         traces = _traces_by_name(fig)
 
-        assert traces["Data"].marker.color == palette.DATA_COLOR
+        assert traces["Data"].marker.color == palette.PROCESSED_COLOR
         assert traces["Total Fit"].line.color == palette.FIT_TOTAL_COLOR
         assert traces["Total Fit"].line.dash == palette.FIT_TOTAL_DASH
         assert traces["Residuals"].marker.color == palette.RESIDUAL_COLOR
@@ -83,7 +83,8 @@ class TestBothPlottersShareOnePalette:
 
     def test_the_palette_colors_are_the_css_names_the_screen_used(self):
         """Hex, not names — but the same colors the Spectra page always drew."""
-        assert palette.DATA_COLOR == "#0000FF"      # blue
+        assert palette.PROCESSED_COLOR == "#800080"  # purple
+        assert palette.RAW_COLOR == "#0000FF"        # blue
         assert palette.FIT_TOTAL_COLOR == "#000000"  # black
         assert palette.RESIDUAL_COLOR == "#008000"   # green
 
@@ -100,7 +101,53 @@ class TestBothPlottersShareOnePalette:
 
 class TestPaletteIsOnlyForSharedTraces:
     def test_the_screen_only_layers_are_not_in_the_palette(self):
-        """De-spiked, baseline-corrected and the live previews belong to the
-        Spectra page alone; the report never draws them."""
-        for name in ("DESPIKED_COLOR", "BASELINE_COLOR", "CORRECTED_COLOR", "PREVIEW_COLOR"):
+        """De-spiked and the live previews belong to the Spectra page alone;
+        the report never draws them. The baseline-corrected series is the one
+        exception, and it is in the palette precisely because both draw it."""
+        for name in ("DESPIKED_COLOR", "BASELINE_COLOR", "PREVIEW_COLOR"):
             assert not hasattr(palette, name)
+
+
+class TestTheFittedSeriesIsOneColorEverywhere:
+    """The report's only data trace and the Spectra page's "Baseline-corrected"
+    layer are the same numbers — `processed_data`, after de-spiking and baseline
+    removal. Drawing them in two colors is how a report stops looking like the
+    spectrum it came from, and painting the data in a preset's own peak color
+    (WSe2 gives C and center #3276EC, blue) is how the preset colors stop
+    reading as preset colors.
+    """
+
+    def test_the_report_draws_the_processed_series_not_the_raw_one(self):
+        x = np.array([0.0, 1.0, 2.0])
+        fig = fit_plot.plot_composite(
+            x, np.array([0.0, 1.0, 0.0]), _Fit(), mode="Raman",
+        )
+
+        assert _traces_by_name(fig)["Data"].marker.color == palette.PROCESSED_COLOR
+        assert _traces_by_name(fig)["Data"].marker.color != palette.RAW_COLOR
+
+    def test_the_grid_panels_draw_it_too(self):
+        """plot_fit_column is what pages 2 and 3 of the .pptx are made of."""
+        x = np.array([0.0, 1.0, 2.0])
+        fig = fit_plot.plot_fit_column([(1, x, np.array([0.0, 1.0, 0.0]), _Fit())], mode="PL")
+
+        assert _traces_by_name(fig)["Data"].marker.color == palette.PROCESSED_COLOR
+
+    def test_the_screen_sets_it_on_the_marker_that_actually_renders(self):
+        """The layer is drawn `mode="markers"`; a color on `line` alone only
+        reaches the dots as a Plotly fallback, so it was one default away from
+        silently becoming a cycled color."""
+        source = open(live_plot.__file__, encoding="utf-8").read()
+        corrected = source[source.index('name="Baseline-corrected"'):]
+        marker_line = corrected[:corrected.index("))")]
+
+        assert "marker=dict(color=PROCESSED_COLOR)" in marker_line
+
+    def test_the_components_are_drawn_over_the_total_fit_not_under_it(self):
+        """Pages 2 and 3 exist to show the preset-colored components; the black
+        total fit must not be the heaviest line on top of them."""
+        x = np.array([0.0, 1.0, 2.0])
+        fig = fit_plot.plot_fit_column([(1, x, np.array([0.0, 1.0, 0.0]), _Fit())], mode="Raman")
+        traces = _traces_by_name(fig)
+
+        assert traces["Exciton"].line.width > traces["Total Fit"].line.width

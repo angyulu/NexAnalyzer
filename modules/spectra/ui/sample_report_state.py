@@ -22,6 +22,7 @@ def initialize_sample_report_state() -> None:
             "raman_stats": None,
             "pl_stats": None,
             "pptx_bytes": None,
+            "xlsx_bytes": None,
             "slide_images": None,
         }
 

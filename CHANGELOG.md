@@ -5,6 +5,90 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.0] - 2026-08-24
+
+### Added
+- **Saving a Sample Report now writes an Excel workbook of the numbers beside
+  the deck.** `💾 Save Report As...` produces `<name>.xlsx` next to
+  `<name>.pptx` and its page images — a `Summary` sheet, then a `Raman` and a
+  `PL` sheet carrying **one row per fitted peak per point**: center, Intensity,
+  FWHM, each one's stderr, shape, R², χ², convergence time, and the source
+  file the row came from.
+
+  The .pptx reports one mean ± std over nine points. Anyone asking which point
+  was the outlier, or wanting to plot a peak's position across the grid, had to
+  refit the sample file by file on the Analysis page and export nine CSVs. The
+  workbook is that table, written in the same click as the report.
+
+- **`Summary` mirrors the slide's tables**, built from the very `PeakStat`s the
+  .pptx tables are built from (`modules/spectra/io/results_excel.py` takes them
+  as an argument rather than recomputing), so the two artifacts written side by
+  side cannot disagree about a number. It carries the sample/material/date
+  block, each technique's per-peak mean and std, the LA/E2g+A1g and
+  B2g/E2g+A1g medians with their MADs, and PL's leading empirical `Raw` row.
+
+- **Mean and std are separate numeric columns**, not one `"248.8 ± 0.2"`
+  string, and every cell holds the unrounded value — the number formats only
+  decide how many decimals Excel *shows*. A workbook exists so the next person
+  can compute with it; a pre-formatted string is a picture of a number.
+
+- **Excluded points are named, not just missing.** A point that failed to fit
+  gets a row in the Summary sheet's excluded block with its error. The page has
+  always listed them on screen, but a workbook that silently drops nine rows
+  reads as a complete record of a sample that was never measured that way.
+
+- Per-point sheets freeze the header row and carry an autofilter, which is how
+  you pull one peak's row out of all nine points; a technique that produced no
+  fits gets **no sheet at all**, since an empty sheet named `PL` claims a
+  technique nobody measured.
+
+### Changed
+- **The report's spectra pages now read in the material preset's colors.** The
+  peak components on slides 2 and 3 always carried their preset hex
+  (`PeakTemplate.color` → `FittedPeak.color` → the plotted line), but they were
+  the least visible thing on the slide: drawn thinner than the black total fit
+  and under a dense cloud of blue data markers. The components are now the
+  heaviest line in the panel, as they already are on the Spectra page, and the
+  data is drawn in the color that page draws it.
+
+- **The data trace on every exported figure is the *processed* series' color,
+  purple, not the raw file's blue** (`palette.PROCESSED_COLOR`). It always was
+  the processed series — `processed_data`, after de-spiking and baseline
+  removal, the same numbers the Spectra page shows as "Baseline-corrected" and
+  draws purple — so painting it blue made the report disagree with the screen
+  about a series they both draw, which is exactly what v3.7.0's shared palette
+  was introduced to stop.
+
+  On WSe2 it did more than that: the preset gives `C` and `center` #3276EC, so
+  the data and two of the peaks were the same hue and the preset colors stopped
+  reading as preset colors. `palette.DATA_COLOR` is now `RAW_COLOR`, named for
+  the one layer that uses it — the Spectra page's raw series, which the report
+  never draws.
+
+- The Sample Report's save step now reports every file it wrote, the workbook
+  included, and the section's caption says what a save will produce.
+- `openpyxl>=3.1.0` is now an explicit runtime dependency (it was previously
+  only present as a pandas extra). `start.bat` installs it on the next launch.
+
+### Fixed
+- **The Spectra page's "Baseline-corrected" layer was purple by luck.** It is
+  drawn `mode="markers"`, and its color was set on `line` only — which reaches
+  the dots as a Plotly fallback, not as an instruction. It rendered #800080
+  because plotly.js defaults a marker's color to its line's; one default away
+  from silently becoming a cycled color that no longer matched the report. The
+  color is now set on the marker that actually renders, and a test asserts it.
+
+### Notes
+- **Intensity in the workbook is the fitted curve's maximum**, via
+  `peak_metrics.peak_intensity_and_stderr` — never `FittedPeak.area`. That
+  makes it the fifth surface reporting the same quantity under the same name as
+  the on-screen table, both CSVs and the .pptx, and a guard test asserts the
+  column is an intensity rather than an area (they differ by ~FWHM x 1.064,
+  which is the bug v3.3.0 shipped).
+- A `Raw` row reports 0 counts for a flat spectrum but leaves its FWHM cell
+  **empty**: 0 counts is a measurement, a width with no half-maximum crossing
+  is not. Same split the master CSV and the report's Raw row already make.
+
 ## [3.8.1] - 2026-08-24
 
 ### Fixed

@@ -1,1 +1,2 @@
-"""Spectra-specific persistence: material presets and fit-results CSVs."""
+"""Spectra-specific persistence: material presets, fit-results CSVs, and
+the sample-results workbook."""

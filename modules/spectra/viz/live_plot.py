@@ -39,7 +39,8 @@ from ..models.spectrum import SpectrumFile  # SpectrumFile dataclass (contains a
 from .palette import (
     COMPONENT_DASH,
     COMPONENT_OPACITY,
-    DATA_COLOR,
+    PROCESSED_COLOR,
+    RAW_COLOR,
     FIT_TOTAL_COLOR,
     FIT_TOTAL_DASH,
     RESIDUAL_COLOR,
@@ -225,7 +226,7 @@ def create_unified_figure(spectrum: SpectrumFile, layer_config: Optional[Dict[st
         y=spectrum.raw_data.Y,  # Y values from original file (intensity counts)
         mode="markers",  # Show as scatter points, not connected line
         name="Raw",  # Legend label
-        marker=dict(size=3, color=DATA_COLOR),  # Small blue dots
+        marker=dict(size=3, color=RAW_COLOR),  # Small blue dots
         visible=layer_config.get("raw", True)  # Visibility controlled by layer_config dict
     ))
 
@@ -275,7 +276,12 @@ def create_unified_figure(spectrum: SpectrumFile, layer_config: Optional[Dict[st
             y=spectrum.processed_data.Y,  # Y values with baseline subtracted (may have negative values)
             mode="markers",  # Connected line
             name="Baseline-corrected",  # Legend label
-            line=dict(color="purple", width=1),  # Purple solid line (distinct from orange despiked)
+            # Purple, distinct from the orange de-spiked line above it, and the
+            # color the report draws this same series in. Set on the marker
+            # because that is what this trace renders: with mode="markers", a
+            # line color only reaches the dots as a fallback.
+            marker=dict(color=PROCESSED_COLOR),
+            line=dict(color=PROCESSED_COLOR, width=1),
             visible=layer_config.get("baseline_corrected", False)  # Hidden by default, shown after baseline stage
         ))
 

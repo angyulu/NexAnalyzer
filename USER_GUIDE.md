@@ -351,7 +351,11 @@ Any other file in the folder (old exports, project files, etc.) is simply listed
 
 ### 4. Save
 
-Click **"💾 Save Report As..."** and choose a location — this writes the `.pptx` plus three page images (`_page1.png`, `_page2.png`, `_page3.png`) alongside it, matching the three slides.
+Click **"💾 Save Report As..."** and choose a location — this writes, all sharing the name you chose:
+
+- the `.pptx` itself
+- an `.xlsx` of the numbers: a **Summary** sheet (each technique's mean ± std table, the intensity ratios, and any point that failed to fit) plus a **Raman** and a **PL** sheet holding one row per fitted peak per point — center, Intensity, FWHM and their stderrs, R², χ², and the file each row came from. This is the per-point detail the slides only show averaged.
+- three page images (`_page1.png`, `_page2.png`, `_page3.png`), matching the three slides
 
 > **Note:** The on-screen/saved slide *images* require Microsoft PowerPoint to be installed (used to render the preview) — the `.pptx` file itself always saves regardless.
 

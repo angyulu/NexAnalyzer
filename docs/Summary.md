@@ -82,7 +82,8 @@ nexanalyzer/
 │       │                           # aggregation, intensity ratios (one rule, one place)
 │       ├── io/
 │       │   ├── preset_store.py     # JSON material-preset storage (data/materials.json)
-│       │   └── results_csv.py      # Fit-results CSVs: per-file and master
+│       │   ├── results_csv.py      # Fit-results CSVs: per-file and master
+│       │   └── results_excel.py    # Sample-results .xlsx: per-point sheets + summary
 │       ├── ui/
 │       │   ├── sidebar.py          # Material dropdown, the only processing entry point
 │       │   │                       # (Run Auto-Workflow / Run All Files), Quick/Batch
@@ -157,6 +158,10 @@ run in an isolated subprocess rather than in-process, since Streamlit executes
 page scripts on a worker thread and COM apartments are thread-local (calling
 `win32com` directly from the page crashed with an unrecoverable
 `RPC_E_DISCONNECTED`, invisible to ordinary `try/except`). See
+Saving writes the numbers next to the deck: `modules/spectra/io/results_excel.py`
+builds an `.xlsx` from the same `PeakStat`s the slide tables are built from —
+a per-point sheet per technique plus the summary — so the workbook cannot
+disagree with the report it ships beside. See
 [CHANGELOG.md](../CHANGELOG.md) for the full list, including the still-open gap
 around sample folders whose point files are themselves multi-spectrum
 hyperspectral files.

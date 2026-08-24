@@ -4,6 +4,10 @@ measurement grid, fit all 18 spectra against one material's presets, and
 generate a three-slide PPTX report: an overview slide (3x3 OM grid + fit
 summary tables), a 3x3 grid of each Raman point's fitted spectrum, and the
 same for PL.
+
+Saving writes the numbers alongside the deck: an .xlsx carrying every point's
+fitted peaks plus the summary the slides show (results_excel), and one PNG per
+slide, all sharing the filename the user chose.
 """
 
 import io
@@ -17,6 +21,7 @@ from core.io.export import export_figure_png, prompt_save_path
 from core.io.folder_picker import prompt_folder_path
 from core.report.pptx import FIT_COLUMN_ASPECT_RATIO, FIT_GRID_COLUMNS, build_sample_report_pptx
 from modules.spectra.io.preset_store import load_presets
+from modules.spectra.io.results_excel import TechniqueResults, build_sample_results_xlsx
 from core.io.report_settings import load_default_material, save_default_material
 from core.report.progress import build as build_progress
 from core.report.slides import render_slides_to_png
@@ -77,6 +82,7 @@ if pick_clicked:
         state["raman_stats"] = None
         state["pl_stats"] = None
         state["pptx_bytes"] = None
+        state["xlsx_bytes"] = None
         state["slide_images"] = None
         st.rerun()
 
@@ -306,10 +312,11 @@ if scan is not None:
                 # call (~2 s, and it re-encodes every embedded image). The status
                 # spinner carries liveness while the bar holds still.
                 progress.start("pptx")
+                report_date = date.today().isoformat()
                 state["pptx_bytes"] = build_sample_report_pptx(
                     sample_name=scan.sample_name,
                     material_name=state["material"],
-                    report_date=date.today().isoformat(),
+                    report_date=report_date,
                     magnification_label=state["magnification"],
                     om_image_bytes=om_png_bytes,
                     raman_stats=state["raman_stats"],
@@ -321,6 +328,42 @@ if scan is not None:
                     pl_fit_legend=pl_legend,
                     fit_y_label=y_axis_title(normalized=True),
                 )
+
+                # Same stage as the deck, deliberately: the workbook is ~50 ms
+                # of openpyxl, and a progress step of its own would only
+                # flicker (progress.py says the same of the 4 ms aggregation).
+                # Built from the very stats the .pptx tables were built from,
+                # so the two artifacts cannot disagree about a number.
+                if has_spectra:
+                    state["xlsx_bytes"] = build_sample_results_xlsx(
+                        sample_name=scan.sample_name,
+                        material_name=state["material"],
+                        report_date=report_date,
+                        techniques=[
+                            TechniqueResults(
+                                label="Raman",
+                                point_spectra=batch_result.raman_spectra,
+                                stats=state["raman_stats"],
+                                source_files=scan.raman_files,
+                                errors=batch_result.raman_errors,
+                                ratios=raman_ratios,
+                            ),
+                            TechniqueResults(
+                                label="PL",
+                                point_spectra=batch_result.pl_spectra,
+                                stats=state["pl_stats"],
+                                source_files=scan.pl_files,
+                                errors=batch_result.pl_errors,
+                                # The empirical row, per point, matching the
+                                # one the report's PL table leads with.
+                                include_raw_row=True,
+                            ),
+                        ],
+                    )
+                else:
+                    # An images-only folder has no numbers to put in a
+                    # workbook; an empty one would just be a file to explain.
+                    state["xlsx_bytes"] = None
 
                 progress.complete("pptx")
 
@@ -362,6 +405,12 @@ if scan is not None:
         # ---------------------------------------------------------------- Save
         if state["pptx_bytes"] is not None:
             st.subheader("5. Save Report")
+            st.caption(
+                "Saves the .pptx, an .xlsx of every point's fit results, and one "
+                "PNG per slide — all under the name you choose."
+                if state.get("xlsx_bytes") is not None
+                else "Saves the .pptx and one PNG per slide."
+            )
             if st.button("💾 Save Report As...", use_container_width=True):
                 try:
                     save_path = prompt_save_path(
@@ -376,8 +425,21 @@ if scan is not None:
                             f.write(state["pptx_bytes"])
 
                         saved_files = [save_path]
+                        base, _ext = os.path.splitext(save_path)
+
+                        # The numbers behind the deck, same stem, .xlsx: every
+                        # point's fitted peaks plus the summary the slides
+                        # show. Written here rather than behind its own button
+                        # so a saved report can't be missing its data.
+                        # .get(): a session that predates this feature has a
+                        # state dict without the key.
+                        if state.get("xlsx_bytes") is not None:
+                            xlsx_path = f"{base}.xlsx"
+                            with open(xlsx_path, "wb") as f:
+                                f.write(state["xlsx_bytes"])
+                            saved_files.append(xlsx_path)
+
                         if state["slide_images"]:
-                            base, _ext = os.path.splitext(save_path)
                             for i, png_bytes in enumerate(state["slide_images"], start=1):
                                 image_path = f"{base}_page{i}.png"
                                 with open(image_path, "wb") as f:

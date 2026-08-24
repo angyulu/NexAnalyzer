@@ -17,12 +17,13 @@ from plotly.subplots import make_subplots
 
 # Data and total-fit colors, named because a legend drawn outside these figures
 # (the Sample Report draws one per slide) has to match the lines it describes.
-from .palette import (  # noqa: F401  (DATA_COLOR is re-exported for callers)
+from .palette import (  # noqa: F401  (re-exported for callers)
     COMPONENT_DASH,
     COMPONENT_OPACITY,
-    DATA_COLOR,
     FIT_TOTAL_COLOR,
     FIT_TOTAL_DASH,
+    PROCESSED_COLOR,
+    RAW_COLOR,
     RESIDUAL_COLOR,
 )
 
@@ -92,13 +93,15 @@ def _add_spectrum_traces(
     `scale` divides every Y series, so data and fit stay superimposed however
     the spectrum is normalized (see `peak_normalization_scale`).
     """
-    # Baseline-corrected data — the series that was actually fitted.
+    # Baseline-corrected data — the series that was actually fitted, and the
+    # same one the Spectra page draws as its "Baseline-corrected" layer, so it
+    # takes that layer's color rather than the raw file's.
     fig.add_trace(go.Scatter(
         x=x,
         y=np.asarray(y_data) / scale,
         mode='markers',
         name='Data',
-        marker=dict(size=marker_px, color=DATA_COLOR),
+        marker=dict(size=marker_px, color=PROCESSED_COLOR),
         showlegend=showlegend,
         hovertemplate=f'{x_label}: %{{x:.2f}}<br>Intensity: %{{y:.3g}}<extra></extra>'
     ), row=row, col=1)
@@ -343,7 +346,12 @@ def plot_fit_column(
         _add_spectrum_traces(
             fig, row, x, y_data, fit_result, x_label, show_components,
             showlegend=False,  # the slide draws one legend for the whole grid
-            marker_px=5, fit_line_px=3.0, component_line_px=2.4, scale=scale,
+            # The components are the thickest line here, as they are on the
+            # Spectra page (2.5 against the total fit's 1.5). They carry the
+            # preset colors, which are the reason to look at this slide; drawn
+            # thinner than the black total fit and under a dense marker cloud,
+            # they were the least visible thing on it.
+            marker_px=4, fit_line_px=2.6, component_line_px=3.2, scale=scale,
         )
 
     if x_range is not None:
@@ -451,7 +459,7 @@ def fit_legend_entries(fit_results: Sequence) -> List[Tuple[str, str]]:
     first seen across `fit_results` — taking the union rather than reading one
     fit, so a point that failed to resolve a peak doesn't drop it from the key.
     """
-    entries = [("Data", DATA_COLOR), ("Total Fit", FIT_TOTAL_COLOR)]
+    entries = [("Data", PROCESSED_COLOR), ("Total Fit", FIT_TOTAL_COLOR)]
     seen = set()
 
     for result in fit_results:
@@ -462,6 +470,6 @@ def fit_legend_entries(fit_results: Sequence) -> List[Tuple[str, str]]:
             if label in seen:
                 continue
             seen.add(label)
-            entries.append((label, peak.color or DATA_COLOR))
+            entries.append((label, peak.color or PROCESSED_COLOR))
 
     return entries
