@@ -34,6 +34,33 @@ from .session_state import (
 )
 
 
+@st.cache_data(max_entries=16, show_spinner=False)
+def _export_png_cached(fig, width: int, height: int, scale: float) -> bytes:
+    """`export_figure_png`, memoized on the figure itself.
+
+    st.download_button needs its bytes at render time, so this rasterization
+    used to run on EVERY rerun of the Spectra page — measured at 1316 ms, paid
+    for every checkbox toggle and file switch, whether or not anyone ever
+    clicked Download.
+
+    `fig` is deliberately NOT underscore-prefixed. Streamlit hashes a plotly
+    Figure by content (measured 4.3 ms for a 2000-point composite), so the
+    figure *is* the cache key, and it cannot go stale: change the data, the fit,
+    a peak label, a peak color or even a palette constant and the hash moves.
+    A hand-rolled fingerprint was tried first and had five holes, one of them
+    reachable — it hashed no module constants, so restyling `palette.py` served
+    the old PNG under an identical key until the process restarted.
+
+    max_entries bounds it: the default is unbounded, and each PNG is ~165-300 KB.
+    show_spinner=False because the default would render "Running
+    _export_png_cached(...)" inside the narrow Quick Export column.
+
+    Note that a raise is not cached, so a broken kaleido install still re-pays
+    the failing render every rerun — an error path, not a slow path.
+    """
+    return export_figure_png(fig, width=width, height=height, scale=scale)
+
+
 def render_sidebar():
     """
     Render sidebar with mode toggle, file upload, and results export.
@@ -158,29 +185,42 @@ def render_sidebar():
             if len(files) > 1:
                 if st.button("🚀 Run All Files", type="secondary", use_container_width=True,
                              help="Run auto-workflow on all loaded files"):
-                    from ..processing.auto_workflow import execute_auto_workflow, format_workflow_summary
+                    from ..processing.auto_workflow import execute_auto_workflow
 
                     file_items = list(files.items())
                     total = len(file_items)
                     success_count = 0
                     failed_files = []
 
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-
                     max_iter = st.session_state.get("max_iterations", 2000)
-                    for idx, (filename, spectrum) in enumerate(file_items):
-                        status_text.text(f"Processing {idx + 1}/{total}: {filename}")
-                        progress_bar.progress((idx + 1) / total)
+                    # One widget carrying one number: the old pair reported the
+                    # same index as "now starting" (label) and "this many
+                    # finished" (bar), so they could never be reconciled.
+                    with st.status(f"Fitting {total} files...", expanded=True) as status:
+                        progress_bar = st.progress(0.0, text="Starting...")
+                        for idx, (filename, spectrum) in enumerate(file_items):
+                            # idx, not idx + 1: the fraction is work *finished*,
+                            # while the label names the file now running. The
+                            # old code advanced the bar before doing the work,
+                            # so it read 100% throughout the final — usually
+                            # slowest — fit and was then torn down.
+                            progress_bar.progress(
+                                idx / total, text=f"Fitting {idx + 1}/{total}: {filename}"
+                            )
+                            result = execute_auto_workflow(spectrum, preset, max_iterations=max_iter)
+                            if result["success"]:
+                                success_count += 1
+                            else:
+                                failed_files.append(
+                                    (filename, result.get("error_message") or "Unknown error")
+                                )
 
-                        result = execute_auto_workflow(spectrum, preset, max_iterations=max_iter)
-                        if result["success"]:
-                            success_count += 1
-                        else:
-                            failed_files.append((filename, result.get("error_message", "Unknown error")))
-
-                    progress_bar.empty()
-                    status_text.empty()
+                        progress_bar.progress(1.0, text=f"{success_count}/{total} fitted")
+                        status.update(
+                            label=f"{success_count}/{total} files fitted",
+                            state="complete",
+                            expanded=False,
+                        )
 
                     if success_count == total:
                         st.success(f"All {total} files processed successfully!")
@@ -189,8 +229,13 @@ def render_sidebar():
                     else:
                         st.error("All files failed processing.")
 
+                    # Outside the status — st.status is expander-like, and
+                    # Streamlit forbids nesting expanders. Expanded, because a
+                    # collapsed one could never be opened: clicking it reruns
+                    # the script with this button False, so the whole block
+                    # (and the expander) ceases to exist.
                     if failed_files:
-                        with st.expander("View Errors"):
+                        with st.expander(f"{len(failed_files)} file(s) failed", expanded=True):
                             for fname, err in failed_files:
                                 st.error(f"**{fname}**: {err}")
 
@@ -201,7 +246,14 @@ def render_sidebar():
                     st.session_state['baseline_preview'] = None
                     st.session_state['despike_preview_toggle'] = False
                     st.session_state['baseline_preview_toggle'] = False
-                    st.rerun()
+                    # No st.rerun() here. It used to discard everything above —
+                    # the success/warning summary and the whole list of files
+                    # that failed — one frame after drawing it, so a 12-file
+                    # batch ended with no record of what happened. Writing
+                    # show_fit/show_components is safe without it because their
+                    # checkboxes are instantiated further down this same
+                    # function, so the values land before the widgets exist
+                    # (the same ordering sync_pending_file_switch relies on).
 
         else:
             st.session_state['selected_preset'] = None
@@ -244,7 +296,7 @@ def render_sidebar():
             with exp_col1:
                 st.caption("📷 Static Image")
                 try:
-                    png_bytes = export_figure_png(export_fig, width=1200, height=600, scale=2.0)
+                    png_bytes = _export_png_cached(export_fig, width=1200, height=600, scale=2.0)
                     filename_png = create_filename(export_spectrum.filename, "fit", "png")
                     st.download_button(
                         label="Download PNG",

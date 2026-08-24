@@ -4,6 +4,23 @@ import numpy as np
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _clear_streamlit_caches():
+    """Empty every st.cache_data between tests.
+
+    Streamlit's data cache is process-wide and outlives an AppTest instance —
+    it survives across AppTest runs and across test files in one pytest
+    process. Without this, a test asserting "the PNG download has bytes" can
+    pass on a payload another test cached, even with the render path broken,
+    and any "rendered only once" assertion passes for the wrong reason.
+    """
+    import streamlit as st
+
+    st.cache_data.clear()
+    yield
+    st.cache_data.clear()
+
+
 def _pseudo_voigt(x, center, intensity, fwhm, shape=0.5):
     """Cheap pseudo-Voigt profile for building synthetic test spectra.
 

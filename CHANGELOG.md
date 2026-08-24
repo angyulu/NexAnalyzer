@@ -5,6 +5,57 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.8.1] - 2026-08-24
+
+### Fixed
+- **The Spectra page paid a 1.5 s image render on every rerun.** The Quick
+  Export PNG feeds `st.download_button`, which needs its bytes at render time,
+  so the kaleido rasterization ran on every checkbox toggle and file switch
+  whether or not anyone ever clicked Download — measured at 1316 ms per rerun.
+  It is now memoized: 1510 ms on the first render, 21 ms on every rerun after,
+  **71x faster**, and the download button behaves exactly as before.
+- **The cache key is the plotly figure itself, hashed by content** (measured
+  4.3 ms), not a hand-rolled fingerprint. A fingerprint was written first and
+  adversarially reviewed; it had five holes, one of them reachable —
+  `st.cache_data` hashes only the decorated function's own source, never its
+  callees, so editing `palette.py` moved 25,264 pixels while the digest stayed
+  identical and the stale PNG was served until the process restarted. Hashing
+  the figure closes that and the other four for free, because every one of
+  those inputs is baked into the traces. Tests pin that changed data, a changed
+  peak label or colour, changed residuals and a changed palette constant all
+  miss the cache.
+- **`max_entries=16` and `show_spinner=False`.** The default cache is unbounded
+  and each PNG is 165-300 KB, so every refit would add one forever; the default
+  spinner would render "Running _export_png_cached(...)" inside the narrow Quick
+  Export column. A failing render is not cached, so a broken kaleido install
+  still re-pays it every rerun — an error path, not a slow path.
+- **"Run All Files" had a progress bar that read one file ahead of reality.**
+  It advanced to `(idx + 1) / total` *before* running that file's fit, so with
+  two files it showed 50% before any fitting began, and on the last iteration it
+  read 100% for the whole of the final — usually slowest — fit before being torn
+  down. The fraction is now work actually finished while the label names the
+  file currently running, and both live in one `st.progress(text=...)` instead of
+  two widgets each carrying half the truth.
+- **The batch report no longer vanishes.** `st.rerun()` immediately after the
+  loop discarded the success/warning summary and the entire list of failed
+  files, so a 12-file batch ended with no record of what happened. It is gone;
+  the `show_fit`/`show_components` writes it was there for still take effect,
+  because their checkboxes are instantiated further down the same function.
+- **The failure list is reachable at all now.** It sat in a collapsed
+  `st.expander`, and clicking to open one reruns the script with the button
+  False — so the block, and the expander with it, ceased to exist. It renders
+  expanded and outside the status (`st.status` is expander-like and Streamlit
+  forbids nesting them).
+- A batch failure whose message was empty rendered as `**file**:` with nothing
+  after it; `.get(k, default)` could not fire because the key is always present.
+
+### Added
+- An autouse fixture clearing `st.cache_data` between tests. Streamlit's data
+  cache is process-wide and outlives an `AppTest`, surviving across instances and
+  across test files in one pytest process — so a test asserting "the PNG has
+  bytes" could pass on a payload another test cached, with the render path
+  broken.
+
 ## [3.8.0] - 2026-08-24
 
 ### Added

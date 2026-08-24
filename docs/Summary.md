@@ -1,4 +1,4 @@
-# NexAnalyzer v3.8.0 - Project Summary
+# NexAnalyzer v3.8.1 - Project Summary
 
 ## Overview
 
