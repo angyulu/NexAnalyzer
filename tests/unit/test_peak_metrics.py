@@ -5,6 +5,7 @@ import numpy as np
 from modules.spectra.models.peak import FitResult, FittedPeak
 from modules.spectra.processing.peak_metrics import (
     aggregate_fit_results,
+    aggregate_raw_peak_stats,
     compute_peak_intensity_ratio,
     peak_intensity,
     peak_intensity_and_stderr,
@@ -257,3 +258,91 @@ class TestRawPeakStats:
         stats = raw_peak_stats(x, y)
         assert stats.intensity == 0.0
         assert stats.fwhm is None
+
+
+class _Spectrum:
+    """Just the `processed_data.X/.Y` that aggregate_raw_peak_stats reads."""
+
+    class _Data:
+        def __init__(self, x, y):
+            self.X, self.Y = x, y
+
+    def __init__(self, x, y):
+        self.processed_data = self._Data(x, y)
+
+
+def _pl_spectrum(peak_intensity_value, center, half_width=1.0):
+    """A triangular emission peak of the given height at the given center."""
+    x = np.arange(center - 4.0, center + 4.01, 1.0)
+    y = np.clip(peak_intensity_value * (1.0 - np.abs(x - center) / (2.0 * half_width)), 0.0, None)
+    return _Spectrum(x, y)
+
+
+class TestAggregateRawPeakStats:
+    """The empirical PL row: measured off the processed spectrum, no fit."""
+
+    def test_labelled_raw_so_it_matches_the_other_surfaces(self):
+        stat = aggregate_raw_peak_stats([_pl_spectrum(1000.0, 766.0)])
+
+        assert stat.label == "Raw"
+
+    def test_averages_intensity_and_center_across_points(self):
+        stats = aggregate_raw_peak_stats([
+            _pl_spectrum(1000.0, 766.0),
+            _pl_spectrum(2000.0, 768.0),
+        ])
+
+        assert stats.n == 2
+        assert stats.intensity_mean == 1500.0
+        assert stats.center_mean == 767.0
+        assert stats.intensity_std == np.std([1000.0, 2000.0], ddof=1)
+        assert stats.center_std == np.std([766.0, 768.0], ddof=1)
+
+    def test_single_point_has_no_spread(self):
+        stat = aggregate_raw_peak_stats([_pl_spectrum(1000.0, 766.0)])
+
+        assert stat.n == 1
+        assert stat.intensity_std == 0.0
+        assert stat.center_std == 0.0
+        assert stat.fwhm_std == 0.0
+
+    def test_measures_a_width_at_half_maximum(self):
+        stat = aggregate_raw_peak_stats([_pl_spectrum(1000.0, 766.0, half_width=1.0)])
+
+        assert stat.fwhm_mean is not None
+        assert stat.fwhm_mean > 0.0
+
+    def test_unmeasurable_width_is_none_not_zero(self):
+        """A flat spectrum has no half-maximum crossing. Reporting 0.0 would
+        print a fake measurement; the renderer dashes a None instead."""
+        flat = _Spectrum(np.arange(5.0), np.zeros(5))
+        stat = aggregate_raw_peak_stats([flat])
+
+        assert stat is not None          # the tallest point still exists
+        assert stat.fwhm_mean is None
+        assert stat.fwhm_std is None
+
+    def test_width_is_none_when_only_some_points_could_be_measured(self):
+        """Averaging the measurable subset while `n` claims the full count
+        would report a width the sample never had."""
+        stats = aggregate_raw_peak_stats([
+            _pl_spectrum(1000.0, 766.0),
+            _Spectrum(np.arange(5.0), np.zeros(5)),
+        ])
+
+        assert stats.n == 2
+        assert stats.fwhm_mean is None
+
+    def test_reads_processed_data_so_it_is_comparable_to_fitted_intensities(self):
+        """The layer the fit sees, not the raw file: a baseline-corrected
+        spectrum, so no baseline offset inflates the reported intensity."""
+        spectrum = _pl_spectrum(1000.0, 766.0)
+        spectrum.processed_data.Y = spectrum.processed_data.Y + 0.0  # already corrected
+
+        assert aggregate_raw_peak_stats([spectrum]).intensity_mean == 1000.0
+
+    def test_no_spectra_returns_none(self):
+        assert aggregate_raw_peak_stats([]) is None
+
+    def test_empty_spectra_return_none(self):
+        assert aggregate_raw_peak_stats([_Spectrum(np.array([]), np.array([]))]) is None

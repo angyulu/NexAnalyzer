@@ -28,7 +28,7 @@ from typing import List, NamedTuple, Optional, Tuple
 import numpy as np
 
 from ..models.peak import FitResult
-from core.report.models import PeakStat
+from core.report.models import RAW_STAT_LABEL, PeakStat
 
 
 def peak_intensity_and_stderr(peak) -> Tuple[float, float]:
@@ -138,6 +138,67 @@ def aggregate_fit_results(fit_results: List[FitResult]) -> List[PeakStat]:
         ))
 
     return stats
+
+
+def aggregate_raw_peak_stats(spectra) -> Optional[PeakStat]:
+    """
+    The empirical PL measurement, aggregated across a sample's points: the
+    tallest point of each processed spectrum, with no fit involved.
+
+    Returned as a `PeakStat` labelled "Raw" so it drops straight into the
+    report's summary table alongside the fitted peaks. This is the same
+    fit-free quantity the on-screen Fit Results table and the master CSV
+    already show as a "Raw" row; the three now agree.
+
+    Read off `processed_data` — after de-spiking and baseline correction, the
+    same layer the fit sees — so its intensity is comparable to the fitted
+    intensities in the rows below it, not inflated by a baseline offset.
+
+    `fwhm_mean`/`fwhm_std` are None when no point yielded a half-maximum
+    crossing (`raw_peak_stats` returns None there). Averaging over the points
+    that did measure would report a width from a subset while `n` claimed the
+    full count, and defaulting to 0.0 would print a fake measurement, so the
+    cell is dashed out instead.
+
+    Returns None when no spectrum yields a raw peak at all.
+    """
+    intensities: List[float] = []
+    centers: List[float] = []
+    fwhms: List[float] = []
+
+    for spectrum in spectra:
+        data = getattr(spectrum, "processed_data", None)
+        if data is None:
+            continue
+        raw = raw_peak_stats(data.X, data.Y)
+        if raw is None:
+            continue
+        intensities.append(raw.intensity)
+        centers.append(raw.center)
+        if raw.fwhm is not None:
+            fwhms.append(raw.fwhm)
+
+    n = len(intensities)
+    if n == 0:
+        return None
+
+    ddof = 1 if n > 1 else 0
+    fwhm_mean = float(np.mean(fwhms)) if len(fwhms) == n else None
+    if fwhm_mean is None:
+        fwhm_std = None
+    else:
+        fwhm_std = float(np.std(fwhms, ddof=ddof)) if n > 1 else 0.0
+
+    return PeakStat(
+        label=RAW_STAT_LABEL,
+        n=n,
+        center_mean=float(np.mean(centers)),
+        center_std=float(np.std(centers, ddof=ddof)) if n > 1 else 0.0,
+        intensity_mean=float(np.mean(intensities)),
+        intensity_std=float(np.std(intensities, ddof=ddof)) if n > 1 else 0.0,
+        fwhm_mean=fwhm_mean,
+        fwhm_std=fwhm_std,
+    )
 
 
 def compute_peak_intensity_ratio(

@@ -19,7 +19,11 @@ from core.report.pptx import FIT_COLUMN_ASPECT_RATIO, FIT_GRID_COLUMNS, build_sa
 from modules.spectra.io.preset_store import load_presets
 from core.io.report_settings import load_default_material, save_default_material
 from core.report.slides import render_slides_to_png
-from modules.spectra.processing.peak_metrics import aggregate_fit_results, compute_peak_intensity_ratio
+from modules.spectra.processing.peak_metrics import (
+    aggregate_fit_results,
+    aggregate_raw_peak_stats,
+    compute_peak_intensity_ratio,
+)
 from modules.spectra.processing.sample_batch import run_sample_batch
 from modules.spectra.processing.sample_scanner import default_magnification, scan_sample_folder
 from modules.spectra.ui.sample_report_state import get_sample_report_state
@@ -222,10 +226,16 @@ if scan is not None:
                 aggregate_fit_results([s.fit_result for _, s in batch_result.raman_spectra])
                 if batch_result.raman_spectra else None
             )
-            state["pl_stats"] = (
-                aggregate_fit_results([s.fit_result for _, s in batch_result.pl_spectra])
-                if batch_result.pl_spectra else None
-            )
+            # PL leads with the empirical measurement — the tallest point of each
+            # processed spectrum, no fit involved — then the fitted peaks. Same
+            # "Raw" row the on-screen table and the master CSV already show.
+            if batch_result.pl_spectra:
+                pl_spectra = [s for _, s in batch_result.pl_spectra]
+                pl_stats = aggregate_fit_results([s.fit_result for s in pl_spectra])
+                raw_stat = aggregate_raw_peak_stats(pl_spectra)
+                state["pl_stats"] = ([raw_stat] + pl_stats) if raw_stat else pl_stats
+            else:
+                state["pl_stats"] = None
             raman_fits = [s.fit_result for _, s in batch_result.raman_spectra]
             raman_ratios = []
             for numerator, denominator in _RAMAN_RATIO_PAIRS:

@@ -40,6 +40,16 @@ def _stat(label="Exciton", n=9):
     )
 
 
+def _raw_stat(n=9, fwhm_mean=31.0, fwhm_std=2.0):
+    """The empirical PL row aggregate_raw_peak_stats produces."""
+    return PeakStat(
+        label="Raw", n=n,
+        center_mean=767.2, center_std=0.9,
+        intensity_mean=13500.0, intensity_std=1600.0,
+        fwhm_mean=fwhm_mean, fwhm_std=fwhm_std,
+    )
+
+
 class TestBuildSampleReportPptx:
     def test_full_report_builds_three_slides(self):
         om_bytes = {p: _tiny_png() for p in range(1, 10)}
@@ -152,6 +162,101 @@ class TestBuildSampleReportPptx:
         # The caption says which rows are means and which are medians, since
         # the row labels no longer can without wrapping.
         assert any("ratios median ± MAD" in t for t in outside)
+
+    def test_the_pl_table_leads_with_the_empirical_raw_row(self):
+        """The empirical measurement sits above the fitted peaks, carrying a
+        center, an intensity and a FWHM like any other row."""
+        result = build_sample_report_pptx(
+            sample_name="RawRow", material_name="WSe2", report_date="2026-08-24",
+            magnification_label=None, om_image_bytes={},
+            raman_stats=[_stat("LA")], raman_fit_columns={},
+            pl_stats=[_raw_stat(), _stat("Exciton")], pl_fit_columns={},
+        )
+
+        prs = Presentation(io.BytesIO(result))
+        pl_table = _tables(prs.slides[0])[1]
+
+        assert len(pl_table.rows) == 3  # header + Raw + the fitted peak
+        raw_row = [c.text for c in pl_table.rows[1].cells]
+        assert raw_row[0] == "Raw"
+        assert raw_row[1] == "767.2 ± 0.9"      # empirical center
+        assert raw_row[2] == "13500.0 ± 1600.0"  # empirical intensity
+        assert raw_row[3] == "31.0 ± 2.0"        # empirical FWHM
+        assert raw_row[4] == "9"
+        # and the fitted peak still follows it
+        assert [c.text for c in pl_table.rows[2].cells][0] == "Exciton"
+
+    def test_a_table_with_an_empirical_row_is_not_called_a_fit_summary(self):
+        """The PL table's first row is measured, not fitted, so the caption says
+        what is in the table rather than calling all of it a fit."""
+        result = build_sample_report_pptx(
+            sample_name="Caption", material_name="WSe2", report_date="2026-08-24",
+            magnification_label=None, om_image_bytes={},
+            raman_stats=[_stat("LA")], raman_fit_columns={},
+            pl_stats=[_raw_stat(), _stat("Exciton")], pl_fit_columns={},
+        )
+
+        prs = Presentation(io.BytesIO(result))
+        captions = [s.text_frame.text for s in prs.slides[0].shapes if s.has_text_frame]
+
+        assert "PL summary (empirical + fitted, mean ± std)" in captions
+        assert "PL fit summary (mean ± std)" not in captions
+        # Raman has no empirical row, so its caption is untouched
+        assert "Raman fit summary (mean ± std)" in captions
+
+    def test_a_table_of_only_fitted_peaks_keeps_the_fit_summary_caption(self):
+        result = build_sample_report_pptx(
+            sample_name="Caption", material_name="WSe2", report_date="2026-08-24",
+            magnification_label=None, om_image_bytes={},
+            raman_stats=[_stat("LA")], raman_fit_columns={},
+            pl_stats=[_stat("Exciton")], pl_fit_columns={},
+        )
+
+        prs = Presentation(io.BytesIO(result))
+        captions = [s.text_frame.text for s in prs.slides[0].shapes if s.has_text_frame]
+
+        assert "PL fit summary (mean ± std)" in captions
+        assert not any("empirical" in c for c in captions)
+
+    def test_no_caption_outgrows_the_one_known_to_fit_on_one_line(self):
+        """A caption that wraps to two lines overlaps the table beneath it. The
+        ratios variant is the longest one shipped and is known to fit, so it is
+        the budget every other caption has to stay inside."""
+        budget = len("Raman fit summary (peaks mean ± std, ratios median ± MAD)")
+
+        result = build_sample_report_pptx(
+            sample_name="Caption", material_name="WSe2", report_date="2026-08-24",
+            magnification_label=None, om_image_bytes={},
+            raman_stats=[_stat("LA")], raman_fit_columns={},
+            pl_stats=[_raw_stat(), _stat("Exciton")], pl_fit_columns={},
+            raman_ratios=[("LA / E2g+A1g", (0.59, 0.08, 9))],
+        )
+
+        prs = Presentation(io.BytesIO(result))
+        captions = [s.text_frame.text for s in prs.slides[0].shapes
+                    if s.has_text_frame and "summary" in s.text_frame.text]
+
+        assert captions  # the assertion below is worthless if nothing matched
+        for caption in captions:
+            assert len(caption) <= budget, f"{caption!r} is {len(caption)} chars, budget {budget}"
+
+    def test_an_unmeasurable_raw_width_is_dashed_not_zero(self):
+        """A flat spectrum has no half-maximum crossing. "0.0 ± 0.0" would read
+        as a measured width."""
+        result = build_sample_report_pptx(
+            sample_name="NoWidth", material_name="WSe2", report_date="2026-08-24",
+            magnification_label=None, om_image_bytes={},
+            raman_stats=[_stat("LA")], raman_fit_columns={},
+            pl_stats=[_raw_stat(fwhm_mean=None, fwhm_std=None)], pl_fit_columns={},
+        )
+
+        prs = Presentation(io.BytesIO(result))
+        raw_row = [c.text for c in _tables(prs.slides[0])[1].rows[1].cells]
+
+        assert raw_row[3] == "—"
+        assert "0.0" not in raw_row[3]
+        # the rest of the row is still reported
+        assert raw_row[2] == "13500.0 ± 1600.0"
 
     def test_several_ratios_stack_below_the_peaks_in_order(self):
         result = build_sample_report_pptx(

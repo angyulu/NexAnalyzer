@@ -22,7 +22,7 @@ from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 
-from .models import PeakStat
+from .models import RAW_STAT_LABEL, PeakStat
 
 SLIDE_WIDTH_IN, SLIDE_HEIGHT_IN = 13.333, 7.5
 
@@ -313,14 +313,24 @@ def _add_stats_table(
     the Peak column and `median ± MAD` in the Intensity column (they are ratios
     of intensities), with center/FWHM dashed out since they don't apply. Labels are
     expected to mark themselves as medians, since the peak rows above are means.
+
+    A leading `RAW_STAT_LABEL` row is the empirical measurement rather than a
+    fitted peak, and the caption says so instead of calling the table a "fit
+    summary".
     """
     ratios = list(ratios or [])
     caption = slide.shapes.add_textbox(
         Inches(left), Inches(top - _TABLE_CAPTION_GAP), Inches(w), Inches(_TABLE_CAPTION_GAP)
     )
+    # "fit summary" would be wrong for a table whose first row is measured off
+    # the spectrum rather than fitted, so the heading follows what's actually in
+    # it. Kept no longer than the ratios variant, which is known to fit the
+    # caption box on one line — a wrapped caption overlaps the table below it.
+    spread = "peaks mean ± std, ratios median ± MAD" if ratios else "mean ± std"
+    has_empirical = any(stat.label == RAW_STAT_LABEL for stat in (stats or []))
     caption.text_frame.text = (
-        f"{technique_label} fit summary (peaks mean ± std, ratios median ± MAD)"
-        if ratios else f"{technique_label} fit summary (mean ± std)"
+        f"{technique_label} summary (empirical + fitted, {spread})"
+        if has_empirical else f"{technique_label} fit summary ({spread})"
     )
     caption.text_frame.paragraphs[0].font.size = Pt(12)
     caption.text_frame.paragraphs[0].font.bold = True
@@ -352,7 +362,7 @@ def _add_stats_table(
             stat.label,
             f"{stat.center_mean:.1f} ± {stat.center_std:.1f}",
             f"{stat.intensity_mean:.1f} ± {stat.intensity_std:.1f}",
-            f"{stat.fwhm_mean:.1f} ± {stat.fwhm_std:.1f}",
+            f"{stat.fwhm_mean:.1f} ± {stat.fwhm_std:.1f}" if stat.fwhm_mean is not None else "—",
             str(stat.n),
         ]
         for c, value in enumerate(values):

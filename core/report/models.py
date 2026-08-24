@@ -5,7 +5,7 @@ per-peak fit statistics computed across a technique's 9 fits.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,13 @@ class SampleScan:
         return sorted(self.image_files.keys())
 
 
+RAW_STAT_LABEL = "Raw"
+"""Label marking a `PeakStat` as the empirical row — measured off the spectrum
+itself rather than produced by a fit. Reserved: the report renderer keys its
+caption off it, and a fitted peak must never use it. The on-screen Fit Results
+table and the master CSV label the same quantity the same way."""
+
+
 @dataclass(frozen=True)
 class PeakStat:
     """
@@ -53,6 +60,11 @@ class PeakStat:
     area lmfit solves for, which differs by a factor of FWHM x 1.064;
     reporting that here made the .pptx disagree with every other surface while
     using the same column heading.
+
+    ``fwhm_mean``/``fwhm_std`` are None only for a row whose width could not be
+    measured — the empirical "Raw" row on a spectrum with no half-maximum
+    crossing. The renderer dashes that cell rather than printing a 0.0 that
+    would read as a measurement. Fitted peaks always have a width.
     """
 
     label: str
@@ -61,5 +73,5 @@ class PeakStat:
     center_std: float
     intensity_mean: float
     intensity_std: float
-    fwhm_mean: float
-    fwhm_std: float
+    fwhm_mean: Optional[float]
+    fwhm_std: Optional[float]
