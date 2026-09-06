@@ -5,6 +5,22 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.9.1] - 2026-09-07
+
+### Fixed
+- **Every PNG render crashed under Plotly 7.** `export_figure_png()` asked for
+  `to_image(..., engine='kaleido')`; Plotly 6 deprecated that argument and
+  Plotly 7 removed it, so the call raised `TypeError: to_image() got an
+  unexpected keyword argument 'engine'`, which the wrapper re-raised as
+  `RuntimeError: PNG export failed ... Make sure kaleido is installed` — a
+  misleading message, since kaleido was installed and working. It took down
+  every Sample Report build at the first figure column and the Spectra page's
+  Quick Export with it. The argument is simply gone now: Plotly selects kaleido
+  on its own when it is installed, on 5.x as well as 7.x.
+- **A failed render now chains its cause** (`raise ... from e`), so the
+  underlying error keeps its own traceback instead of only surviving as text
+  inside the `RuntimeError` message.
+
 ## [3.9.0] - 2026-08-24
 
 ### Added

@@ -7,7 +7,9 @@ test_results_csv.py.
 
 import plotly.graph_objects as go
 
-from core.io.export import export_figure_html, create_filename
+import pytest
+
+from core.io.export import export_figure_html, export_figure_png, create_filename
 
 
 class TestExportFigureHtml:
@@ -24,3 +26,38 @@ class TestCreateFilename:
 
     def test_no_extension_to_strip(self):
         assert create_filename("sample", "preview", "png") == "sample_preview.png"
+
+
+class TestExportFigurePng:
+    """Plotly 6 deprecated ``to_image(engine=...)`` and Plotly 7 removed it.
+
+    Passing it raised ``TypeError: to_image() got an unexpected keyword
+    argument 'engine'`` on every Sample Report build under Plotly 7, so these
+    fakes take the strict signature and would fail again if it came back.
+    """
+
+    class _Figure:
+        def __init__(self):
+            self.calls = []
+
+        def to_image(self, *, format, width, height, scale):
+            self.calls.append(
+                {"format": format, "width": width, "height": height, "scale": scale}
+            )
+            return b"PNG-BYTES"
+
+    def test_passes_no_engine_argument(self):
+        fig = self._Figure()
+        assert export_figure_png(fig, width=800, height=400, scale=1.0) == b"PNG-BYTES"
+        assert fig.calls == [
+            {"format": "png", "width": 800, "height": 400, "scale": 1.0}
+        ]
+
+    def test_wraps_failures_in_runtimeerror_keeping_the_cause(self):
+        class _Broken:
+            def to_image(self, **kwargs):
+                raise ValueError("chrome not found")
+
+        with pytest.raises(RuntimeError, match="PNG export failed") as excinfo:
+            export_figure_png(_Broken())
+        assert isinstance(excinfo.value.__cause__, ValueError)

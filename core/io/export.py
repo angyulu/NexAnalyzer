@@ -126,6 +126,10 @@ def export_figure_png(fig, width: int = 1200, height: int = 600, scale: float = 
     -----
     Requires kaleido package: pip install kaleido
 
+    No ``engine=`` argument is passed: Plotly 6 deprecated it and Plotly 7
+    removed it, so naming the engine raises TypeError there. Plotly picks
+    kaleido on its own when it is installed.
+
     Examples
     --------
     >>> png = export_figure_png(fig)
@@ -138,14 +142,13 @@ def export_figure_png(fig, width: int = 1200, height: int = 600, scale: float = 
             width=width,
             height=height,
             scale=scale,
-            engine='kaleido'
         )
         return png_bytes
     except Exception as e:
         raise RuntimeError(
             f"PNG export failed: {e}. "
             f"Make sure kaleido is installed: pip install kaleido"
-        )
+        ) from e
 
 
 def export_figure_html(fig) -> str:
