@@ -5,6 +5,45 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.1] - 2026-09-11
+
+### Fixed
+
+- **A bad fit is a bad fit, not a crash.** R-squared is `1 - SS_res/SS_tot`,
+  which is unbounded below: any model fitting worse than a horizontal line
+  through the mean scores negative. `FitResult` validated it into `[0, 1]` and
+  raised, so the ordinary result of running a preset against the wrong material
+  arrived as `Peak fitting failed: r_squared must be in [0, 1] (got
+  -0.1036...)`, an internal invariant surfacing as a user-facing error whose
+  suggested remedy — check the peak initial guesses in the preset — pointed away
+  from the actual problem. The validation was inconsistent as well: MoS₂'s
+  383/408 cm⁻¹ peaks on WSe₂ data collapse to ~zero area and score about -0.11,
+  which raised, while the Silicon preset on the *same* data scores +0.00008 and
+  passed silently. Both are the same mistake, and both now reach
+  `peak_metrics.R_SQUARED_MIN`, the 0.5 quality gate built to drop them.
+  Only R-squared > 1 is rejected. Numbers for correctly-matched presets do not
+  move; TSM260803 against WSe₂ still fits 225/225 at R² 0.944–0.967.
+
+### Changed
+
+- **The quality gate now says what it did, and keeps saying it.** Spectra
+  dropped at `R_SQUARED_MIN` are not fit failures, so they never appeared in
+  the "failed to fit" list; they simply left the pipeline and made `n` smaller,
+  which reads as a sample with fewer measurements. The QC Panel and the Sample
+  Report each report how many were excluded. When *every* spectrum is dropped
+  there is no Raman figure either, and the QC Panel now says so in those terms
+  and names the selected material as the likeliest cause, rather than leaving a
+  bare exclusion count under an empty space where the figure should be. That
+  verdict is rendered from persisted state: anything written inside the **Run
+  Analysis** block survives exactly one rerun and is wiped by the operator's
+  next interaction, which is why the first version of this message was not
+  there when it was wanted.
+- **`qc_panel_state` derived keys are guarded by a test.** Every key in the
+  state dict must be either an operator selection or a member of one of the
+  reset tuples. A derived key absent from both outlives the run that produced
+  it — the stale-artifact failure the module was written to prevent, and one
+  the new verdict would otherwise repeat against the wrong material.
+
 ## [4.0.0] - 2026-09-11
 
 Breaking: `data/materials.json` changes shape. A preset is now keyed by

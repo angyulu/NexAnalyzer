@@ -373,6 +373,29 @@ class TestIqrMask:
         assert iqr_mask(np.array([])).shape == (0,)
 
 
+class TestFitResultRSquaredRange:
+    """R-squared is 1 - SS_res/SS_tot, so only the upper bound is real.
+
+    Bounding it below at 0 rejected the ordinary outcome of fitting a preset
+    against the wrong material and reported it as a validation failure whose
+    suggested remedy -- check the initial guesses -- pointed away from the
+    actual problem. It was inconsistent too: the same mistake with the Silicon
+    preset scores +0.00008 and always passed.
+    """
+
+    def test_accepts_a_negative_r_squared(self):
+        fit = _fit_result([_peak("E2g", 383.0, 0.001, 10.0)], r_squared=-0.11)
+
+        assert fit.r_squared == -0.11
+
+    def test_accepts_a_perfect_fit(self):
+        assert _fit_result([_peak("Si", 520.0, 100.0, 5.0)], r_squared=1.0).r_squared == 1.0
+
+    def test_rejects_above_one(self):
+        with pytest.raises(ValueError, match="r_squared must be <= 1"):
+            _fit_result([_peak("Si", 520.0, 100.0, 5.0)], r_squared=1.0001)
+
+
 class TestFilterFitsByQuality:
     def test_drops_fits_at_or_below_the_r_squared_gate(self):
         good = _fit_result([_peak("Si", 520.0, 100.0, 5.0)], r_squared=0.95)
@@ -391,6 +414,20 @@ class TestFilterFitsByQuality:
         fits = [(p, _fit_result([_peak("Si", 520.0, 100.0, 5.0)])) for p in (3, 1, 2)]
 
         assert [point for point, _ in filter_fits_by_quality(fits)] == [3, 1, 2]
+
+    def test_drops_a_negative_r_squared_fit(self):
+        """The case the gate exists for, which it could not previously see.
+
+        A preset aimed at the wrong material converges onto empty spectrum:
+        the areas collapse to ~zero and R-squared goes slightly negative
+        (MoS2's 383/408 peaks on real WSe2 data score about -0.11). FitResult
+        used to reject that value outright, so the fit never reached this gate
+        -- it surfaced as "Peak fitting failed: r_squared must be in [0, 1]"
+        instead.
+        """
+        collapsed = _fit_result([_peak("E2g", 383.0, 0.001, 10.0)], r_squared=-0.11)
+
+        assert filter_fits_by_quality([(1, collapsed)]) == []
 
 
 class TestPerPointOutlierRemoval:

@@ -24,12 +24,16 @@ def initialize_qc_panel_state() -> None:
             "magnification": None,
             "material": None,
             "reference_layer": "2L",
+            # Everything below is derived and must appear in one of the
+            # artifact tuples; see _SELECTIONS.
             "frames": None,             # list[contrast.FrameResult]
             "om_png": None,             # Image 1 bytes, clean (for the report)
             "om_diagnostic_png": None,  # Image 1 with the histogram row
             "raman_png": None,          # Image 2 bytes
             "raman_stats": None,
             "errors": None,             # list[(point, message)] from fitting
+            "dropped": None,            # count gated out by R_SQUARED_MIN
+            "fitted": None,             # count that converged, gate aside
             # Fingerprints of the preset blocks each artifact was built from,
             # so editing one block need not throw away the other's figure.
             "optical_fingerprint": None,
@@ -43,9 +47,17 @@ def get_qc_panel_state() -> dict:
     return st.session_state[_KEY]
 
 
+#: The operator's own choices. Everything else in the state dict is derived
+#: from them and gets dropped by `reset_results`; a derived key missing from
+#: the tuples below outlives the run that produced it, which is how a verdict
+#: naming the previous material comes to sit under the new one's results.
+_SELECTIONS = ("folder", "scan", "magnification", "material", "reference_layer")
+
 #: Derived keys, grouped by the preset block whose settings produced them.
 _OPTICAL_ARTIFACTS = ("frames", "om_png", "om_diagnostic_png", "optical_fingerprint")
-_RAMAN_ARTIFACTS = ("raman_png", "raman_stats", "errors", "raman_fingerprint")
+_RAMAN_ARTIFACTS = (
+    "raman_png", "raman_stats", "errors", "dropped", "fitted", "raman_fingerprint",
+)
 
 
 def reset_results(state: dict) -> None:

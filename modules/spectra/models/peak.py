@@ -283,7 +283,8 @@ class FitResult:
     chi_squared : float
         Sum of squared residuals.
     r_squared : float
-        Coefficient of determination (0-1).
+        Coefficient of determination, in (-inf, 1]. Negative means the fit
+        explains the data worse than its own mean does -- see __post_init__.
     convergence_time : float
         Fitting time in seconds.
     error_message : str
@@ -305,8 +306,20 @@ class FitResult:
         if self.success and not (1 <= len(self.fitted_peaks) <= 10):
             raise ValueError(f"fitted_peaks must have 1-10 peaks when success=True (got {len(self.fitted_peaks)})")
 
-        if not (0.0 <= self.r_squared <= 1.0):
-            raise ValueError(f"r_squared must be in [0, 1] (got {self.r_squared})")
+        # R-squared is 1 - SS_res/SS_tot, which is unbounded below: any model
+        # that fits worse than a horizontal line through the mean scores
+        # negative. That is a *poor fit*, not an invalid one, and it is exactly
+        # what a preset aimed at the wrong material produces -- MoS2's 383/408
+        # peaks on WSe2 data land in empty spectrum, the areas collapse to
+        # ~zero and R-squared settles near -0.11. Rejecting it here turned that
+        # into "Peak fitting failed: r_squared must be in [0, 1]", an internal
+        # invariant surfacing as a user-facing error that blamed the initial
+        # guesses. Worse, it was inconsistent: the Silicon preset on the same
+        # data scores +0.00008 and passed validation silently. Both are the
+        # same mistake and both belong to peak_metrics.R_SQUARED_MIN, the gate
+        # built to drop them. Only > 1 is genuinely impossible.
+        if self.r_squared > 1.0:
+            raise ValueError(f"r_squared must be <= 1 (got {self.r_squared})")
 
         if self.chi_squared < 0:
             raise ValueError(f"chi_squared must be >= 0 (got {self.chi_squared})")

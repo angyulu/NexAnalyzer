@@ -26,6 +26,7 @@ from core.io.report_settings import load_default_material, save_default_material
 from core.report.progress import build as build_progress
 from core.report.slides import render_slides_to_png
 from modules.spectra.processing.peak_metrics import (
+    R_SQUARED_MIN,
     aggregate_fit_results,
     aggregate_raw_peak_stats,
     compute_peak_intensity_ratio,
@@ -434,6 +435,22 @@ if scan is not None:
                 with st.expander(f"{len(errors)} point(s) failed to fit and were excluded"):
                     for point, err in errors:
                         st.error(f"Point {point}: {err}")
+
+            # A spectrum that converged onto nothing is not an error and so
+            # never reaches the list above; it simply leaves at the quality
+            # gate and makes `n` smaller. Say how many, because a preset aimed
+            # at the wrong material takes this path in bulk and looks, from the
+            # report alone, exactly like a sample with fewer measurements.
+            gated = (
+                (len(batch_result.raman_spectra) - len(raman_pairs))
+                + (len(batch_result.pl_spectra) - len(pl_pairs))
+            )
+            if gated:
+                st.caption(
+                    f"{gated} further spectra fitted but scored R² ≤ "
+                    f"{R_SQUARED_MIN} and were excluded from every table, "
+                    f"ratio and chart above."
+                )
 
             st.success("Report generated.")
 

@@ -47,6 +47,7 @@ from modules.optical.ui.qc_panel_state import (
 from modules.optical.viz.om_grid import build_om_grid_figure
 from modules.spectra.io.preset_store import load_presets
 from modules.spectra.processing.peak_metrics import (
+    R_SQUARED_MIN,
     aggregate_fit_results,
     filter_fits_by_quality,
 )
@@ -240,9 +241,13 @@ if scan is not None:
                             ),
                         )
                         state["errors"] = batch.raman_errors
-                        pairs = filter_fits_by_quality(
-                            [(p, s.fit_result) for p, s in batch.raman_spectra]
-                        )
+                        fitted = [(p, s.fit_result) for p, s in batch.raman_spectra]
+                        pairs = filter_fits_by_quality(fitted)
+                        # Both counts, not just the survivors: what the gate
+                        # removed is reported in Results, and it cannot be
+                        # recovered from `raman_stats` afterwards.
+                        state["dropped"] = len(fitted) - len(pairs)
+                        state["fitted"] = len(fitted)
                         if pairs:
                             st.write("Building the Raman figure…")
                             state["raman_stats"] = aggregate_fit_results(pairs)
@@ -251,14 +256,49 @@ if scan is not None:
                                 material_name=state["material"],
                             )
                             state["raman_fingerprint"] = _raman_now
-                        else:
-                            st.warning("No Raman fit passed the quality gate.")
+                        # Nothing is said here about an empty `pairs`. Anything
+                        # written inside this button block lives for exactly one
+                        # rerun, and the operator's next interaction wipes it --
+                        # which is how a run that produced no figure came to
+                        # show only a bare exclusion count. The gate's verdict
+                        # is reported from persisted state in Results instead.
                     status.update(label=f"{scan.sample_name} analysed", state="complete")
             except Exception as e:
                 st.error(f"Analysis failed: {e}")
 
 # ---------------------------------------------------------------- Results
-if state.get("om_png") or state.get("raman_png"):
+def _render_raman_gate_verdict() -> None:
+    """Say what the quality gate did, on every rerun.
+
+    Spectra dropped here are not fit failures, so they never reach the
+    "failed to fit" list; they just leave, and `n` comes out smaller. When
+    *every* spectrum is dropped there is no figure either, and a count on its
+    own reads as a malfunction rather than as the verdict it is. The usual
+    cause of a wholesale drop is a preset aimed at another material -- MoS2's
+    383/408 cm-1 peaks on WSe2 data converge onto empty spectrum and score
+    about -0.11 apiece -- so name the selected material and let the operator
+    check it.
+    """
+    dropped = state.get("dropped") or 0
+    if not dropped:
+        return
+    fitted = state.get("fitted") or 0
+    if state.get("raman_png"):
+        st.caption(
+            f"{dropped} of {fitted} spectra fitted but scored "
+            f"R² ≤ {R_SQUARED_MIN} and were excluded from the Raman figure "
+            f"and statistics."
+        )
+    else:
+        st.warning(
+            f"**No Raman figure:** all {fitted} spectra fitted, and every one "
+            f"scored R² ≤ {R_SQUARED_MIN}, so none reached the figure. The "
+            f"usual cause is the wrong material — check that "
+            f"**{state.get('material')}** is what this sample is."
+        )
+
+
+if state.get("om_png") or state.get("raman_png") or state.get("dropped"):
     st.markdown("---")
 
     if state.get("om_png"):
@@ -288,6 +328,8 @@ if state.get("om_png") or state.get("raman_png"):
     if state.get("raman_png"):
         st.subheader("Image 2 — Raman analysis")
         st.image(state["raman_png"], use_container_width=True)
+
+    _render_raman_gate_verdict()
 
     if state.get("errors"):
         with st.expander(f"{len(state['errors'])} spectra failed to fit"):
