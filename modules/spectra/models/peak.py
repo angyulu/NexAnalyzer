@@ -210,7 +210,8 @@ class FittedPeak:
     area_stderr : float
         Standard error in area.
     width_fwhm : float
-        Fitted FWHM (cm⁻¹ or nm).
+        Fitted FWHM (cm⁻¹ or nm) -- the Voigt width, from both sigma and
+        gamma. See `fitting.voigt_fwhm`.
     width_stderr : float
         Standard error in FWHM.
     shape : float
@@ -219,6 +220,14 @@ class FittedPeak:
         This peak's contribution to total fit (same length as X).
     color : str
         Peak color for plotting (hex #RRGGBB), copied from PeakDefinition.
+    width_fwhm_v1 : Optional[float]
+        `2.355 * sigma` -- the Gaussian-only width the app reported before
+        v3.4.0, which silently dropped gamma and understated every width by
+        59-108%. Kept only so the on-screen table and, optionally, the
+        Sample Report can show it next to the correct value for comparison;
+        nothing else in the app should read this field. None for a
+        `FittedPeak` built outside `fitting.fit_voigt_peaks` (there is no
+        sigma/gamma to compute it from).
     """
 
     label: str
@@ -231,6 +240,7 @@ class FittedPeak:
     shape: float
     component_curve: np.ndarray
     color: str = "#1f77b4"  # Default color
+    width_fwhm_v1: Optional[float] = None
 
     def to_dict(self) -> dict:
         """Serialize to dictionary for JSON export."""

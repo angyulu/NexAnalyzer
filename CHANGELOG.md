@@ -5,6 +5,78 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0] - 2026-09-11
+
+### Added
+
+- **"FWHM (v1)" comparison column.** `FittedPeak` now also carries
+  `width_fwhm_v1` — `2.355 x sigma`, the Gaussian-only width the app reported
+  before v3.4.0, computed alongside the correct Voigt width at fit time. The
+  Spectra page's Fit Results table always shows it next to `FWHM`, for
+  comparing a fit against how it would have been reported pre-v3.4.0. It is
+  never the value any other calculation reads.
+  On the Sample Report page, a new "Include legacy FWHM (v1) column" checkbox
+  (off by default) additionally adds it to the generated .pptx's summary
+  tables and the .xlsx's per-point and Summary sheets — `PeakStat` gained
+  matching `fwhm_v1_mean`/`fwhm_v1_std` fields, aggregated the same way as
+  `fwhm_mean`/`fwhm_std`. The "Raw" row (PL's unfitted empirical stats) has no
+  Voigt fit to compute it from, so it's always dashed out. Every reporting
+  surface's default (correct) `FWHM` column is unaffected either way.
+
+## [4.0.5] - 2026-09-11
+
+### Changed
+
+- **Image 1's panel gaps are now pixel-exact.** The previous tightening
+  (v4.0.4) only reduced the raw/analyzed `wspace` fraction, and a `wspace` is
+  relative to the column it divides -- shrinking the fraction only slightly
+  shrank the pixel gap, since the nested pair's columns are wider than the
+  top-level grid's. `_PAIR_WSPACE` and the new `_POSITION_WSPACE` are now
+  back-solved from this module's fixed `figsize` width and `dpi=160` to land
+  on exactly 10 px between one position's raw and analyzed panels and 40 px
+  between one position and the next -- verified by rendering and measuring
+  pixel columns directly, at both 3 and 9 positions. Both figures assume a
+  panel near the ~4:3 aspect a camera frame crops to; a frame letterboxed
+  inside its panel widens the visible gap beyond these figures, since the
+  fraction targets the panel box, not the pixels drawn inside it.
+
+## [4.0.4] - 2026-09-11
+
+### Changed
+
+- **Tighter raw/analyzed pairing in Image 1.** Each position's raw and
+  analyzed panels sat exactly as far apart as one position sits from the
+  next, because both gaps were the same top-level GridSpec `wspace`. The pair
+  now sits on its own nested GridSpec with a smaller `wspace`, so the two
+  panels read as a pair and the gap between positions still reads as a
+  separator.
+
+## [4.0.3] - 2026-09-11
+
+### Changed
+
+- **OM panel labelling.** Image 1's Original panel used to name the frame's
+  detected aperture shape — "P1 (rectangular)" or "P1 (circular)" — which read
+  as a claim about the photo rather than what it actually was: the raw,
+  unsegmented frame. It now reads "P1 (raw)" for every panel regardless of
+  aperture shape; `FrameResult.frame_type` itself is unchanged; only this
+  display label moved. The overlay panel's coverage line now reads
+  "Analyzed: 2.0 % / 93.9 % / 4.1 %" rather than the bare percentages.
+
+## [4.0.2] - 2026-09-11
+
+### Fixed
+
+- **The OM panels no longer carry a dark grey border.** `mask_margin` excludes
+  an outer band of each frame from segmentation, and the QC Panel's Image 1
+  showed that band dimmed rather than dropped, so every one of the eighteen
+  Original/overlay panels displayed a thick grey frame around a smaller live
+  image. `build_om_grid_figure` now crops each panel to the bounding box of
+  its `valid` mask before drawing, so a rectangular frame's excluded margin is
+  gone entirely. A circular frame's `valid` is an eroded disc, so its bounding
+  box still has invalid corners; those are still dimmed, just over a much
+  smaller area than before.
+
 ## [4.0.1] - 2026-09-11
 
 ### Fixed

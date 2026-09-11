@@ -96,6 +96,7 @@ def build_sample_report_pptx(
     raman_x_label: str = "Raman Shift (cm⁻¹)",
     pl_x_label: str = "Wavelength (nm)",
     fit_y_label: str = "Normalized intensity",
+    show_fwhm_v1: bool = False,
 ) -> bytes:
     """Build the three-slide sample report and return .pptx bytes.
 
@@ -112,6 +113,9 @@ def build_sample_report_pptx(
     `raman_fit_legend`/`pl_fit_legend` are (label, "#RRGGBB") pairs describing
     the traces in that technique's grid, drawn once above it. The column images
     are expected to carry no legend of their own; passing None just omits it.
+
+    `show_fwhm_v1` adds the deprecated Gaussian-only FWHM column to both
+    summary tables — see `_add_stats_table`.
     """
     prs = Presentation()
     prs.slide_width = Inches(SLIDE_WIDTH_IN)
@@ -123,11 +127,11 @@ def build_sample_report_pptx(
     raman_height = _table_height(len(raman_stats or []) + len(raman_ratios or []))
     _add_stats_table(
         overview_slide, "Raman", raman_stats, _TABLE_LEFT, _RAMAN_TABLE_TOP, _TABLE_W, raman_height,
-        ratios=raman_ratios,
+        ratios=raman_ratios, show_fwhm_v1=show_fwhm_v1,
     )
     _add_stats_table(
         overview_slide, "PL", pl_stats, _TABLE_LEFT, _RAMAN_TABLE_TOP + raman_height + _TABLE_GAP,
-        _TABLE_W, _table_height(len(pl_stats or [])),
+        _TABLE_W, _table_height(len(pl_stats or [])), show_fwhm_v1=show_fwhm_v1,
     )
 
     raman_slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -306,6 +310,7 @@ def _table_height(n_data_rows: int) -> float:
 def _add_stats_table(
     slide, technique_label: str, stats: Optional[List[PeakStat]], left: float, top: float, w: float, h: float,
     ratios: Optional[Sequence[Tuple[str, Tuple[float, float, int]]]] = None,
+    show_fwhm_v1: bool = False,
 ) -> None:
     """One technique's fit-summary table.
 
@@ -317,6 +322,12 @@ def _add_stats_table(
     A leading `RAW_STAT_LABEL` row is the empirical measurement rather than a
     fitted peak, and the caption says so instead of calling the table a "fit
     summary".
+
+    `show_fwhm_v1` appends a "FWHM (v1)" column carrying the pre-v3.4.0
+    Gaussian-only width (`PeakStat.fwhm_v1_mean`/`fwhm_v1_std`), for a caller
+    who wants the deprecated value in the report for comparison. Off by
+    default, since every other reporting surface shows only the correct
+    (post-v3.4.0) width.
     """
     ratios = list(ratios or [])
     caption = slide.shapes.add_textbox(
@@ -343,11 +354,17 @@ def _add_stats_table(
     n_rows = n_data_rows + 1
     font_size = _table_font(n_data_rows)
 
-    table_shape = slide.shapes.add_table(n_rows, 5, Inches(left), Inches(top), Inches(w), Inches(h))
+    n_cols = 6 if show_fwhm_v1 else 5
+    table_shape = slide.shapes.add_table(n_rows, n_cols, Inches(left), Inches(top), Inches(w), Inches(h))
     table = table_shape.table
 
     headers = ["Peak", "Center", "Intensity", "FWHM", "n"]
     col_fracs = [0.30, 0.23, 0.23, 0.16, 0.08]
+    if show_fwhm_v1:
+        # FWHM (v1) inserted right after FWHM; the rest of the row shrinks to
+        # make room rather than growing the table past its allotted width.
+        headers = ["Peak", "Center", "Intensity", "FWHM", "FWHM (v1)", "n"]
+        col_fracs = [0.24, 0.19, 0.19, 0.14, 0.14, 0.10]
     for c, frac in enumerate(col_fracs):
         table.columns[c].width = Inches(w * frac)
 
@@ -363,8 +380,13 @@ def _add_stats_table(
             f"{stat.center_mean:.1f} ± {stat.center_std:.1f}",
             f"{stat.intensity_mean:.1f} ± {stat.intensity_std:.1f}",
             f"{stat.fwhm_mean:.1f} ± {stat.fwhm_std:.1f}" if stat.fwhm_mean is not None else "—",
-            str(stat.n),
         ]
+        if show_fwhm_v1:
+            values.append(
+                f"{stat.fwhm_v1_mean:.1f} ± {stat.fwhm_v1_std:.1f}"
+                if stat.fwhm_v1_mean is not None else "—"
+            )
+        values.append(str(stat.n))
         for c, value in enumerate(values):
             cell = table.cell(r, c)
             cell.text = value
@@ -373,7 +395,10 @@ def _add_stats_table(
     for r, (ratio_label, (median, mad, n)) in enumerate(ratios, start=len(stats) + 1):
         # Three decimals: these ratios run around 0.1, where two would round
         # away most of the point-to-point variation the rows exist to show.
-        values = [ratio_label, "—", f"{median:.3f} ± {mad:.3f}", "—", str(n)]
+        values = [ratio_label, "—", f"{median:.3f} ± {mad:.3f}", "—"]
+        if show_fwhm_v1:
+            values.append("—")
+        values.append(str(n))
         for c, value in enumerate(values):
             cell = table.cell(r, c)
             cell.text = value

@@ -153,6 +153,15 @@ if scan is not None:
         st.subheader("4. Generate Report")
         has_any_content = bool(scan.raman_files) or bool(scan.pl_files) or bool(scan.image_files)
 
+        show_fwhm_v1 = st.checkbox(
+            "Include legacy FWHM (v1) column",
+            value=False,
+            help="Adds the pre-v3.4.0 Gaussian-only FWHM (2.355 x sigma) next to the "
+                 "correct Voigt FWHM, in both the .pptx tables and the .xlsx sheets. "
+                 "The v1 value understated real peak widths and is included here only "
+                 "for comparison against older reports.",
+        )
+
         generate_clicked = st.button(
             "🚀 Generate Report", type="primary", use_container_width=True,
             disabled=not has_any_content,
@@ -369,6 +378,7 @@ if scan is not None:
                     raman_fit_legend=raman_legend,
                     pl_fit_legend=pl_legend,
                     fit_y_label=y_axis_title(normalized=True),
+                    show_fwhm_v1=show_fwhm_v1,
                 )
 
                 # Same stage as the deck, deliberately: the workbook is ~50 ms
@@ -401,6 +411,7 @@ if scan is not None:
                                 include_raw_row=True,
                             ),
                         ],
+                        show_fwhm_v1=show_fwhm_v1,
                     )
                 else:
                     # An images-only folder has no numbers to put in a

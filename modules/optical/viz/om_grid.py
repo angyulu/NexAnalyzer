@@ -38,16 +38,45 @@ GRID_COLUMNS = 3
 #: the nine histograms below span 2 each, so both rows align on one grid.
 _UNITS = 18
 
+#: Gap between one position's raw and analyzed panels, on their own nested
+#: GridSpec so it can be tighter than `_POSITION_WSPACE` -- that value is
+#: shared by every column boundary, so narrowing it there would also close the
+#: gap between one position and the next. `wspace` is a fraction of the
+#: column it divides, not an absolute size, so both this and
+#: `_POSITION_WSPACE` are back-solved for a specific pixel target rather than
+#: chosen by eye: at this module's fixed `figsize` width and `dpi=160`, with
+#: panels near the ~4:3 aspect a camera frame crops to, 0.0241 measures out to
+#: a 10 px gap and 0.3797 to 40 px. A frame whose aspect strays far from that
+#: -- letterboxed inside its panel -- widens the visible gap beyond these
+#: figures; the fraction still targets the panel box, not the pixels drawn
+#: inside it.
+_PAIR_WSPACE = 0.0241
+_POSITION_WSPACE = 0.3797
+
 _FS_SUPTITLE = 17
 _FS_PANEL = 10
 _FS_COVERAGE = 10
 _FS_HIST = 7
 
 _DIM_SCALE, _DIM_OFFSET = 0.30, 26
-"""Outside-`valid` pixels are dimmed, not cropped: the excluded margin stays
-visible so a reader can see how much of the frame was judged. Dimmed rather
-than blacked out, so eighteen panels of hard black border don't dominate the
-page."""
+"""For a circular frame, the excluded margin is an eroded disc, so its own
+bounding box still has invalid corners -- those are dimmed rather than
+cropped a second time, and dimmed rather than blacked out so nine such
+corners don't dominate the page."""
+
+
+def _crop_to_valid(img: np.ndarray, valid: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Trim the excluded margin off `img`, so a rectangular frame's border is
+    gone entirely rather than shown dimmed. A circular frame's `valid` is an
+    eroded disc, so its bounding box still has invalid corners -- `valid` is
+    cropped alongside `img` so `_dim()` can still mark those."""
+    rows = np.flatnonzero(valid.any(axis=1))
+    cols = np.flatnonzero(valid.any(axis=0))
+    if rows.size == 0 or cols.size == 0:
+        return img, valid
+    r0, r1 = rows[0], rows[-1] + 1
+    c0, c1 = cols[0], cols[-1] + 1
+    return img[r0:r1, c0:c1], valid[r0:r1, c0:c1]
 
 
 def _dim(img: np.ndarray, valid: np.ndarray) -> np.ndarray:
@@ -146,7 +175,7 @@ def build_om_grid_figure(
         grid = gridspec.GridSpec(
             rows + hist_rows, _UNITS, figure=fig,
             height_ratios=[1.0] * rows + [0.60] * hist_rows,
-            hspace=0.20, wspace=0.24,
+            hspace=0.20, wspace=_POSITION_WSPACE,
         )
 
         for index, point in enumerate(points):
@@ -155,8 +184,9 @@ def build_om_grid_figure(
             left = col * (_UNITS // GRID_COLUMNS)
             span = _UNITS // (GRID_COLUMNS * 2)
 
-            ax_raw = fig.add_subplot(grid[row, left:left + span])
-            ax_seg = fig.add_subplot(grid[row, left + span:left + 2 * span])
+            pair = grid[row, left:left + 2 * span].subgridspec(1, 2, wspace=_PAIR_WSPACE)
+            ax_raw = fig.add_subplot(pair[0, 0])
+            ax_seg = fig.add_subplot(pair[0, 1])
             for ax in (ax_raw, ax_seg):
                 ax.set_xticks([])
                 ax.set_yticks([])
@@ -167,16 +197,19 @@ def build_om_grid_figure(
                 ax_raw.set_title(f"P{point}  (no frame)", fontsize=_FS_PANEL, loc="left")
                 continue
 
-            ax_raw.imshow(_dim(frame.original, frame.valid))
+            original, valid = _crop_to_valid(frame.original, frame.valid)
+            overlay, _ = _crop_to_valid(frame.overlay, frame.valid)
+
+            ax_raw.imshow(_dim(original, valid))
             ax_raw.axis("off")
-            ax_raw.set_title(f"P{point}  ({frame.frame_type})",
+            ax_raw.set_title(f"P{point}  (raw)",
                              fontsize=_FS_PANEL, fontweight="bold", loc="left")
 
-            ax_seg.imshow(_dim(frame.overlay, frame.valid))
+            ax_seg.imshow(_dim(overlay, valid))
             ax_seg.axis("off")
             below, reference, above = frame.percentages
             ax_seg.set_title(
-                f"{below:.1f} % / {reference:.1f} % / {above:.1f} %",
+                f"Analyzed: {below:.1f} % / {reference:.1f} % / {above:.1f} %",
                 fontsize=_FS_COVERAGE, fontweight="bold",
             )
 

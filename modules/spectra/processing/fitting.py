@@ -327,6 +327,9 @@ def fit_voigt_peaks(
         width_stderr = voigt_fwhm_stderr(
             sigma_fit, gamma_fit, sigma_stderr, gamma_stderr, sigma_gamma_correl
         )
+        # The pre-v3.4.0 value, kept only for the "FWHM (v1)" comparison
+        # column -- see FittedPeak.width_fwhm_v1.
+        width_fwhm_v1_fit = _GAUSSIAN_FWHM_PER_SIGMA * sigma_fit
 
         # Calculate shape parameter (Lorentzian fraction)
         # shape = gamma / (gamma + sigma)
@@ -355,7 +358,8 @@ def fit_voigt_peaks(
             width_stderr=width_stderr,
             shape=shape_fit,
             component_curve=component_curve,
-            color=peak.color  # Copy color from PeakDefinition
+            color=peak.color,  # Copy color from PeakDefinition
+            width_fwhm_v1=width_fwhm_v1_fit,
         ))
 
     # Calculate quality metrics

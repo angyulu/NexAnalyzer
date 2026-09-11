@@ -613,6 +613,9 @@ def render_unified_plot():
                     "Intensity": f"{raw.intensity:.0f}",
                     "Center": f"{raw.center:.2f}",
                     "FWHM": f"{raw.fwhm:.2f}" if raw.fwhm is not None else "—",
+                    # No fit, so there is no sigma/gamma the pre-v3.4.0
+                    # formula could be computed from.
+                    "FWHM (v1)": "—",
                 })
 
         for peak in spectrum.fit_result.fitted_peaks:
@@ -621,6 +624,9 @@ def render_unified_plot():
                 "Intensity": f"{peak_intensity(peak):.0f}",
                 "Center": f"{peak.center:.2f}",
                 "FWHM": f"{peak.width_fwhm:.2f}",
+                "FWHM (v1)": (
+                    f"{peak.width_fwhm_v1:.2f}" if peak.width_fwhm_v1 is not None else "—"
+                ),
             })
 
         df_results = pd.DataFrame(results_data)
