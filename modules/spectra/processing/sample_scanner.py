@@ -18,9 +18,9 @@ from pathlib import Path
 from typing import Optional
 
 from core.report.models import SampleScan
+from .parser import RAMAN_PREFIXES, PL_PREFIXES
 
 _NAME_RE = re.compile(r"^(?P<prefix>.+)[-_](?P<point>\d+)$")
-_RAMAN_PREFIXES = {"RAMAN", "RM"}
 _IMAGE_EXTENSIONS = {".bmp", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 
@@ -54,9 +54,9 @@ def scan_sample_folder(folder: str) -> SampleScan:
         point = int(match.group("point"))
         full_path = str(entry_path.resolve())
 
-        if prefix.upper() in _RAMAN_PREFIXES and ext.lower() == ".txt":
+        if prefix.upper() in RAMAN_PREFIXES and ext.lower() == ".txt":
             scan.raman_files[point] = full_path
-        elif prefix.upper() == "PL" and ext.lower() == ".txt":
+        elif prefix.upper() in PL_PREFIXES and ext.lower() == ".txt":
             scan.pl_files[point] = full_path
         elif ext.lower() in _IMAGE_EXTENSIONS:
             scan.image_files.setdefault(prefix, {})[point] = full_path

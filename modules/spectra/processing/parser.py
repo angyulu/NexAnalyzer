@@ -14,12 +14,14 @@ from typing import Tuple, Optional, Literal, List
 from ..models.spectrum import SpectrumData
 
 
-def _read_spectrum_dataframe(filepath: str) -> pd.DataFrame:
+def _read_spectrum_dataframe(filepath: str, nrows: Optional[int] = None) -> pd.DataFrame:
     """
     Read a spectrum .txt file into a DataFrame, sniffing the delimiter.
 
     Tries tab first (most common for scientific data), then comma, then
     falls back to whitespace-delimited. Returns a numeric DataFrame.
+
+    `nrows` limits how much is read, for callers that only need the shape.
     """
     # Checked explicitly (rather than left to pd.read_csv) so a missing file
     # surfaces as FileNotFoundError instead of being swallowed by the
@@ -35,7 +37,8 @@ def _read_spectrum_dataframe(filepath: str) -> pd.DataFrame:
         (r'\s+', {}),  # whitespace fallback covers files with leading spaces
     ]:
         try:
-            candidate = pd.read_csv(filepath, sep=sep, header=None, engine='python', **kwargs)
+            candidate = pd.read_csv(filepath, sep=sep, header=None, engine='python',
+                                    nrows=nrows, **kwargs)
         except Exception:
             continue
         if candidate.shape[1] >= 2:
@@ -49,6 +52,25 @@ def _read_spectrum_dataframe(filepath: str) -> pd.DataFrame:
         )
 
     return df
+
+
+def count_spectra(filepath: str) -> int:
+    """
+    How many spectra a file holds, without reading its values.
+
+    Reads a single row to learn the column count, so callers that need to size
+    the work ahead of time — the report's progress weighting, chiefly — do not
+    have to parse a 2.6 MB file twice. Uses the same delimiter sniffing as the
+    real parse, so its answer cannot disagree with `parse_spectrum_multi`.
+
+    Returns 0 for a file that cannot be read at all, since a caller sizing work
+    should not have to handle an exception for a file the fit loop will report
+    as an error a moment later anyway.
+    """
+    try:
+        return max(0, _read_spectrum_dataframe(filepath, nrows=1).shape[1] - 1)
+    except Exception:
+        return 0
 
 
 def parse_spectrum_multi(filepath: str) -> List[SpectrumData]:
@@ -209,6 +231,16 @@ def estimate_spectral_resolution(X: np.ndarray) -> float:
     return resolution
 
 
+# The one place the app decides what a filename says about its technique.
+# sample_scanner matches these as whole prefixes ("rm-1.txt"), while
+# detect_mode_from_filename matches them as a leading substring
+# ("RM_carbon_sample.txt") -- two questions, but they must not disagree about
+# the vocabulary. They did until v4.0.0: the scanner read VABD38's "Raman_1.txt"
+# as Raman while the detector, which knew only "RM", returned None for it.
+RAMAN_PREFIXES = frozenset({"RAMAN", "RM"})
+PL_PREFIXES = frozenset({"PL"})
+
+
 def detect_mode_from_filename(filename: str) -> Optional[Literal["Raman", "PL"]]:
     """
     Auto-detect spectroscopy mode from filename prefix.
@@ -223,14 +255,14 @@ def detect_mode_from_filename(filename: str) -> Optional[Literal["Raman", "PL"]]
     Returns
     -------
     mode : Optional[Literal["Raman", "PL"]]
-        "Raman" if filename starts with "RM" (case-insensitive)
-        "PL" if filename starts with "PL" (case-insensitive)
+        "Raman" if the filename starts with any of `RAMAN_PREFIXES`
+        "PL" if it starts with any of `PL_PREFIXES` (both case-insensitive)
         None if no match (manual mode selection required)
 
     Notes
     -----
     Detection Rules (FR-12):
-    - RM* → Raman mode (e.g., RM_sample.txt, rm_carbon_001.txt)
+    - RM*, RAMAN* → Raman mode (e.g., RM_sample.txt, Raman_1.txt)
     - PL* → PL mode (e.g., PL_emission.txt, pl_test.txt)
     - Other patterns → None (no auto-detection)
 
@@ -239,6 +271,8 @@ def detect_mode_from_filename(filename: str) -> Optional[Literal["Raman", "PL"]]
     Examples
     --------
     >>> detect_mode_from_filename("RM_carbon_sample.txt")
+    'Raman'
+    >>> detect_mode_from_filename("Raman_1.txt")
     'Raman'
     >>> detect_mode_from_filename("pl_emission_test.txt")
     'PL'
@@ -254,12 +288,10 @@ def detect_mode_from_filename(filename: str) -> Optional[Literal["Raman", "PL"]]
     # Convert to uppercase for case-insensitive matching
     basename_upper = basename.upper()
 
-    # Check for RM prefix (Raman)
-    if basename_upper.startswith("RM"):
+    if basename_upper.startswith(tuple(RAMAN_PREFIXES)):
         return "Raman"
 
-    # Check for PL prefix (Photoluminescence)
-    if basename_upper.startswith("PL"):
+    if basename_upper.startswith(tuple(PL_PREFIXES)):
         return "PL"
 
     # No match

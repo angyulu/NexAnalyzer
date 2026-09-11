@@ -61,6 +61,47 @@ def _export_png_cached(fig, width: int, height: int, scale: float) -> bytes:
     return export_figure_png(fig, width=width, height=height, scale=scale)
 
 
+def _describe_detected_modes(files) -> None:
+    """Show what the loaded filenames said their technique was, and warn if some
+    didn't say.
+
+    Technique used to be a property of the selected preset, so it was always
+    stated. It now comes from the filename, and `detect_mode_from_filename`
+    returns None for a name it doesn't recognise -- whereupon the loader falls
+    back to "Raman". That fallback is a guess, and a guess that nothing on
+    screen distinguishes from a reading is worse than no reading at all.
+
+    `SpectrumFile.auto_detected` already records which files were guessed at.
+    """
+    if not files:
+        return
+
+    counts = {"Raman": 0, "PL": 0}
+    undetected = []
+    for name, spectrum in files.items():
+        if getattr(spectrum, "auto_detected", False):
+            counts[spectrum.mode] = counts.get(spectrum.mode, 0) + 1
+        else:
+            undetected.append(name)
+
+    parts = [f"{n} {mode}" for mode, n in counts.items() if n]
+    if undetected:
+        parts.append(f"{len(undetected)} undetected → Raman")
+    if not parts:
+        return
+
+    line = ", ".join(parts)
+    if undetected:
+        st.warning(
+            f"**Detected from filenames**: {line}. "
+            f"Rename to RM_*/Raman_*/PL_* so the technique is read rather than "
+            f"assumed.",
+            icon="⚠️",
+        )
+    else:
+        st.caption(f"**Detected from filenames**: {line}")
+
+
 def render_sidebar():
     """
     Render sidebar with mode toggle, file upload, and results export.
@@ -79,7 +120,9 @@ def render_sidebar():
     st.header("Settings")
 
     # Material Presets (embedded/JSON-backed as of v2.11.0 — add or edit
-    # materials on the "Material Presets" page; preset.mode drives spectrum.mode below)
+    # materials on the "Material Presets" page). As of v4.0.0 a preset is
+    # keyed by material alone and each file's own mode picks the technique
+    # block, so nothing here rewrites a loaded file's mode.
     st.subheader("Material Presets")
 
     presets = load_presets()
@@ -94,7 +137,7 @@ def render_sidebar():
             "Select Material",
             options=[None] + preset_keys,
             index=0,
-            format_func=lambda k: "(None)" if k is None else f"{k[0]} ({k[1]})",
+            format_func=lambda k: "(None)" if k is None else k,
             help="Materials configured on the Material Presets page (Raman + PL)"
         )
 
@@ -102,17 +145,23 @@ def render_sidebar():
             preset = presets[selected_key]
             st.session_state['selected_preset'] = preset
 
-            # Sync mode on all loaded files (drives axis labels, tolerance, and the
-            # PL-only Raw row in the Fit Results table). Without this, files other
-            # than the current one keep their load-time mode after "Run All Files".
-            for _spec in files.values():
-                if _spec.mode != preset.mode:
-                    _spec.mode = preset.mode
+            # No mode sync. Until v4.0.0 this loop rewrote *every* loaded
+            # file's mode to the preset's, Raman files included, which is how a
+            # PL preset could silently relabel a folder of Raman spectra. Each
+            # file's mode now comes from its own filename and stays there.
+            _describe_detected_modes(files)
 
-            # Display preset info
-            st.caption(f"**Mode**: {preset.mode}")
-            st.caption(f"**Baseline**: {preset.baseline_algorithm}")
-            st.caption(f"**Peaks**: {len(preset.peak_templates)}")
+            # Display preset info, per technique present.
+            for _mode in ("Raman", "PL"):
+                _block = preset.block_for(_mode)
+                if _block is None:
+                    continue
+                st.caption(
+                    f"**{_mode}**: {_block.baseline_algorithm} baseline, "
+                    f"{len(_block.peak_templates)} peaks"
+                )
+            if not preset.block_for("Raman") and not preset.block_for("PL"):
+                st.caption("No Raman or PL settings on this material.")
             if preset.description:
                 st.caption(f"**Notes**: {preset.description}")
 
@@ -146,7 +195,7 @@ def render_sidebar():
 
                 if result["success"]:
                     # Show success message with summary
-                    summary = format_workflow_summary(result, preset)
+                    summary = format_workflow_summary(result, preset, current_spectrum.mode)
                     st.success(summary)
 
                     # Update view options to show fit results
@@ -158,7 +207,7 @@ def render_sidebar():
 
                 else:
                     # Show error message with suggestions
-                    st.error(format_workflow_summary(result, preset))
+                    st.error(format_workflow_summary(result, preset, current_spectrum.mode))
 
                     # Show contextual suggestions
                     if result['stage_completed']:
@@ -187,12 +236,36 @@ def render_sidebar():
                              help="Run auto-workflow on all loaded files"):
                     from ..processing.auto_workflow import execute_auto_workflow
 
-                    file_items = list(files.items())
+                    # Skip files whose technique was guessed rather than read.
+                    # Fitting a PL spectrum against Raman settings produces a
+                    # confident-looking wrong answer, and in a batch of 25 no
+                    # one would notice which one it was.
+                    file_items = [
+                        item for item in files.items()
+                        if getattr(item[1], "auto_detected", False)
+                    ]
+                    skipped = [
+                        name for name, spec in files.items()
+                        if not getattr(spec, "auto_detected", False)
+                    ]
+                    if skipped:
+                        st.warning(
+                            f"Skipping {len(skipped)} file(s) whose technique the "
+                            f"filename doesn't state: {', '.join(skipped[:5])}"
+                            + (" ..." if len(skipped) > 5 else "")
+                            + ". Run them individually, or rename them RM_*/PL_*."
+                        )
                     total = len(file_items)
                     success_count = 0
                     failed_files = []
 
+
                     max_iter = st.session_state.get("max_iterations", 2000)
+                    if total == 0:
+                        st.error(
+                            "No loaded file states its technique in its "
+                            "filename, so there is nothing safe to batch-fit."
+                        )
                     # One widget carrying one number: the old pair reported the
                     # same index as "now starting" (label) and "this many
                     # finished" (bar), so they could never be reconciled.
@@ -222,7 +295,9 @@ def render_sidebar():
                             expanded=False,
                         )
 
-                    if success_count == total:
+                    if total == 0:
+                        pass  # already reported above
+                    elif success_count == total:
                         st.success(f"All {total} files processed successfully!")
                     elif success_count > 0:
                         st.warning(f"{success_count}/{total} files succeeded. {len(failed_files)} failed.")

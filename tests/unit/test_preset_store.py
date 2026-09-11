@@ -3,14 +3,16 @@
 import pytest
 
 from modules.spectra.io.preset_store import load_presets, save_presets
-from modules.spectra.models.preset import MaterialPreset, PeakTemplate, parse_exclusion_ranges
+from modules.spectra.models.preset import (
+    MaterialPreset,
+    PeakTemplate,
+    TechniquePreset,
+    parse_exclusion_ranges,
+)
 
 
-def _make_preset(material_name="Silicon", mode="Raman"):
-    return MaterialPreset(
-        material_name=material_name,
-        mode=mode,
-        enabled=True,
+def _make_block():
+    return TechniquePreset(
         x_range_enabled=False,
         x_min=None,
         x_max=None,
@@ -26,20 +28,27 @@ def _make_preset(material_name="Silicon", mode="Raman"):
     )
 
 
+def _make_preset(material_name="Silicon", mode="Raman"):
+    blocks = {"raman": None, "pl": None}
+    blocks["raman" if mode == "Raman" else "pl"] = _make_block()
+    return MaterialPreset(material_name=material_name, enabled=True, **blocks)
+
+
 class TestLoadSaveRoundTrip:
     def test_round_trip_preserves_data(self, tmp_path):
         path = tmp_path / "materials.json"
-        presets = {("Silicon", "Raman"): _make_preset()}
+        presets = {"Silicon": _make_preset()}
 
         save_presets(presets, path=path)
         loaded = load_presets(path=path)
 
-        assert set(loaded.keys()) == {("Silicon", "Raman")}
-        loaded_preset = loaded[("Silicon", "Raman")]
-        assert loaded_preset.despike_threshold == 6.0
-        assert loaded_preset.baseline_degree == 5
-        assert len(loaded_preset.peak_templates) == 1
-        assert loaded_preset.peak_templates[0].peak_label == "Si"
+        assert set(loaded.keys()) == {"Silicon"}
+        block = loaded["Silicon"].block_for("Raman")
+        assert block.despike_threshold == 6.0
+        assert block.baseline_degree == 5
+        assert len(block.peak_templates) == 1
+        assert block.peak_templates[0].peak_label == "Si"
+        assert loaded["Silicon"].block_for("PL") is None
 
     def test_missing_file_returns_empty_dict(self, tmp_path):
         assert load_presets(path=tmp_path / "does_not_exist.json") == {}
@@ -47,14 +56,14 @@ class TestLoadSaveRoundTrip:
     def test_multiple_presets_sorted_on_save(self, tmp_path):
         path = tmp_path / "materials.json"
         presets = {
-            ("WSe2", "Raman"): _make_preset("WSe2", "Raman"),
-            ("MoS2", "Raman"): _make_preset("MoS2", "Raman"),
+            "WSe2": _make_preset("WSe2", "Raman"),
+            "MoS2": _make_preset("MoS2", "Raman"),
         }
 
         save_presets(presets, path=path)
         loaded = load_presets(path=path)
 
-        assert set(loaded.keys()) == {("WSe2", "Raman"), ("MoS2", "Raman")}
+        assert set(loaded.keys()) == {"WSe2", "MoS2"}
 
 
 class TestPeakTemplateHasNoIntensity:

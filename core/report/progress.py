@@ -59,8 +59,17 @@ STAGES: Sequence[Stage] = (
 )
 
 
+BASELINE_FIT_SPECTRA = 18
+"""Spectra fitted by the sample the stage weights were measured on.
+
+Nine Raman plus nine PL files, one spectrum each. `fit`'s 0.215 is that
+sample's share; a run fitting more spectra scales it up from here.
+"""
+
+
 def stages_for(
-    *, has_raman: bool, has_pl: bool, has_optical: bool, has_preview: bool = True
+    *, has_raman: bool, has_pl: bool, has_optical: bool, has_preview: bool = True,
+    fit_spectra: Optional[int] = None,
 ) -> List[Stage]:
     """The stages a run will actually perform, in order.
 
@@ -68,6 +77,16 @@ def stages_for(
     it would sit still through a stage that never runs. Dropping the stage and
     letting the remaining weights renormalize keeps the bar proportional to
     the work in front of it.
+
+    `fit_spectra` is how many spectra the run will fit, and it matters because
+    the fit stage is the only one that scales with it: rendering figures,
+    loading images and assembling the deck cost the same whether a grid point
+    holds one spectrum or a hundred. Measured on TSM260803, whose files hold 25
+    spectra each, fitting took 77% of the wall clock against a declared 21.5% —
+    so the bar crawled through the first fifth and then jumped. Scaling the
+    weight by the spectrum count keeps one weight set honest for both shapes.
+    Leave it None for the single-spectrum-per-point case the weights were
+    measured on.
     """
     keep = {
         "fit": has_raman or has_pl,
@@ -77,7 +96,14 @@ def stages_for(
         "pptx": True,
         "preview": has_preview,
     }
-    return [stage for stage in STAGES if keep.get(stage.key, False)]
+    scale = 1.0
+    if fit_spectra and fit_spectra > 0:
+        scale = fit_spectra / BASELINE_FIT_SPECTRA
+    return [
+        Stage(stage.key, stage.label,
+              stage.weight * scale if stage.key == "fit" else stage.weight)
+        for stage in STAGES if keep.get(stage.key, False)
+    ]
 
 
 class ReportProgress:
@@ -179,8 +205,10 @@ class ReportProgress:
         fitted point, so the fitting stage gets per-point resolution for free
         rather than sitting still for its share of the bar.
 
-        `totals` maps each label to the number of points it will report, and
-        matters more than it looks: `run_sample_batch` runs the techniques in
+        `totals` maps each label to the number of spectra it is expected to
+        report — a floor the callback raises if a label reports more, since a
+        caller counting files cannot know how many spectra each file holds.
+        It matters more than it looks: `run_sample_batch` runs the techniques in
         sequence and restarts its count for each, so Raman reporting 9/9 would
         fill the whole stage and PL would then report 1/9 — a lower fraction,
         which the monotonic guard pins in place. The bar would sit still
@@ -189,12 +217,22 @@ class ReportProgress:
         single label reports.
         """
         self._require(key)
-        combined = sum(totals.values()) if totals else 0
+        expected: Dict[str, int] = dict(totals) if totals else {}
         seen: Dict[str, int] = {}
 
         def _callback(label: str, done: int, total: int) -> None:
             # max(): a stale lower report must not rewind this label's count.
             seen[label] = max(seen.get(label, 0), done)
+            # `totals` is a floor, not a promise. Callers estimate it from the
+            # file count, but a multi-spectrum file reports one tick per
+            # spectrum, so a label can overshoot its estimate 25-fold and pin
+            # the bar at its share for the rest of the run. Raising a label's
+            # denominator to what it actually reports keeps the fraction
+            # honest, while labels that have not started yet keep their
+            # estimate and so keep their slice reserved.
+            if total > expected.get(label, 0):
+                expected[label] = total
+            combined = sum(expected.values())
             if combined > 0:
                 self.tick(
                     key, sum(seen.values()), combined,
@@ -213,14 +251,20 @@ def build(
     has_pl: bool,
     has_optical: bool,
     has_preview: bool = True,
+    fit_spectra: Optional[int] = None,
 ) -> Optional[ReportProgress]:
     """A `ReportProgress` for a run with these techniques, or None if there is
-    nothing to report on."""
+    nothing to report on.
+
+    Pass `fit_spectra` when a sample's files hold more than one spectrum each —
+    see `stages_for`.
+    """
     stages = stages_for(
         has_raman=has_raman,
         has_pl=has_pl,
         has_optical=has_optical,
         has_preview=has_preview,
+        fit_spectra=fit_spectra,
     )
     if not stages:
         return None

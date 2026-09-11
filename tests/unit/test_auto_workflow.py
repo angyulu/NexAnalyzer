@@ -7,27 +7,32 @@ dependency and are unit-tested directly.
 """
 
 from modules.spectra.processing.auto_workflow import format_workflow_summary, get_workflow_suggestions
-from modules.spectra.models.preset import MaterialPreset, PeakTemplate
+from modules.spectra.models.preset import (
+    MaterialPreset,
+    PeakTemplate,
+    TechniquePreset,
+)
 from modules.spectra.models.peak import FittedPeak, FitResult
 
 
 def _make_preset(x_range_enabled=False):
     return MaterialPreset(
         material_name="Silicon",
-        mode="Raman",
         enabled=True,
-        x_range_enabled=x_range_enabled,
-        x_min=100.0 if x_range_enabled else None,
-        x_max=900.0 if x_range_enabled else None,
-        despike_threshold=6.0,
-        baseline_algorithm="Polynomial",
-        baseline_degree=5,
-        baseline_lambda=None,
-        baseline_p=None,
-        peak_templates=[
-            PeakTemplate(peak_label="Si", center=520.0, center_tolerance=3.0,
-                         width_fwhm=8.0, shape=0.2, color="#2ca02c")
-        ],
+        raman=TechniquePreset(
+            x_range_enabled=x_range_enabled,
+            x_min=100.0 if x_range_enabled else None,
+            x_max=900.0 if x_range_enabled else None,
+            despike_threshold=6.0,
+            baseline_algorithm="Polynomial",
+            baseline_degree=5,
+            baseline_lambda=None,
+            baseline_p=None,
+            peak_templates=[
+                PeakTemplate(peak_label="Si", center=520.0, center_tolerance=3.0,
+                             width_fwhm=8.0, shape=0.2, color="#2ca02c")
+            ],
+        ),
     )
 
 
@@ -52,7 +57,7 @@ class TestFormatWorkflowSummary:
         preset = _make_preset(x_range_enabled=True)
         result = {"success": True, "fit_result": _make_fit_result()}
 
-        summary = format_workflow_summary(result, preset)
+        summary = format_workflow_summary(result, preset, "Raman")
 
         assert "Silicon" in summary
         assert "Raman" in summary
@@ -63,7 +68,7 @@ class TestFormatWorkflowSummary:
         preset = _make_preset()
         result = {"success": False, "stage_completed": "baseline", "error_message": "boom"}
 
-        summary = format_workflow_summary(result, preset)
+        summary = format_workflow_summary(result, preset, "Raman")
 
         assert "baseline" in summary
         assert "boom" in summary
@@ -77,3 +82,16 @@ class TestGetWorkflowSuggestions:
     def test_unknown_stage_returns_generic_suggestion(self):
         suggestion = get_workflow_suggestions("unknown_stage", "some error")
         assert suggestion == "Try manual workflow to diagnose the issue."
+
+
+class TestSummaryWithoutTheRequestedBlock:
+    def test_a_material_with_no_pl_settings_says_so(self):
+        """format_workflow_summary is reachable with a technique the material
+        has no block for, and must not raise there."""
+        summary = format_workflow_summary(
+            {"success": True, "fit_result": _make_fit_result()},
+            _make_preset(), "PL",
+        )
+
+        assert "No PL settings" in summary
+        assert "Silicon" in summary

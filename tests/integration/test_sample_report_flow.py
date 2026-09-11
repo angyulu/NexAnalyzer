@@ -13,6 +13,8 @@ so this test is self-contained and doesn't depend on external sample data.
 import numpy as np
 from streamlit.testing.v1 import AppTest
 
+from core.paths import PROJECT_ROOT
+
 from modules.spectra.processing.sample_scanner import scan_sample_folder
 
 
@@ -43,7 +45,7 @@ class TestSampleReportPageFlow:
         scan = scan_sample_folder(str(tmp_path))
         assert len(scan.raman_files) == 9  # sanity: fixture matches the naming convention
 
-        at = AppTest.from_file("pages/2_Sample_Report.py", default_timeout=60)
+        at = AppTest.from_file(str(PROJECT_ROOT / "pages/2_Sample_Report.py"), default_timeout=60)
         at.session_state["sample_report"] = {
             "folder": str(tmp_path),
             "scan": scan,
@@ -84,7 +86,7 @@ class TestSampleReportPageFlow:
             _write_silicon_raman_file(tmp_path / f"RM_{point}.txt", seed=point)
             _write_tiny_image(tmp_path / f"100x_{point}.png")
 
-        at = AppTest.from_file("pages/2_Sample_Report.py", default_timeout=120)
+        at = AppTest.from_file(str(PROJECT_ROOT / "pages/2_Sample_Report.py"), default_timeout=120)
         at.session_state["sample_report"] = {
             "folder": str(tmp_path),
             "scan": scan_sample_folder(str(tmp_path)),
@@ -167,7 +169,7 @@ class TestSampleReportPageFlow:
     def test_empty_state_renders_without_error(self):
         # No folder selected yet -> most of the page is skipped, but the
         # top section (title, folder-pick button) must still render cleanly.
-        at = AppTest.from_file("pages/2_Sample_Report.py", default_timeout=60)
+        at = AppTest.from_file(str(PROJECT_ROOT / "pages/2_Sample_Report.py"), default_timeout=60)
         at.run()
 
         assert not at.exception

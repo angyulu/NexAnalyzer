@@ -69,7 +69,8 @@ nexanalyzer/
 │       ├── models/
 │       │   ├── spectrum.py         # SpectrumFile, ProcessingSettings, SpectrumData
 │       │   ├── peak.py             # PeakDefinition, FittedPeak, FitResult
-│       │   └── preset.py           # MaterialPreset, PeakTemplate, parse_exclusion_ranges
+│       │   └── preset.py           # MaterialPreset (+ TechniquePreset, OpticalParams),
+│       │                           # PeakTemplate, parse_exclusion_ranges
 │       ├── processing/
 │       │   ├── parser.py           # Two-column .txt file parsing
 │       │   ├── despiking.py        # Modified Z-score spike removal
@@ -81,7 +82,8 @@ nexanalyzer/
 │       │   └── peak_metrics.py     # Peak intensity/stderr, raw-spectrum stats, mean/std
 │       │                           # aggregation, intensity ratios (one rule, one place)
 │       ├── io/
-│       │   ├── preset_store.py     # JSON material-preset storage (data/materials.json)
+│       │   ├── preset_store.py     # JSON material-preset storage (data/materials.json),
+│       │   │                       # schema v2 + the v1 migration
 │       │   ├── results_csv.py      # Fit-results CSVs: per-file and master
 │       │   └── results_excel.py    # Sample-results .xlsx: per-point sheets + summary
 │       ├── ui/
@@ -95,7 +97,9 @@ nexanalyzer/
 │       │   └── fit_plot.py         # Static data+fit+components figures for export and the
 │       │                           # Sample Report's grids (`show_residuals=False`)
 │       └── utils/
-│           └── fit_staleness.py    # Preprocessing-hash fingerprinting (stale-fit detection)
+│           ├── fit_staleness.py    # Preprocessing-hash fingerprinting (stale-fit detection)
+│           └── preset_staleness.py # Per-block preset fingerprinting, so a Raman edit
+│                                   # doesn't discard a 30-second OM figure
 ├── data/
 │   ├── materials.json              # Shared material preset store (committed)
 │   └── report_settings.json        # Per-installation preference (gitignored)
@@ -226,6 +230,34 @@ class FitResult:
 
 ---
 
+### MaterialPreset (v4.0.0)
+
+`data/materials.json`, schema v2 — an object with `schema_version` and
+`materials`, not the v1 array. One entry is one **material**:
+
+```
+MaterialPreset
+├── material_name, enabled, description
+├── raman   : TechniquePreset | None   # x-range, despike, baseline, peak templates
+├── pl      : TechniquePreset | None
+└── optical : dict[str, OpticalParams] # keyed by layer: "1L", "2L"
+```
+
+Technique is no longer part of a preset's identity; it comes from each file's
+filename via `parser.detect_mode_from_filename()`, and callers resolve a block
+with `preset.block_for(mode)`. Only `optical` splits by layer, because optical
+contrast against SiO₂/Si genuinely differs between a monolayer and a bilayer
+while a Raman or PL spectrum does not — the signal says which peaks it has.
+
+Layers are stored as `"1L"`/`"2L"` and rendered through `contrast.layer_word()`.
+`OpticalParams` fields default to `None`, meaning "use `contrast.py`'s default",
+so the numbers live in one place and a material with no optical block runs the
+vendored algorithm untouched.
+
+`preset_store.migrate_legacy()` is a pure function (dicts in, dicts out) that
+raises rather than guessing on a half-migrated file. The committed store is
+already v2; the loader shim exists only for a local uncommitted v1 edit.
+
 ## Key Technical Decisions
 
 ### 1. Three-Layer Data Model
@@ -235,12 +267,23 @@ class FitResult:
 
 **Rationale:** Allows "Reset to Raw" to restore the full original dataset, not just the cropped version.
 
-### 2. Mode-Aware Parameter Bounds
+### 2. Mode-Aware Parameter Bounds — as the *fallback*
 - Raman: center tolerance ≥5 cm⁻¹ (or 5% of FWHM, whichever is larger)
 - PL: center tolerance ≥30 nm (or 10% of FWHM, whichever is larger)
 - Adaptive FWHM bounds: 0.5× to 3× initial guess
 
 **Rationale:** Prevents parameter runaway, improves convergence rate — see [Fitting_Algo.md](Fitting_Algo.md) §8 for measured before/after numbers.
+
+**Since v4.0.0 these apply only to a peak with no opinion of its own.** A peak
+carrying `center_tolerance` — every peak built from a preset does — keeps that
+tolerance through every recalculation. Before v4.0.0 the mode default
+overwrote it unconditionally, so five of WSe₂'s seven peaks were fitted against
+±5 cm⁻¹ regardless of what the preset said, and LA railed against that wall.
+
+A tolerance window that clamps to a spectrum narrower than the peak's position
+would invert (`center_min > center_max`); lmfit accepts that silently and
+**swaps** the bounds, so such a peak is instead pinned to the nearest data edge
+and passed as a fixed parameter.
 
 ### 3. Selectbox On-Change Callback for Navigation
 - Previous approach: button updates state → `st.rerun()` → race condition
@@ -270,7 +313,20 @@ class FitResult:
 1. **No recursive folder scan**: users pick individual files (or multi-select within one dialog session); subtree walking is not supported.
 2. **Cloud deployment constraints**: the native tkinter file picker (and the Sample Report page's folder picker and PowerPoint COM automation) only work on local Windows Streamlit installations (not Streamlit Cloud / headless servers / macOS or Linux).
 3. **No multi-stage peak fitting**: single-stage Levenberg-Marquardt optimization is still prone to local minima with many closely-spaced peaks — see [Fitting_Algo.md](Fitting_Algo.md) §6.5.
-4. **Sample Report doesn't yet support multi-spectrum-per-point sample folders**: some real sample folders have each `Raman_N.txt`/`PL_N.txt` file containing ~100 sub-spectra rather than one; these currently fail to parse per point and are excluded gracefully rather than fit. See CHANGELOG's v2.12.0 entry.
+4. ~~**Sample Report doesn't yet support multi-spectrum-per-point sample folders**~~ — **fixed in v3.10.0.** A sample folder's `Raman_N.txt`/`PL_N.txt` is often a map: one X column plus 25 or 100 intensity columns. These used to fail the two-column `parse_spectrum()` and be excluded gracefully rather than fit, so such a sample's report came out empty for that technique. `sample_batch` now uses `parse_spectrum_multi()` and fits every column, grouping them under their grid point. Outlier removal happens *within* a point (see `peak_metrics.aggregate_fit_results`), so within-point scatter is cleaned while position-to-position variation — the thing the report exists to show — is preserved.
+5. **WSe₂'s LA peak is cornered against its own preset bounds.** After v4.0.0
+   restored the preset's centre tolerance, 130 of TSM260803's 225 fits still sit
+   at LA's ±10 lower wall (125.0), and its Voigt FWHM is railed at 36.83 against
+   a ceiling of 36.844 — `width_max = 3 × width_fwhm` in both σ and γ. Raising
+   `center_tolerance` and `width_fwhm` in the preset raises both ceilings; that
+   is a judgement about the material, not about the code. The defect ratio rests
+   on this peak.
+6. **WSe₂'s "center" template sits outside its own x-range crop** (0 cm⁻¹ against
+   `x_min = 6`), so it is pinned to the data's lower edge and fitted with its
+   position fixed. Before v4.0.0 this produced an inverted bound that lmfit
+   silently swapped, and a reported position belonging to neither the preset nor
+   the data. Pinning is honest but it is still a preset that asks for a peak the
+   spectrum does not contain — either move the peak or widen the crop.
 
 For resolved issues, see [CHANGELOG.md](../CHANGELOG.md).
 

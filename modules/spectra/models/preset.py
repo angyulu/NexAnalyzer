@@ -5,9 +5,13 @@ This module provides dataclasses for material-specific processing presets
 that enable automated workflow execution.
 """
 
-from dataclasses import dataclass
-from typing import List, Tuple, Optional, Literal
+from dataclasses import dataclass, field, fields
+from typing import Dict, List, Tuple, Optional
 from .peak import PeakDefinition
+
+#: Layers an optical block may be keyed by. The stored form, never the words
+#: `contrast.layer_word` prints for them.
+OPTICAL_LAYERS = ("1L", "2L")
 
 
 def parse_exclusion_ranges(exclusion_str: Optional[str]) -> List[Tuple[float, float]]:
@@ -82,7 +86,10 @@ class PeakTemplate:
         """
         Convert template to PeakDefinition with auto-calculated bounds.
 
-        The center bounds are overridden with: center ± center_tolerance
+        The template's `center_tolerance` is carried onto the PeakDefinition
+        rather than baked into its bounds, because `fit_voigt_peaks` re-runs
+        `calculate_auto_bounds` and would otherwise overwrite them with the mode
+        default.
 
         Parameters
         ----------
@@ -109,15 +116,13 @@ class PeakTemplate:
             width_fwhm=self.width_fwhm,
             label=self.peak_label,
             shape=self.shape,
-            color=self.color
+            color=self.color,
+            center_tolerance=self.center_tolerance,
         )
 
-        # Calculate auto-bounds using existing logic
+        # Calculate auto-bounds using existing logic. This reads
+        # center_tolerance, so the bounds it writes are the template's.
         peak.calculate_auto_bounds(mode, x_range, y_max, spectral_resolution)
-
-        # Override center bounds with template tolerance
-        peak.center_min = max(x_range[0], self.center - self.center_tolerance)
-        peak.center_max = min(x_range[1], self.center + self.center_tolerance)
 
         return peak
 
@@ -139,52 +144,46 @@ class PeakTemplate:
 
 
 @dataclass
-class MaterialPreset:
-    """
-    Complete workflow preset for a specific material and mode.
+class TechniquePreset:
+    """Processing settings and peak templates for one technique of a material.
 
-    Includes processing parameters (despike, baseline) and peak templates
-    for automated workflow execution.
+    This is everything the old flat `MaterialPreset` held except the fields
+    that identify the material rather than the measurement (`material_name`,
+    `enabled`, `description`) and `mode`, which is no longer stored at all: a
+    block's technique is the name of the slot it sits in.
+
+    Every field is defaulted, so a block can be created empty and filled in by
+    the editor.
     """
-    material_name: str
-    mode: Literal["Raman", "PL"]
-    enabled: bool
 
     # X-range settings
-    x_range_enabled: bool
-    x_min: Optional[float]
-    x_max: Optional[float]
+    x_range_enabled: bool = False
+    x_min: Optional[float] = None
+    x_max: Optional[float] = None
 
     # De-spiking settings
-    despike_threshold: float
+    despike_threshold: float = 8.0
 
     # Baseline settings
-    baseline_algorithm: str  # "Polynomial", "ALS", "None (Skip)"
-    baseline_degree: Optional[int]  # For Polynomial
-    baseline_lambda: Optional[float]  # For ALS
-    baseline_p: Optional[float]  # For ALS
+    baseline_algorithm: str = "None (Skip)"  # "Polynomial", "ALS", "None (Skip)"
+    baseline_degree: Optional[int] = None    # For Polynomial
+    baseline_lambda: Optional[float] = None  # For ALS
+    baseline_p: Optional[float] = None       # For ALS
 
     # Peak templates
-    peak_templates: List[PeakTemplate]
+    peak_templates: List[PeakTemplate] = field(default_factory=list)
 
-    # Optional fields with defaults
-    exclusion_ranges: Optional[str] = None  # Semicolon-separated ranges (e.g., "1200-1400; 2600-2800")
-    description: str = ""
+    # Semicolon-separated ranges (e.g., "1200-1400; 2600-2800")
+    exclusion_ranges: Optional[str] = None
 
     def validate(self) -> List[str]:
         """
-        Validate preset parameters against ProcessingSettings constraints.
+        Error messages for this block alone (empty list if valid).
 
-        Returns
-        -------
-        list of str
-            Error messages (empty list if valid)
+        The caller prefixes each with the technique name, since a material
+        reports all of its blocks' errors together.
         """
         errors = []
-
-        # Mode validation
-        if self.mode not in ["Raman", "PL"]:
-            errors.append(f"Invalid mode: {self.mode} (must be 'Raman' or 'PL')")
 
         # Despike threshold
         if not (3.0 <= self.despike_threshold <= 30.0):
@@ -260,9 +259,6 @@ class MaterialPreset:
     def to_dict(self) -> dict:
         """Serialize to dictionary for JSON export."""
         return {
-            "material_name": self.material_name,
-            "mode": self.mode,
-            "enabled": self.enabled,
             "x_range_enabled": self.x_range_enabled,
             "x_min": self.x_min,
             "x_max": self.x_max,
@@ -273,14 +269,225 @@ class MaterialPreset:
             "baseline_p": self.baseline_p,
             "peak_templates": [t.to_dict() for t in self.peak_templates],
             "exclusion_ranges": self.exclusion_ranges,
-            "description": self.description,
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "MaterialPreset":
+    def from_dict(cls, data: dict) -> "TechniquePreset":
         """Deserialize from dictionary."""
         data = dict(data)
         data["peak_templates"] = [
             PeakTemplate.from_dict(t) for t in data.get("peak_templates", [])
         ]
-        return cls(**data)
+        return _construct(cls, data, what="technique block")
+
+
+@dataclass
+class OpticalParams:
+    """
+    Optical-contrast tuning for one layer of one material.
+
+    Every field is `None` by default, meaning "use contrast.py's own default".
+    That is deliberate: the numbers live in exactly one place, and a material
+    with no optical block produces `analyse_frame(**{})`, which is the vendored
+    algorithm untouched.
+
+    `mask_margin` and `ff_divisor` are **not** circular-only, despite
+    docs/OM_Contrast_Algo.md quoting circular figures for both. Whether a frame
+    is circular is decided per image at runtime by `contrast.is_circular`, so a
+    preset has no way to address one frame type; an override applies to both,
+    and naming it otherwise would promise a precision that cannot exist.
+
+    `ff_divisor` is a **divisor**, not a sigma: the flat-field blur runs at
+    max(H, W) / ff_divisor, so a larger number means a *smaller* sigma.
+    """
+
+    nsigma: Optional[float] = None
+    minpx: Optional[int] = None
+    mask_margin: Optional[float] = None
+    ff_divisor: Optional[float] = None
+
+    #: Field name -> the `contrast.analyse_frame` keyword it sets.
+    _KWARGS = {
+        "nsigma": "nsigma",
+        "minpx": "minpx",
+        "mask_margin": "margin",
+        "ff_divisor": "ff_divisor",
+    }
+
+    def as_kwargs(self) -> dict:
+        """
+        Only the fields that are set, keyed as `analyse_frame` wants them.
+
+        An unset field is omitted rather than passed as None, so the defaults
+        stay written down once, in contrast.py.
+        """
+        return {
+            keyword: getattr(self, name)
+            for name, keyword in self._KWARGS.items()
+            if getattr(self, name) is not None
+        }
+
+    def validate(self) -> List[str]:
+        """Error messages for this block alone (empty list if valid)."""
+        errors = []
+        if self.nsigma is not None and not (1.0 <= self.nsigma <= 10.0):
+            errors.append(f"nsigma {self.nsigma} out of range [1.0, 10.0]")
+        if self.minpx is not None and self.minpx < 1:
+            errors.append(f"minpx must be >= 1 (got {self.minpx})")
+        if self.mask_margin is not None and not (0.0 <= self.mask_margin < 0.5):
+            errors.append(f"mask_margin {self.mask_margin} out of range [0.0, 0.5)")
+        if self.ff_divisor is not None and not (1.0 <= self.ff_divisor <= 64.0):
+            errors.append(f"ff_divisor {self.ff_divisor} out of range [1.0, 64.0]")
+        return errors
+
+    def to_dict(self) -> dict:
+        """Only the fields that are set; absent means "algorithm default"."""
+        return {
+            name: getattr(self, name)
+            for name in self._KWARGS
+            if getattr(self, name) is not None
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "OpticalParams":
+        """Deserialize from dictionary."""
+        return _construct(cls, dict(data), what="optical block")
+
+
+def _construct(cls, data: dict, what: str):
+    """
+    `cls(**data)`, but naming the offending key when one is unknown.
+
+    A bare ``TypeError: __init__() got an unexpected keyword argument 'mode'``
+    says nothing about which entry in materials.json to go and fix, which is
+    the only thing the reader needs to know.
+    """
+    allowed = {f.name for f in fields(cls)}
+    unknown = sorted(set(data) - allowed)
+    if unknown:
+        raise TypeError(
+            f"Unknown {what} field(s) {unknown}; expected any of {sorted(allowed)}"
+        )
+    return cls(**data)
+
+
+@dataclass
+class MaterialPreset:
+    """
+    Everything the app knows about one material.
+
+    Keyed by material name alone. Technique is no longer part of a preset's
+    identity -- it comes from the filename, via
+    `parser.detect_mode_from_filename` -- so one material holds a `raman`
+    block, a `pl` block, or both, and either may be absent.
+
+    `optical` splits a level further, by layer ("1L", "2L"), because optical
+    contrast against SiO2/Si genuinely differs between a monolayer and a
+    bilayer, while a Raman or PL spectrum does not: the signal says which peaks
+    it has. Layers are stored as "1L"/"2L", never as the words
+    `contrast.layer_word` prints for them -- that helper is one-way
+    presentation and passes unknown values through, so keying persisted JSON by
+    its output would orphan every stored block the day the wording changed, and
+    would let the file express a "Trilayer" the UI can never select.
+    """
+
+    material_name: str
+    enabled: bool = True
+    description: str = ""
+
+    raman: Optional[TechniquePreset] = None
+    pl: Optional[TechniquePreset] = None
+    optical: Dict[str, OpticalParams] = field(default_factory=dict)
+
+    #: Technique name -> the attribute holding its block.
+    _BLOCKS = {"Raman": "raman", "PL": "pl"}
+
+    def block_for(self, mode: str) -> Optional[TechniquePreset]:
+        """The block for `mode` ("Raman"/"PL"), or None if there isn't one."""
+        attribute = self._BLOCKS.get(mode)
+        return getattr(self, attribute) if attribute else None
+
+    def optical_for(self, layer: str) -> "OpticalParams":
+        """
+        Tuning for `layer`, or an all-defaults block when that layer is untuned.
+
+        Never None: an untuned layer is a legitimate state that runs the
+        algorithm's own defaults, and the page says which it is using rather
+        than refusing to run.
+        """
+        return self.optical.get(layer) or OpticalParams()
+
+    def validate(self) -> List[str]:
+        """Error messages across every block (empty list if valid)."""
+        errors = []
+
+        if self.raman is None and self.pl is None and not self.optical:
+            errors.append(
+                f"'{self.material_name}' has no Raman, PL or optical settings; "
+                f"a preset with no blocks does nothing"
+            )
+
+        for mode, attribute in self._BLOCKS.items():
+            block = getattr(self, attribute)
+            if block is not None:
+                errors.extend(f"{mode}: {e}" for e in block.validate())
+
+        for layer, params in self.optical.items():
+            if layer not in OPTICAL_LAYERS:
+                # Reported, not dropped. The loader keeps unknown layers so that
+                # "I loaded the file" never quietly means "I deleted part of it";
+                # flagging it here is what makes the choice visible.
+                errors.append(
+                    f"Optical: unknown layer '{layer}' (expected one of "
+                    f"{list(OPTICAL_LAYERS)}); it is preserved but unused"
+                )
+            errors.extend(f"Optical {layer}: {e}" for e in params.validate())
+
+        return errors
+
+    def to_dict(self) -> dict:
+        """
+        Serialize to dictionary for JSON export.
+
+        Absent blocks are **omitted**, not written as null: "this material has
+        no PL" and "this material has an empty PL block" are different states,
+        and only omission round-trips the first one.
+        """
+        out: dict = {
+            "material_name": self.material_name,
+            "enabled": self.enabled,
+            "description": self.description,
+        }
+        if self.raman is not None:
+            out["raman"] = self.raman.to_dict()
+        if self.pl is not None:
+            out["pl"] = self.pl.to_dict()
+        if self.optical:
+            out["optical"] = {
+                layer: params.to_dict() for layer, params in self.optical.items()
+            }
+        return out
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "MaterialPreset":
+        """
+        Deserialize from dictionary.
+
+        Nested blocks are reconstructed explicitly: `cls(**data)` would hand
+        `raman` a raw dict, and every later attribute access would fail
+        somewhere far away from the entry that caused it.
+        """
+        data = dict(data)
+        for attribute in cls._BLOCKS.values():
+            if data.get(attribute) is not None:
+                data[attribute] = TechniquePreset.from_dict(data[attribute])
+            else:
+                data.pop(attribute, None)
+        if data.get("optical") is not None:
+            data["optical"] = {
+                layer: OpticalParams.from_dict(params)
+                for layer, params in data["optical"].items()
+            }
+        else:
+            data.pop("optical", None)
+        return _construct(cls, data, what=f"material '{data.get('material_name')}'")

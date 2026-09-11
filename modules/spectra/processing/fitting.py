@@ -125,7 +125,7 @@ def fit_voigt_peaks(
     Algorithm (FR-031 to FR-037):
     - Uses lmfit VoigtModel (Gaussian + Lorentzian convolution)
     - Levenberg-Marquardt optimizer (method='leastsq')
-    - Auto-bounds from PeakDefinition (if not manually overridden)
+    - Auto-bounds from PeakDefinition, honouring its center_tolerance when set
     - Returns actionable error messages on convergence failure
 
     Voigt parameters:
@@ -154,7 +154,10 @@ def fit_voigt_peaks(
     if len(x) != len(y):
         raise ValueError(f"x and y must have same length (got {len(x)} vs {len(y)})")
 
-    # Calculate auto-bounds for peaks that don't have manual bounds
+    # (Re)calculate bounds against this spectrum's own range and resolution.
+    # Unconditional by design: it is what keeps the bounds consistent with the
+    # current center and width. A peak that carries its own center_tolerance —
+    # every peak built from a preset does — keeps that tolerance here.
     x_range = (x.min(), x.max())
     y_max = y.max()
     spectral_resolution = np.median(np.abs(np.diff(x)))
@@ -199,10 +202,15 @@ def fit_voigt_peaks(
         sigma_guess = max(sigma_guess, sigma_min)
         gamma_guess = max(gamma_guess, gamma_min)
 
-        # Auto-estimate the peak intensity from the data at peak.center.
+        # The starting center must lie inside its own bounds, which it doesn't
+        # when the preset places the peak outside the spectrum's range and
+        # calculate_auto_bounds has pinned it to the edge.
+        center_guess = min(max(peak.center, peak.center_min), peak.center_max)
+
+        # Auto-estimate the peak intensity from the data at center_guess.
         # Position + FWHM come from the preset (material properties); intensity
         # depends on measurement conditions, so we always init from the data.
-        idx = int(np.argmin(np.abs(x - peak.center)))
+        idx = int(np.argmin(np.abs(x - center_guess)))
         intensity_guess = max(float(y[idx]), 1e-6)
         fwhm_eff = peak.width_fwhm
         # lmfit's "amplitude" is the area, so both the guess and the ceiling
@@ -211,8 +219,17 @@ def fit_voigt_peaks(
         area_max = peak.intensity_max * fwhm_eff * 1.064
 
         # Add parameters with bounds
-        params.add(f"{prefix}center", value=peak.center,
-                   min=peak.center_min, max=peak.center_max)
+        if peak.center_min == peak.center_max:
+            # calculate_auto_bounds pinned it: the preset places this peak
+            # outside the spectrum, so the edge is the only position open to
+            # it. lmfit rejects min == max, so say "fixed" rather than passing
+            # a degenerate range -- and note it swaps min/max silently when
+            # they arrive inverted, which is how an off-range peak used to come
+            # back at a position belonging to neither bound.
+            params.add(f"{prefix}center", value=center_guess, vary=False)
+        else:
+            params.add(f"{prefix}center", value=center_guess,
+                       min=peak.center_min, max=peak.center_max)
         params.add(f"{prefix}amplitude", value=area_guess,
                    min=0, max=area_max)
         params.add(f"{prefix}sigma", value=sigma_guess,

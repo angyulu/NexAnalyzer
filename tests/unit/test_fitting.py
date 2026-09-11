@@ -11,6 +11,7 @@ from modules.spectra.processing.fitting import (
     voigt_fwhm_stderr,
 )
 from modules.spectra.models.peak import PeakDefinition
+from modules.spectra.models.preset import PeakTemplate
 
 
 class TestFitVoigtPeaks:
@@ -223,3 +224,125 @@ class TestIntensityMaxIsAnIntensity:
         intensity = float(np.max(result.fitted_peaks[0].component_curve))
 
         assert intensity <= 5.0 * float(np.max(y)) * 1.001
+
+
+class TestPresetCenterToleranceSurvivesTheFit:
+    """The preset owns the peak's position, so the tolerance it states is the
+    tolerance the fitter uses.
+
+    Until v4.0.0 it wasn't: `fit_voigt_peaks` re-ran `calculate_auto_bounds`
+    unconditionally, which rewrote center_min/center_max with the mode default
+    of +/-5 cm-1. Five of WSe2's seven peaks were fitted against a tolerance
+    they never asked for, and LA -- preset tolerance 10 -- railed against the
+    +/-5 wall it was given instead.
+    """
+
+    def test_a_wider_preset_tolerance_is_not_narrowed_to_the_mode_default(self):
+        template = PeakTemplate(peak_label="LA", center=135.0, center_tolerance=10.0,
+                                width_fwhm=15.0, shape=0.5, color="#1f77b4")
+        peak = template.to_peak_definition(
+            mode="Raman", x_range=(0.0, 400.0), y_max=100.0, spectral_resolution=0.5
+        )
+
+        assert (peak.center_min, peak.center_max) == (125.0, 145.0)
+
+    def test_a_narrower_preset_tolerance_is_not_widened_either(self):
+        template = PeakTemplate(peak_label="center", center=50.0, center_tolerance=3.0,
+                                width_fwhm=5.0, shape=0.5, color="#1f77b4")
+        peak = template.to_peak_definition(
+            mode="Raman", x_range=(0.0, 400.0), y_max=100.0, spectral_resolution=0.5
+        )
+
+        assert (peak.center_min, peak.center_max) == (47.0, 53.0)
+
+    def test_the_bounds_survive_fit_voigt_peaks_re_running_them(self):
+        """The regression itself: bounds must still be the preset's *after* a fit."""
+        x = np.linspace(0.0, 400.0, 1200)
+        from lmfit.models import VoigtModel
+        y = VoigtModel().eval(x=x, center=135.0, amplitude=1000.0, sigma=4.0, gamma=2.0)
+
+        template = PeakTemplate(peak_label="LA", center=135.0, center_tolerance=10.0,
+                                width_fwhm=15.0, shape=0.5, color="#1f77b4")
+        peak = template.to_peak_definition(
+            mode="Raman", x_range=(x.min(), x.max()), y_max=y.max(),
+            spectral_resolution=float(np.median(np.diff(x)))
+        )
+
+        fit_voigt_peaks(x, y, [peak], mode="Raman")
+
+        assert (peak.center_min, peak.center_max) == (125.0, 145.0)
+
+    def test_a_peak_with_no_tolerance_of_its_own_still_takes_the_mode_default(self):
+        raman = PeakDefinition(center=250.0, intensity=1.0, width_fwhm=4.0)
+        raman.calculate_auto_bounds("Raman", (0.0, 400.0), 100.0, 0.5)
+        assert (raman.center_min, raman.center_max) == (245.0, 255.0)
+
+        pl = PeakDefinition(center=770.0, intensity=1.0, width_fwhm=30.0)
+        pl.calculate_auto_bounds("PL", (700.0, 900.0), 100.0, 0.5)
+        assert (pl.center_min, pl.center_max) == (740.0, 800.0)
+
+    def test_the_tolerance_is_clamped_to_the_spectrum_range(self):
+        """A tolerance wider than the data can't invent bounds outside it."""
+        template = PeakTemplate(peak_label="C", center=17.0, center_tolerance=25.0,
+                                width_fwhm=5.0, shape=0.5, color="#1f77b4")
+        peak = template.to_peak_definition(
+            mode="Raman", x_range=(-6.0, 400.0), y_max=100.0, spectral_resolution=0.5
+        )
+
+        assert peak.center_min == -6.0
+        assert peak.center_max == 42.0
+
+
+class TestCenterBoundsCannotInvert:
+    """Clamping the tolerance window to the data range must not produce
+    center_min > center_max.
+
+    WSe2's "center" template sits at 0 cm-1 while the same preset crops the
+    spectrum to x_min=6, so the window [-3, 3] clamps to min=6.67, max=3.00.
+    lmfit accepts an inverted bound silently and returns a center outside both
+    of them, so the Sample Report quoted a position that was not a position.
+    """
+
+    RANGE = (6.674, 399.867)
+
+    def _peak_at(self, center, tolerance):
+        peak = PeakDefinition(center=center, intensity=1.0, width_fwhm=5.0,
+                              center_tolerance=tolerance)
+        peak.calculate_auto_bounds("Raman", self.RANGE, 100.0, 0.2)
+        return peak
+
+    def test_a_peak_below_the_data_pins_to_the_lower_edge(self):
+        peak = self._peak_at(0.0, 3.0)
+
+        assert peak.center_min == peak.center_max == self.RANGE[0]
+
+    def test_a_peak_above_the_data_pins_to_the_upper_edge(self):
+        peak = self._peak_at(500.0, 3.0)
+
+        assert peak.center_min == peak.center_max == self.RANGE[1]
+
+    def test_a_window_that_merely_overlaps_the_edge_is_clamped_not_pinned(self):
+        """Partial overlap is ordinary clamping and must keep its width."""
+        peak = self._peak_at(8.0, 5.0)
+
+        assert (peak.center_min, peak.center_max) == (self.RANGE[0], 13.0)
+
+    def test_the_fit_starts_inside_the_bounds_and_stays_there(self):
+        """End to end: an off-range peak must not come back outside the data."""
+        x = np.linspace(*RANGE_FOR_FIT, 1500)
+        from lmfit.models import VoigtModel
+        y = VoigtModel().eval(x=x, center=250.0, amplitude=1000.0, sigma=2.0, gamma=1.0)
+
+        off_range = PeakDefinition(center=0.0, intensity=1.0, width_fwhm=5.0,
+                                   center_tolerance=3.0)
+        real = PeakDefinition(center=250.0, intensity=1.0, width_fwhm=5.0,
+                              center_tolerance=7.0)
+
+        result = fit_voigt_peaks(x, y, [off_range, real], mode="Raman")
+
+        assert result.success
+        fitted = result.fitted_peaks[0].center
+        assert x.min() <= fitted <= x.max()
+
+
+RANGE_FOR_FIT = (6.674, 399.867)

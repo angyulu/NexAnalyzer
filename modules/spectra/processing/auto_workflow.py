@@ -64,24 +64,31 @@ def execute_auto_workflow(
     }
 
     try:
-        # Sync spectrum mode from preset (axis labels, center tolerance,
-        # PL-only Raw row in Fit Results). Defensive: callers may pass
-        # spectra with stale modes (e.g. batch path).
-        if spectrum.mode != preset.mode:
-            spectrum.mode = preset.mode
+        # The spectrum's own mode picks the block. A preset no longer states a
+        # technique -- one material holds a Raman block, a PL block or both --
+        # so the direction of this sync is reversed from v3.x, where the preset
+        # overwrote the spectrum's mode. Resolving the block here rather than in
+        # each caller keeps every caller's signature unchanged.
+        block = preset.block_for(spectrum.mode)
+        if block is None:
+            raise WorkflowExecutionError(
+                f"'{preset.material_name}' has no {spectrum.mode} settings. "
+                f"Add a {spectrum.mode} block to it on the Material Presets "
+                f"page, or pick a material that has one."
+            )
 
         # ========== STAGE 1: X-RANGE CROPPING ==========
         # Match manual workflow: replicate what happens when user clicks "Apply X-Range"
-        if preset.x_range_enabled:
+        if block.x_range_enabled:
             # Use raw_data as source (NOT original_data - matches manual workflow)
             X_raw = spectrum.raw_data.X
             Y_raw = spectrum.raw_data.Y
 
             # Apply mask
-            mask = (X_raw >= preset.x_min) & (X_raw <= preset.x_max)
+            mask = (X_raw >= block.x_min) & (X_raw <= block.x_max)
             if not np.any(mask):
                 raise WorkflowExecutionError(
-                    f"No data in X-range [{preset.x_min}, {preset.x_max}]. "
+                    f"No data in X-range [{block.x_min}, {block.x_max}]. "
                     f"File range: [{X_raw.min():.1f}, {X_raw.max():.1f}]. "
                     f"Suggestion: Adjust x_min/x_max in preset to match your data."
                 )
@@ -129,10 +136,10 @@ def execute_auto_workflow(
         Y = spectrum.processed_data.Y
 
         # Save threshold to settings (matches manual workflow)
-        spectrum.processing_settings.despike_threshold = preset.despike_threshold
+        spectrum.processing_settings.despike_threshold = block.despike_threshold
 
         # Run despike algorithm and unpack tuple (matches manual workflow)
-        Y_despiked, spike_mask = remove_spikes(Y, threshold=preset.despike_threshold)
+        Y_despiked, spike_mask = remove_spikes(Y, threshold=block.despike_threshold)
 
         # Update processed_data (X unchanged, Y updated - matches manual workflow)
         spectrum.processed_data = SpectrumData(X=X, Y=Y_despiked)
@@ -164,7 +171,7 @@ def execute_auto_workflow(
         # Match manual workflow: replicate what happens when user clicks "Run Baseline Correction"
         result["stage_completed"] = "baseline"
 
-        if preset.baseline_algorithm == "None (Skip)":
+        if block.baseline_algorithm == "None (Skip)":
             # Skip baseline, mark as done
             spectrum.processing_settings.baseline_applied = False
             spectrum.baseline_done = True
@@ -174,9 +181,9 @@ def execute_auto_workflow(
 
             # Parse exclusion ranges if provided
             exclusions = None
-            if preset.exclusion_ranges:
+            if block.exclusion_ranges:
                 try:
-                    exclusions = parse_exclusion_ranges(preset.exclusion_ranges)
+                    exclusions = parse_exclusion_ranges(block.exclusion_ranges)
                 except ValueError as e:
                     raise WorkflowExecutionError(
                         f"Invalid exclusion_ranges format: {e}. "
@@ -184,27 +191,27 @@ def execute_auto_workflow(
                     )
 
             # Route to appropriate algorithm (matches manual workflow)
-            if preset.baseline_algorithm == "Polynomial":
+            if block.baseline_algorithm == "Polynomial":
                 if exclusions:
                     # Use masked version (no autoshift)
                     Y_corrected, baseline_curve = baseline_polynomial_with_mask(
                         X, Y_despiked,
-                        degree=preset.baseline_degree,
+                        degree=block.baseline_degree,
                         exclusions=exclusions
                     )
                     y_shift = 0.0  # No shift in masked version
                 else:
                     # Use standard version with autoshift
                     Y_corrected, baseline_curve, y_shift = baseline_polynomial_with_autoshift(
-                        X, Y_despiked, degree=preset.baseline_degree
+                        X, Y_despiked, degree=block.baseline_degree
                     )
-            elif preset.baseline_algorithm == "ALS":
+            elif block.baseline_algorithm == "ALS":
                 if exclusions:
                     # Use masked version (no autoshift)
                     Y_corrected, baseline_curve = baseline_als_with_mask(
                         X, Y_despiked,
-                        lambda_=preset.baseline_lambda,
-                        p=preset.baseline_p,
+                        lambda_=block.baseline_lambda,
+                        p=block.baseline_p,
                         exclusions=exclusions
                     )
                     y_shift = 0.0  # No shift in masked version
@@ -212,23 +219,23 @@ def execute_auto_workflow(
                     # Use standard version with autoshift
                     Y_corrected, baseline_curve, y_shift = baseline_als_with_autoshift(
                         X, Y_despiked,
-                        lambda_=preset.baseline_lambda,
-                        p=preset.baseline_p
+                        lambda_=block.baseline_lambda,
+                        p=block.baseline_p
                     )
             else:
                 raise WorkflowExecutionError(
-                    f"Baseline algorithm '{preset.baseline_algorithm}' not supported. "
+                    f"Baseline algorithm '{block.baseline_algorithm}' not supported. "
                     f"Supported: 'Polynomial', 'ALS', 'None (Skip)'. "
                     f"Suggestion: Check baseline_algorithm spelling in preset."
                 )
 
             # Update processing_settings (matches manual workflow)
-            spectrum.processing_settings.baseline_algorithm = preset.baseline_algorithm
-            if preset.baseline_algorithm == "Polynomial":
-                spectrum.processing_settings.baseline_degree = preset.baseline_degree if preset.baseline_degree else 3
+            spectrum.processing_settings.baseline_algorithm = block.baseline_algorithm
+            if block.baseline_algorithm == "Polynomial":
+                spectrum.processing_settings.baseline_degree = block.baseline_degree if block.baseline_degree else 3
             else:  # ALS
-                spectrum.processing_settings.baseline_lambda = preset.baseline_lambda if preset.baseline_lambda else 10000.0
-                spectrum.processing_settings.baseline_p = preset.baseline_p if preset.baseline_p else 0.001
+                spectrum.processing_settings.baseline_lambda = block.baseline_lambda if block.baseline_lambda else 10000.0
+                spectrum.processing_settings.baseline_p = block.baseline_p if block.baseline_p else 0.001
 
             # Save Y-shift amount (matches manual workflow)
             spectrum.processing_settings.y_shift = y_shift
@@ -268,10 +275,10 @@ def execute_auto_workflow(
         spectral_resolution = np.median(np.abs(np.diff(X)))
 
         peak_definitions = []
-        for template in preset.peak_templates:
+        for template in block.peak_templates:
             try:
                 peak_def = template.to_peak_definition(
-                    mode=preset.mode,
+                    mode=spectrum.mode,
                     x_range=x_range,
                     y_max=y_max,
                     spectral_resolution=spectral_resolution
@@ -289,7 +296,7 @@ def execute_auto_workflow(
         try:
             fit_result = fit_voigt_peaks(
                 X, Y_corrected, peak_definitions,
-                mode=preset.mode, max_iterations=max_iterations
+                mode=spectrum.mode, max_iterations=max_iterations
             )
         except Exception as e:
             raise WorkflowExecutionError(
@@ -344,7 +351,8 @@ def execute_auto_workflow(
         return result
 
 
-def format_workflow_summary(result: Dict[str, Any], preset: MaterialPreset) -> str:
+def format_workflow_summary(result: Dict[str, Any], preset: MaterialPreset,
+                            mode: str = "Raman") -> str:
     """
     Format workflow execution result as user-friendly summary.
 
@@ -360,20 +368,25 @@ def format_workflow_summary(result: Dict[str, Any], preset: MaterialPreset) -> s
     str
         Formatted summary message
     """
+    block = preset.block_for(mode)
+    if block is None:
+        # Only reachable if a caller summarises a preset it never ran.
+        return f"No {mode} settings for '{preset.material_name}'."
+
     if result["success"]:
         fit_result = result["fit_result"]
         summary = (
             f"**Auto-workflow completed successfully!**\n\n"
-            f"**Material:** {preset.material_name} ({preset.mode})\n"
+            f"**Material:** {preset.material_name} ({mode})\n"
             f"**Stages:**\n"
-            f"- X-range: {'Applied' if preset.x_range_enabled else 'Skipped'}"
+            f"- X-range: {'Applied' if block.x_range_enabled else 'Skipped'}"
         )
-        if preset.x_range_enabled:
-            summary += f" ({preset.x_min} - {preset.x_max})"
+        if block.x_range_enabled:
+            summary += f" ({block.x_min} - {block.x_max})"
         summary += (
-            f"\n- De-spiking: Threshold {preset.despike_threshold}\n"
-            f"- Baseline: {preset.baseline_algorithm}\n"
-            f"- Fitting: {len(preset.peak_templates)} peaks fitted\n\n"
+            f"\n- De-spiking: Threshold {block.despike_threshold}\n"
+            f"- Baseline: {block.baseline_algorithm}\n"
+            f"- Fitting: {len(block.peak_templates)} peaks fitted\n\n"
             f"**Fit Quality:**\n"
             f"- R²: {fit_result.r_squared:.4f}\n"
             f"- χ²: {fit_result.chi_squared:.2e}\n"

@@ -31,9 +31,10 @@ initialize_session_state()
 spectra_page = st.Page("pages/1_Spectra.py", title="Spectra", icon="📊", default=True)
 sample_report_page = st.Page("pages/2_Sample_Report.py", title="Sample Report", icon="🖼️")
 material_presets_page = st.Page("pages/3_Material_Presets.py", title="Material Presets", icon="🧪")
+qc_panel_page = st.Page("pages/4_QC_Panel.py", title="QC Panel", icon="🔬")
 
 nav = st.navigation(
-    {"Raman & PL": [spectra_page, sample_report_page, material_presets_page]},
+    {"Raman & PL": [spectra_page, sample_report_page, material_presets_page, qc_panel_page]},
     position="sidebar",
 )
 

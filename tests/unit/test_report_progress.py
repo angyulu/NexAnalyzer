@@ -7,7 +7,14 @@ raise on a fraction a hair outside [0, 1].
 
 import pytest
 
-from core.report.progress import STAGES, ReportProgress, Stage, build, stages_for
+from core.report.progress import (
+    BASELINE_FIT_SPECTRA,
+    STAGES,
+    ReportProgress,
+    Stage,
+    build,
+    stages_for,
+)
 
 
 def _recorder():
@@ -371,3 +378,89 @@ class TestBuild:
         progress.start("fit")
 
         assert seen == [(0.0, "Fitting spectra...")]
+
+
+class TestSubCallbackAdaptiveTotals:
+    """`totals` is an estimate the caller makes from its file count. A
+    multi-spectrum file reports one tick per spectrum, so the estimate can be
+    wrong by 25x and the denominator has to catch up."""
+
+    def test_a_label_reporting_more_than_expected_raises_the_denominator(self):
+        seen, progress = _progress()
+        callback = progress.sub_callback("fit", totals={"Raman": 9, "PL": 0})
+
+        callback("Raman", 225, 225)
+
+        assert seen[-1][0] == pytest.approx(progress._share["fit"])
+
+    def test_overshooting_does_not_peg_the_bar_early(self):
+        """Without the correction, Raman's 25th of 225 ticks reads 25/9 — well
+        past full — and the bar freezes there for the remaining 200 fits."""
+        seen, progress = _progress()
+        callback = progress.sub_callback("fit", totals={"Raman": 9, "PL": 0})
+
+        fractions = []
+        for done in (25, 75, 150, 225):
+            callback("Raman", done, 225)
+            fractions.append(seen[-1][0])
+
+        assert fractions == sorted(fractions)
+        assert len(set(fractions)) == 4, "the bar stopped moving"
+        assert fractions[0] < progress._share["fit"] / 2
+
+    def test_a_label_that_has_not_reported_keeps_its_reserved_slice(self):
+        seen, progress = _progress()
+        callback = progress.sub_callback("fit", totals={"Raman": 9, "PL": 9})
+
+        callback("Raman", 225, 225)
+
+        # 225 of (225 + 9): nearly the whole stage, but PL still owns its share.
+        assert seen[-1][0] < progress._share["fit"]
+
+
+class TestFitWeightScalesWithSpectrumCount:
+    """The fit stage is the only one whose cost tracks spectra per point.
+
+    Rendering figures, loading images and assembling the deck cost the same
+    whether a grid point holds one spectrum or a hundred. Measured on
+    TSM260803 (25 spectra per file) fitting took 77 % of the wall clock against
+    a declared 21.5 %, so the bar crawled through the first fifth and then
+    jumped to done.
+    """
+
+    def _fit_share(self, **kwargs):
+        stages = stages_for(has_raman=True, has_pl=True, has_optical=True,
+                            has_preview=True, **kwargs)
+        total = sum(s.weight for s in stages)
+        return next(s.weight for s in stages if s.key == "fit") / total
+
+    def test_the_baseline_sample_is_unchanged(self):
+        """18 spectra is what the weights were measured on, so passing it
+        explicitly must match passing nothing at all."""
+        assert self._fit_share(fit_spectra=BASELINE_FIT_SPECTRA) == pytest.approx(
+            self._fit_share()
+        )
+
+    def test_more_spectra_claim_more_of_the_bar(self):
+        assert self._fit_share(fit_spectra=450) > self._fit_share(fit_spectra=18) * 3
+
+    def test_a_real_multi_spectrum_sample_lands_near_its_measured_share(self):
+        """TSM260803: 9 files x 25 spectra, Raman only, no preview in the
+        measurement run. Fitting measured at 0.77 of the total."""
+        stages = stages_for(has_raman=True, has_pl=False, has_optical=True,
+                            has_preview=True, fit_spectra=225)
+        total = sum(s.weight for s in stages)
+        fit = next(s.weight for s in stages if s.key == "fit") / total
+
+        assert 0.6 < fit < 0.85
+
+    def test_zero_or_none_falls_back_to_the_measured_weights(self):
+        assert self._fit_share(fit_spectra=0) == pytest.approx(self._fit_share())
+        assert self._fit_share(fit_spectra=None) == pytest.approx(self._fit_share())
+
+    def test_scaling_does_not_disturb_the_other_stages_relative_order(self):
+        stages = stages_for(has_raman=True, has_pl=True, has_optical=True,
+                            fit_spectra=450)
+        others = {s.key: s.weight for s in stages if s.key != "fit"}
+
+        assert others["optical_images"] > others["pl_figures"] > others["raman_figures"]

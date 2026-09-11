@@ -35,10 +35,16 @@ class PeakDefinition:
         Voigt mixing parameter (0=Gaussian, 1=Lorentzian), range [0, 1].
     color : str
         Hex color for plot component (e.g., '#1f77b4').
+    center_tolerance : Optional[float]
+        Half-width of the allowed center range, in the same units as `center`.
+        When set — presets set it — `calculate_auto_bounds` uses it instead of
+        the mode default, every time it runs. Leave it None for a peak that has
+        no opinion and should take the mode's tolerance.
     center_min : Optional[float]
-        Lower bound for center (auto-calculated if None).
+        Lower bound for center. Derived, not input: `calculate_auto_bounds`
+        overwrites it on every call from `center` and `center_tolerance`.
     center_max : Optional[float]
-        Upper bound for center (auto-calculated if None).
+        Upper bound for center. Derived; see `center_min`.
     width_min : Optional[float]
         Minimum FWHM (auto-calculated if None).
     width_max : Optional[float]
@@ -56,6 +62,7 @@ class PeakDefinition:
     label: str = ""
     shape: float = 0.5
     color: str = "#1f77b4"
+    center_tolerance: Optional[float] = None
     center_min: Optional[float] = None
     center_max: Optional[float] = None
     width_min: Optional[float] = None
@@ -104,14 +111,25 @@ class PeakDefinition:
         Notes
         -----
         Auto-bounds logic (FR-029):
-        - Raman: center ± 5 cm⁻¹
-        - PL: center ± 30 nm
+        - Raman: center ± 5 cm⁻¹ — unless `center_tolerance` is set
+        - PL: center ± 30 nm — unless `center_tolerance` is set
         - width_min: 2-3 × spectral_resolution
         - width_max: 50% of X range
         - intensity_max: 5 × max(Y)
+
+        This runs on every fit, and it is the *only* thing that writes
+        `center_min`/`center_max` — which is why a preset's tolerance has to be
+        carried on `center_tolerance` rather than written into the bounds by the
+        caller. A caller that set the bounds itself would have them silently
+        replaced with the mode default here. That was the v3.10.0 behaviour and
+        it cost WSe₂ 5 of its 7 tolerances; LA railed at its ±5 wall.
         """
-        # Center bounds (adaptive: wider tolerance for broader peaks)
-        if mode == "Raman":
+        # Center bounds. The preset's tolerance wins when it has one: center is
+        # a material property, so a preset that says ±10 means ±10 (CLAUDE.md,
+        # "the preset owns position and width").
+        if self.center_tolerance is not None:
+            center_tolerance = self.center_tolerance
+        elif mode == "Raman":
             # Raman: at least 5 cm⁻¹ or 5% of FWHM, whichever is larger
             center_tolerance = max(5.0, 0.05 * self.width_fwhm)
         else:  # PL
@@ -122,6 +140,18 @@ class PeakDefinition:
         # (important when user manually edits peak positions)
         self.center_min = max(x_range[0], self.center - center_tolerance)
         self.center_max = min(x_range[1], self.center + center_tolerance)
+
+        # Clamping to the data range inverts the window when the peak sits
+        # outside the data entirely -- WSe2's "center" template is at 0 while
+        # its own x-range crop starts at 6, which produced min=6.674 > max=3.
+        # lmfit takes an inverted bound without complaint and returns a center
+        # outside both, so the reported position was meaningless rather than
+        # merely wrong. Pin to the nearest edge instead: the peak can only be
+        # at the boundary, and a pinned value (zero spread) is legible as such.
+        if self.center_min > self.center_max:
+            self.center_min = self.center_max = (
+                x_range[0] if self.center < x_range[0] else x_range[1]
+            )
 
         # Width bounds (adaptive: allow 0.5× to 3× initial guess)
         # Always recalculate to ensure bounds match current width_fwhm
@@ -144,6 +174,7 @@ class PeakDefinition:
             "width_fwhm": self.width_fwhm,
             "shape": self.shape,
             "color": self.color,
+            "center_tolerance": self.center_tolerance,
             "center_min": self.center_min,
             "center_max": self.center_max,
             "width_min": self.width_min,

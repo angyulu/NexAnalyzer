@@ -29,7 +29,9 @@ from modules.spectra.processing.peak_metrics import (
     aggregate_fit_results,
     aggregate_raw_peak_stats,
     compute_peak_intensity_ratio,
+    filter_fits_by_quality,
 )
+from modules.spectra.processing.parser import count_spectra
 from modules.spectra.processing.sample_batch import run_sample_batch
 from modules.spectra.processing.sample_scanner import default_magnification, scan_sample_folder
 from modules.spectra.ui.sample_report_state import get_sample_report_state
@@ -41,13 +43,22 @@ from modules.spectra.viz.fit_plot import (
     y_axis_title,
 )
 
-# WSe2-specific defect/strain indicators: mode intensities relative to the E2g+A1g
-# in-plane mode, appended as extra rows of the Raman fit-summary table. Any pair
-# whose labels aren't both present in a fit is dropped automatically (see
-# compute_peak_intensity_ratio), so this list is safe for other materials. The
-# table's caption says which rows are medians; putting it on each label instead
-# wrapped the cell, which doubled the row's height and overran the table below.
-_RAMAN_RATIO_PAIRS = [("LA", "E2g+A1g"), ("B2g", "E2g+A1g")]
+# WSe2 bilayer quality indicators, appended as extra rows of the Raman
+# fit-summary table:
+#   LA / E2g+A1g  — "defect ratio", disorder relative to the in-plane mode.
+#   C  / LB       — "stacking ratio", the shear mode against the layer-breathing
+#                   mode. Both are interlayer vibrations, so their ratio speaks
+#                   directly to how the two layers sit on each other, which is
+#                   the thing a bilayer wafer is actually judged on.
+# These are the two ratios the inherited WSe2 analysis plots, and the QC Panel's
+# Raman figure draws the same pair, so figure and table cannot disagree.
+# B2g / E2g+A1g was reported here until v3.10.0 and was dropped in favour of the
+# stacking ratio. Any pair whose labels aren't both present in a fit is dropped
+# automatically (see compute_peak_intensity_ratio), so this list is safe for
+# other materials. The table's caption says which rows are medians; putting it
+# on each label instead wrapped the cell, which doubled the row's height and
+# overran the table below.
+_RAMAN_RATIO_PAIRS = [("LA", "E2g+A1g"), ("C", "LB")]
 
 _SLIDE_CAPTIONS = ["Overview — OM + fit summary", "Raman — fitted spectra", "PL — fitted spectra"]
 
@@ -113,7 +124,7 @@ if scan is not None:
     # -------------------------------------------------------------- Material
     st.subheader("3. Material")
     presets = load_presets()
-    materials = sorted({name for (name, _mode), p in presets.items() if p.enabled})
+    materials = sorted(name for name, p in presets.items() if p.enabled)
 
     if not materials:
         st.warning("No materials configured yet. Add one on the **Material Presets** page.")
@@ -129,12 +140,13 @@ if scan is not None:
             state["material"] = material_selection
             save_default_material(material_selection)
 
-        raman_preset = presets.get((state["material"], "Raman"))
-        pl_preset = presets.get((state["material"], "PL"))
+        selected = presets.get(state["material"])
+        raman_preset = selected if (selected and selected.block_for("Raman")) else None
+        pl_preset = selected if (selected and selected.block_for("PL")) else None
         if raman_preset is None:
-            st.caption("No Raman preset for this material — the Raman section will be omitted.")
+            st.caption("No Raman settings for this material — the Raman section will be omitted.")
         if pl_preset is None:
-            st.caption("No PL preset for this material — the PL section will be omitted.")
+            st.caption("No PL settings for this material — the PL section will be omitted.")
 
         # ------------------------------------------------------------ Generate
         st.subheader("4. Generate Report")
@@ -164,11 +176,20 @@ if scan is not None:
                     progress_bar.progress(fraction, text=message)
                     status.update(label=message)
 
+                # Counting columns costs ~2 ms per file and is what keeps the
+                # bar proportional: a folder whose files hold 25 spectra each
+                # spends three quarters of the run fitting, against the 21.5%
+                # the stage weights reserve for a one-spectrum-per-point sample.
+                fit_spectra = sum(
+                    count_spectra(path)
+                    for path in list(scan.raman_files.values()) + list(scan.pl_files.values())
+                )
                 progress = build_progress(
                     _report,
                     has_raman=bool(scan.raman_files),
                     has_pl=bool(scan.pl_files),
                     has_optical=bool(om_paths),
+                    fit_spectra=fit_spectra,
                 )
 
                 has_spectra = bool(scan.raman_files) or bool(scan.pl_files)
@@ -208,13 +229,25 @@ if scan is not None:
                     Reports per column, because each column is one kaleido
                     rasterization costing ~1.3 s and there is no progress to be
                     had inside one. Six of them is most of the wait."""
-                    by_point = dict(point_spectra)
+                    # The grid shows one panel per grid point, but a multi-spectrum
+                    # file contributes many fits at the same point. Show each
+                    # point's best-fitting spectrum: dict(point_spectra) would keep
+                    # whichever happened to be parsed last, which is arbitrary and
+                    # silently so.
+                    def _quality(spectrum):
+                        return spectrum.fit_result.r_squared if spectrum.fit_result else -1.0
+
+                    by_point = {}
+                    for point, spectrum in point_spectra:
+                        best = by_point.get(point)
+                        if best is None or _quality(spectrum) > _quality(best):
+                            by_point[point] = spectrum
 
                     # Ranges are computed from the normalized series, because that
                     # is what actually gets drawn — every point divided by its own
                     # tallest peak, so each panel's peak lands at 1.0.
                     normalized = []
-                    for _point, s in point_spectra:
+                    for s in by_point.values():
                         scale = peak_normalization_scale(s.processed_data.Y, s.fit_result)
                         curve = s.fit_result.total_fit_curve if s.fit_result else None
                         normalized.append((
@@ -270,21 +303,29 @@ if scan is not None:
                     if batch_result.pl_spectra else None
                 )
 
-                state["raman_stats"] = (
-                    aggregate_fit_results([s.fit_result for _, s in batch_result.raman_spectra])
-                    if batch_result.raman_spectra else None
+                # One quality gate, applied once, feeding every summary below —
+                # the stats tables, the intensity ratios and the .xlsx — so no
+                # two surfaces can be working from a different set of fits.
+                # Pairs, not bare fits: outlier removal is per grid point.
+                raman_pairs = filter_fits_by_quality(
+                    [(point, s.fit_result) for point, s in batch_result.raman_spectra]
                 )
+                pl_pairs = filter_fits_by_quality(
+                    [(point, s.fit_result) for point, s in batch_result.pl_spectra]
+                )
+
+                state["raman_stats"] = aggregate_fit_results(raman_pairs) if raman_pairs else None
                 # PL leads with the empirical measurement — the tallest point of each
                 # processed spectrum, no fit involved — then the fitted peaks. Same
                 # "Raw" row the on-screen table and the master CSV already show.
                 if batch_result.pl_spectra:
                     pl_spectra = [s for _, s in batch_result.pl_spectra]
-                    pl_stats = aggregate_fit_results([s.fit_result for s in pl_spectra])
+                    pl_stats = aggregate_fit_results(pl_pairs)
                     raw_stat = aggregate_raw_peak_stats(pl_spectra)
                     state["pl_stats"] = ([raw_stat] + pl_stats) if raw_stat else pl_stats
                 else:
                     state["pl_stats"] = None
-                raman_fits = [s.fit_result for _, s in batch_result.raman_spectra]
+                raman_fits = [fit for _, fit in raman_pairs]
                 raman_ratios = []
                 for numerator, denominator in _RAMAN_RATIO_PAIRS:
                     ratio = compute_peak_intensity_ratio(raman_fits, numerator, denominator)

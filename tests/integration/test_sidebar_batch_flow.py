@@ -14,6 +14,8 @@ the report survives to the user is a Streamlit lifecycle question.
 import numpy as np
 from streamlit.testing.v1 import AppTest
 
+from core.paths import PROJECT_ROOT
+
 
 def _write_silicon_raman_file(path, seed, peak_center=520.0):
     """A single peak matching data/materials.json's Silicon (Raman) preset."""
@@ -38,7 +40,7 @@ def _app_with_files(tmp_path, count=3):
         _write_silicon_raman_file(path, seed=i)
         paths.append(str(path))
 
-    at = AppTest.from_file("pages/1_Spectra.py", default_timeout=180)
+    at = AppTest.from_file(str(PROJECT_ROOT / "pages/1_Spectra.py"), default_timeout=180)
     at.session_state["pending_files_to_load"] = paths
     at.run()
     return at
@@ -52,7 +54,7 @@ def _select_silicon(at):
     format_func index into the string ('S (i)').
     """
     material = next(s for s in at.sidebar.selectbox if "aterial" in (s.label or ""))
-    material.set_value(("Silicon", "Raman")).run()
+    material.set_value("Silicon").run()
     return at
 
 

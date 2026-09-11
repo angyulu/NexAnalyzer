@@ -5,6 +5,208 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2026-09-11
+
+Breaking: `data/materials.json` changes shape. A preset is now keyed by
+**material alone**, not by material-and-technique, and holds nested `raman`,
+`pl` and `optical` blocks. The committed store is migrated in this same change;
+a local uncommitted v1 file is migrated on load by a shim that can be deleted
+once no one has one.
+
+### Fixed
+
+- **The preset's centre tolerance is honoured.** `fit_voigt_peaks()` re-ran
+  `calculate_auto_bounds()` unconditionally, overwriting each peak's
+  `center_tolerance` with the mode default of ±5 cm⁻¹. Five of WSe₂'s seven
+  peaks were fitted against a tolerance they never asked for; LA, which asks for
+  ±10, railed against the ±5 wall it was given and reported 130.011 ± 0.026 — a
+  standard deviation of 0.026 across 225 fits being the signature of a peak
+  pinned to a bound rather than a peak that was measured. The tolerance now
+  travels on `PeakDefinition.center_tolerance` and survives every recalculation.
+  This contradicted CLAUDE.md's "the preset owns position and width" and moves
+  every WSe₂ number; see **Re-baselined** below.
+- **A peak placed outside the spectrum no longer reports a fictional position.**
+  Clamping the tolerance window to the data range inverts it when the peak lies
+  outside the data entirely — WSe₂'s "center" template sits at 0 cm⁻¹ while the
+  same preset crops to x_min=6, which produced `center_min=6.674 >
+  center_max=3.000`. lmfit takes an inverted bound without complaint, silently
+  **swaps** the two, and fits inside the window that swap invents: the reported
+  centre, 6.405 before this change, belonged to neither the preset nor the data.
+  `calculate_auto_bounds` now pins such a peak to the nearest edge, and
+  `fit_voigt_peaks` expresses that as a fixed parameter rather than a degenerate
+  range, which lmfit rejects outright.
+- **`Raman_1.txt` is read as Raman by both filename rules.** `sample_scanner`
+  accepted `RAMAN` and `RM`; `detect_mode_from_filename` knew only `RM`, so
+  VABD38's naming was collected by the scanner and unlabelled by the detector.
+  Both now read one shared `RAMAN_PREFIXES` / `PL_PREFIXES` in `parser.py`.
+- **A preset can no longer relabel a folder of Raman spectra as PL.** The
+  sidebar rewrote *every* loaded file's mode to the selected preset's, Raman
+  files included. Technique now comes from each file's own filename.
+- **`enabled` is a real control.** `pages/3_Material_Presets.py` hardcoded
+  `True` on save, so nothing could write `False` and editing a hand-disabled
+  preset silently re-enabled it. It has a checkbox now.
+
+### Added
+
+- **Optical tuning lives in the preset.** `nsigma`, `minpx`, `mask_margin` and
+  `ff_divisor` were module constants in `contrast.py`, so the tuning
+  docs/OM_Contrast_Algo.md tells an operator to do ("5 if the operator reports
+  over-count; 3 if faint domains are missed") meant editing source. They are now
+  an `optical` block on the material, **split by layer** — a monolayer film's
+  optical contrast against SiO₂/Si differs from a bilayer's, while a Raman or PL
+  spectrum does not: the signal says which peaks it has.
+- **Two OM images.** The QC Panel produces a clean segmentation grid for a
+  report and a diagnostic copy carrying the green-channel histograms for
+  internal review, from one segmentation — the ~30 s of analysis happens once
+  and only the ~5 s render repeats. Saving writes `_OM`, `_OM_diagnostic` and
+  `_Raman` from one dialog. The histograms are what make a saturated frame
+  legible *as* one, which is exactly what a customer reading a report does not
+  need.
+- **Stale figures are cleared per block.** Editing a Raman peak no longer
+  discards a 30-second OM segmentation. `preset_staleness` fingerprints the
+  `raman` and `optical` blocks separately, and the QC Panel drops only the
+  figures whose source block changed.
+- **The sidebar says what the filenames said.** Now that technique comes from
+  the filename and `detect_mode_from_filename` falls back to "Raman" for a name
+  it doesn't recognise, the sidebar shows the mix (`3 Raman, 1 PL, 2 undetected →
+  Raman`) and "Run All Files" skips the undetected ones. A guess that nothing
+  distinguishes from a reading is worse than no reading.
+- **WSe₂ carries a bilayer optical block**, seeded with the algorithm's own
+  defaults so it is visible and editable without changing any number. Its
+  monolayer block stays absent until it is tuned against VABD38; the QC Panel
+  says which it is running.
+
+### Changed
+
+- **`data/materials.json` is v2**, an object with `schema_version` and
+  `materials` rather than a bare array — the discriminator is the JSON *type*,
+  so a half-migrated file is detected rather than guessed at. `migrate_legacy`
+  is a pure function (dicts in, dicts out) and raises rather than guessing on an
+  entry carrying both shapes, on a material appearing in both halves, and on a
+  duplicate material in the new shape. Unknown `optical` layer keys round-trip
+  untouched and are reported by `validate()`: a loader that silently drops part
+  of a file turns "I loaded it" into "I edited it".
+- **`MaterialPreset` splits into `MaterialPreset` + `TechniquePreset` +
+  `OpticalParams`.** `mode` leaves the preset entirely. `OpticalParams` fields
+  default to `None` meaning "use `contrast.py`'s default", so the numbers live in
+  one place and a material with no optical block produces
+  `analyse_frame(**{})` — byte-identical to v3.10.0, which is what keeps
+  `tests/unit/test_om_contrast.py`'s locked numbers meaningful.
+- **The Material Presets page is one expander per material**, with Raman, PL and
+  side-by-side optical layer sections. Layers are stored as `"1L"`/`"2L"` and
+  rendered through `contrast.layer_word()`; the stored form is never the word,
+  since that helper is one-way presentation and passes unknown values through.
+- **The QC Panel's section 3 is "Layer"**, not "Reference Layer", because it now
+  selects a tuning block as well as the class labels. Class names are unchanged:
+  Below 2L / Bilayer / Above 2L.
+- **`contrast.flatfield` takes `ff_divisor`**, plumbed through `analyse` and
+  `analyse_frame`. It is a divisor, not a sigma: the blur runs at
+  max(H, W) / ff_divisor, so a larger number means a *smaller* sigma.
+  `mask_margin` and `ff_divisor` apply to both frame types — whether a frame is
+  circular is decided per image at runtime by `is_circular()`, so a preset has no
+  way to address one of them, and a name implying otherwise would promise a
+  precision that cannot exist.
+
+### Re-baselined
+
+TSM260803, 225 spectra, before → after the centre-tolerance fixes:
+
+| Peak | Centre | FWHM |
+| --- | --- | --- |
+| E₂g+A₁g | 249.951 → 249.952 | 7.066 → 7.102 |
+| 2LA | 260.292 → 260.327 | 5.797 → 5.622 |
+| B2g | 308.510 → 308.467 | 4.234 → 4.348 |
+| LB | 28.100 → 27.899 | 4.278 → 4.539 |
+| LA | **130.011 ± 0.026 → 125.543 ± 0.835** | 36.778 → 36.831 |
+| C | 16.620 → 16.385 | 8.283 → 8.853 |
+| center | **6.405 → 6.674 (pinned)** | 8.400 → 7.619 |
+
+LA/E₂g+A₁g 0.1503 → 0.1519; B2g/E₂g+A₁g 0.1040 → 0.1031. The schema move itself
+changed no fitted value: the post-migration run is bit-identical to the
+post-fix one.
+
+### Known issues
+
+- **LA is still cornered, now against the preset's own walls.** 130 of 225 fits
+  sit at its ±10 lower bound (125.0), and its Voigt FWHM is railed at 36.83
+  against a ceiling of 36.844 — `width_max = 3 × width_fwhm = 45` in σ and γ,
+  which is voigt_fwhm(σ_max, γ_max) = 36.844. Both need preset numbers raised,
+  which is a decision about the material rather than about the code.
+- **TSM260803 remains out of spec on both Raman indicators**: E₂g+A₁g FWHM 7.10
+  vs 7.0, defect ratio 0.152 vs 0.13.
+- **The deck still shows raw OM frames on slide 1.** The clean image is the
+  obvious replacement once it has been used on a few wafers.
+
+## [3.10.0] - 2026-09-11
+
+### Added
+- **QC Panel, a fourth section.** Point it at a sample folder, pick the
+  reference layer, press Run: it produces an OM layer-segmentation figure and a
+  Raman quality figure, and skips either one when the sample has no data for it.
+  A sample like `TSM260803` — 50x optical frames and Raman, no PL — produces two
+  images and no empty PL placeholder.
+- **Optical-microscopy layer segmentation** (`modules/optical/`), a new
+  technique module alongside `modules/spectra/`. The algorithm classifies each
+  pixel as darker than the film, the film, or brighter, from the green channel's
+  own noise width; it is vendored from the `tmd_contrast.py` research script and
+  its reasoning is in [docs/OM_Contrast_Algo.md](docs/OM_Contrast_Algo.md).
+  Reproduces that script's output on nine real 50x frames to within rounding.
+- **Classes are named ordinally** — "Below 2L" / "Bilayer" / "Above 2L" — rather
+  than "Substrate" / "Bilayer" / "Multilayer". On a bilayer film, darker than
+  the film could be monolayer or bare substrate, and a single frame cannot tell
+  them apart; the old naming asserted more than the measurement supports.
+- **The OM figure carries a diagnostics row**: the nine green-channel histograms
+  with each frame's mode and both thresholds marked. Coverage percentages alone
+  cannot show whether a frame segmented sensibly — the predecessor algorithm's
+  characteristic failure was every position reading 99 %+ of one class, which in
+  an overlay looks like a clean wafer rather than a broken measurement.
+- **matplotlib** is now a dependency, used only for these two figures.
+
+### Fixed
+- **Multi-spectrum files are fitted instead of silently skipped.** A sample
+  folder's `Raman_N.txt` is often a map — one X column plus 25 or 100 intensity
+  columns — and the Sample Report parsed it with the two-column
+  `parse_spectrum()`, which failed, so every such point was excluded and the
+  report's Raman half came out empty. `parse_spectrum_multi()` already existed
+  and was simply not wired in. `TSM260803` goes from 0 fitted spectra to 225.
+  Documented as Known Issue #4 in docs/Summary.md since v2.x.
+- **The whole integration test suite was dead.** Streamlit 1.63 resolves a
+  relative `AppTest.from_file` path against the file that calls it rather than
+  the working directory, so all 15 integration tests failed with
+  `FileNotFoundError` before executing a single page. They now resolve through
+  `core.paths.PROJECT_ROOT`.
+- **The fitting progress bar no longer freezes** when a file yields more
+  spectra than the caller estimated. `sub_callback`'s `totals` is now a floor it
+  raises when a label reports more, instead of a fixed denominator that a
+  25-spectrum file overshoots 25-fold on its first tick.
+- **The progress bar is proportional on multi-spectrum samples.** The stage
+  weights were measured on a sample holding one spectrum per point, and fitting
+  is the only stage whose cost scales with that count — measured on TSM260803 it
+  took 77 % of the run against a declared 21.5 %, so the bar crawled through its
+  first fifth and then jumped to done. `stages_for()` now takes `fit_spectra`
+  and scales that one weight; `parser.count_spectra()` reads a single row to
+  supply it, about 2 ms per file.
+
+### Changed
+- **Fit quality is gated and outliers are cut, on every surface.** Fits with
+  R-squared at or below 0.5 are dropped, then values outside 1.5x Tukey fences
+  *within their own grid position* are excluded from each metric. Cleaning per
+  position rather than per sample is deliberate: position-to-position variation
+  is the signal the report exists to show, and pooled cleaning would delete it.
+  Single-spectrum samples are unaffected — one value per position has no spread
+  to judge an outlier against.
+- **`aggregate_fit_results()` takes `(point, FitResult)` pairs**, not bare fits,
+  since per-position cleaning needs to know the positions.
+- **The B2g / E2g+A1g intensity ratio is replaced by C / LB**, reported as the
+  "stacking ratio", in the .pptx table, both CSVs and the Excel summary. C and
+  LB are the shear and layer-breathing modes — both interlayer vibrations, so
+  their ratio speaks to how the two layers sit on each other, which is what a
+  bilayer wafer is judged on. This matches the inherited WSe2 analysis, so the
+  QC Panel's figure and the report's table cannot disagree.
+- **The Sample Report's fitted-spectra grid shows each position's best fit** by
+  R-squared. With many spectra per position the previous `dict()` kept whichever
+  parsed last, which was arbitrary and silently so.
+
 ## [3.9.1] - 2026-09-07
 
 ### Fixed

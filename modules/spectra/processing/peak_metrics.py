@@ -23,7 +23,7 @@ codebase; a caller that wants the integrated quantity takes `FittedPeak.area`
 and labels it "area".
 """
 
-from typing import List, NamedTuple, Optional, Tuple
+from typing import List, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -95,46 +95,130 @@ def raw_peak_stats(x: np.ndarray, y: np.ndarray) -> Optional[RawPeakStats]:
     return RawPeakStats(intensity=intensity, center=center, fwhm=fwhm)
 
 
-def aggregate_fit_results(fit_results: List[FitResult]) -> List[PeakStat]:
+R_SQUARED_MIN = 0.5
+"""Fits at or below this R-squared are dropped before anything is aggregated.
+
+Inherited from the WSe2 analysis scripts, which gate every Raman and PL fit
+this way before plotting or summarizing. A spectrum whose fit explains less
+than half the variance is not a measurement of anything; averaging it in moves
+a reported mean without moving `n`, so the number looks better-supported than
+it is.
+"""
+
+IQR_FENCE = 1.5
+"""Tukey fence multiplier for the per-point outlier cut. Also inherited."""
+
+
+def iqr_mask(values: np.ndarray) -> np.ndarray:
     """
-    Group fitted peaks by label across `fit_results` and compute mean/std/n
-    of center, intensity, and width_fwhm for each label.
+    A boolean mask keeping values inside 1.5x Tukey fences.
+
+    Returns all-True when the interquartile range is zero, which is what makes
+    this safe on small samples: a single measurement, or several identical
+    ones, has no spread to judge an outlier against, so nothing is dropped.
+    That is the property that leaves one-spectrum-per-point samples — every
+    sample the app could fit before multi-spectrum parsing — numerically
+    untouched by this filter.
+    """
+    values = np.asarray(values, dtype=float)
+    if values.size == 0:
+        return np.zeros(0, dtype=bool)
+    q1, q3 = np.percentile(values, [25, 75])
+    iqr = q3 - q1
+    if iqr <= 0:
+        return np.ones(values.size, dtype=bool)
+    return (values >= q1 - IQR_FENCE * iqr) & (values <= q3 + IQR_FENCE * iqr)
+
+
+def filter_fits_by_quality(
+    fits_by_point: Sequence[Tuple[int, FitResult]],
+    r_squared_min: float = R_SQUARED_MIN,
+) -> List[Tuple[int, FitResult]]:
+    """
+    Drop fits whose R-squared is at or below `r_squared_min`, preserving order.
+
+    Kept a separate, named step rather than folded into the aggregation so the
+    gate is visible at the call site and so every downstream summary — the
+    stats tables, the intensity ratios, the quality figure — is demonstrably
+    working from the same surviving set.
+    """
+    return [(point, fit) for point, fit in fits_by_point if fit.r_squared > r_squared_min]
+
+
+def _clean_pool(by_point: dict) -> np.ndarray:
+    """Concatenate every point's IQR-surviving values into one pooled array."""
+    kept = [np.asarray(v, float)[iqr_mask(v)] for v in by_point.values() if len(v)]
+    return np.concatenate(kept) if kept else np.zeros(0)
+
+
+def _mean_std(pooled: np.ndarray) -> Tuple[float, float]:
+    if pooled.size == 0:
+        return 0.0, 0.0
+    if pooled.size == 1:
+        return float(pooled[0]), 0.0
+    return float(np.mean(pooled)), float(np.std(pooled, ddof=1))
+
+
+def aggregate_fit_results(
+    fits_by_point: Sequence[Tuple[int, FitResult]],
+) -> List[PeakStat]:
+    """
+    Group fitted peaks by label across `(point, fit_result)` pairs and compute
+    mean/std/n of center, intensity, and width_fwhm for each label.
 
     Intensity, not `FittedPeak.area` — see the module docstring.
 
-    Label order follows first-seen order. Standard deviation uses ddof=1
-    when n > 1, else 0.0 (a single point has no spread). Callers should
-    pass only successful fits; `FitResult.success` is not checked here.
+    Takes pairs rather than bare fits because outlier removal is **per point**:
+    a multi-spectrum file contributes many fits at one grid position, and the
+    spread that matters is within a position, not across the wafer. Cleaning
+    across the whole sample would mistake real position-to-position variation
+    for noise and delete it — which is exactly the variation the report exists
+    to show.
+
+    Values outside 1.5x Tukey fences within their own point are excluded from
+    each metric independently, since a fit can be sound in center and wild in
+    width. `n` counts the fits contributing that peak, before that per-metric
+    cut, so it reports measurements taken rather than a different number for
+    every column.
+
+    Label order follows first-seen order. Standard deviation uses ddof=1 when
+    more than one value survives, else 0.0. Callers should pass only successful
+    fits, already gated by `filter_fits_by_quality`; neither `FitResult.success`
+    nor R-squared is re-checked here.
     """
-    centers: dict = {}
-    intensities: dict = {}
-    fwhms: dict = {}
+    metrics: dict = {}
+    counts: dict = {}
     order: List[str] = []
 
-    for fit_result in fit_results:
+    for point, fit_result in fits_by_point:
         for peak in fit_result.fitted_peaks:
-            if peak.label not in centers:
-                centers[peak.label] = []
-                intensities[peak.label] = []
-                fwhms[peak.label] = []
-                order.append(peak.label)
-            centers[peak.label].append(peak.center)
-            intensities[peak.label].append(peak_intensity(peak))
-            fwhms[peak.label].append(peak.width_fwhm)
+            label = peak.label
+            if label not in metrics:
+                metrics[label] = {"center": {}, "intensity": {}, "fwhm": {}}
+                counts[label] = 0
+                order.append(label)
+            counts[label] += 1
+            for key, value in (
+                ("center", peak.center),
+                ("intensity", peak_intensity(peak)),
+                ("fwhm", peak.width_fwhm),
+            ):
+                metrics[label][key].setdefault(point, []).append(value)
 
     stats = []
     for label in order:
-        n = len(centers[label])
-        ddof = 1 if n > 1 else 0
+        center_mean, center_std = _mean_std(_clean_pool(metrics[label]["center"]))
+        intensity_mean, intensity_std = _mean_std(_clean_pool(metrics[label]["intensity"]))
+        fwhm_mean, fwhm_std = _mean_std(_clean_pool(metrics[label]["fwhm"]))
         stats.append(PeakStat(
             label=label,
-            n=n,
-            center_mean=float(np.mean(centers[label])),
-            center_std=float(np.std(centers[label], ddof=ddof)) if n > 1 else 0.0,
-            intensity_mean=float(np.mean(intensities[label])),
-            intensity_std=float(np.std(intensities[label], ddof=ddof)) if n > 1 else 0.0,
-            fwhm_mean=float(np.mean(fwhms[label])),
-            fwhm_std=float(np.std(fwhms[label], ddof=ddof)) if n > 1 else 0.0,
+            n=counts[label],
+            center_mean=center_mean,
+            center_std=center_std,
+            intensity_mean=intensity_mean,
+            intensity_std=intensity_std,
+            fwhm_mean=fwhm_mean,
+            fwhm_std=fwhm_std,
         ))
 
     return stats

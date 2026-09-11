@@ -1,12 +1,15 @@
 """Unit tests for modules.spectra.processing.peak_metrics (per-peak numbers + aggregation)."""
 
 import numpy as np
+import pytest
 
 from modules.spectra.models.peak import FitResult, FittedPeak
 from modules.spectra.processing.peak_metrics import (
     aggregate_fit_results,
     aggregate_raw_peak_stats,
     compute_peak_intensity_ratio,
+    filter_fits_by_quality,
+    iqr_mask,
     peak_intensity,
     peak_intensity_and_stderr,
     raw_peak_stats,
@@ -31,11 +34,11 @@ def _peak(label, center, intensity, width_fwhm, area=None):
     )
 
 
-def _fit_result(peaks):
+def _fit_result(peaks, r_squared=0.99):
     return FitResult(
         success=True, fitted_peaks=peaks,
         total_fit_curve=np.zeros(10), residuals=np.zeros(10),
-        chi_squared=1.0, r_squared=0.99, convergence_time=0.1,
+        chi_squared=1.0, r_squared=r_squared, convergence_time=0.1,
     )
 
 
@@ -45,7 +48,7 @@ class TestAggregateFitResults:
             _fit_result([_peak("Exciton", 766.0, 10000.0, 25.0)]),
             _fit_result([_peak("Exciton", 768.0, 12000.0, 27.0)]),
         ]
-        stats = aggregate_fit_results(fits)
+        stats = aggregate_fit_results(list(enumerate(fits)))
 
         assert len(stats) == 1
         stat = stats[0]
@@ -58,7 +61,7 @@ class TestAggregateFitResults:
 
     def test_single_fit_has_zero_std(self):
         fits = [_fit_result([_peak("Si", 520.0, 5000.0, 8.0)])]
-        stats = aggregate_fit_results(fits)
+        stats = aggregate_fit_results(list(enumerate(fits)))
 
         assert stats[0].n == 1
         assert stats[0].center_std == 0.0
@@ -70,7 +73,7 @@ class TestAggregateFitResults:
             _fit_result([_peak("Exciton", 766.0, 10000.0, 25.0), _peak("Trion", 785.0, 3000.0, 45.0)]),
             _fit_result([_peak("Exciton", 767.0, 11000.0, 26.0), _peak("Trion", 786.0, 3100.0, 46.0)]),
         ]
-        stats = aggregate_fit_results(fits)
+        stats = aggregate_fit_results(list(enumerate(fits)))
 
         assert [s.label for s in stats] == ["Exciton", "Trion"]
 
@@ -79,7 +82,7 @@ class TestAggregateFitResults:
             _fit_result([_peak("Exciton", 766.0, 10000.0, 25.0), _peak("Trion", 785.0, 3000.0, 45.0)]),
             _fit_result([_peak("Exciton", 767.0, 11000.0, 26.0)]),  # no Trion this point
         ]
-        stats = {s.label: s for s in aggregate_fit_results(fits)}
+        stats = {s.label: s for s in aggregate_fit_results(list(enumerate(fits)))}
 
         assert stats["Exciton"].n == 2
         assert stats["Trion"].n == 1
@@ -93,7 +96,7 @@ class TestAggregateFitResults:
         surface in the app."""
         fits = [_fit_result([_peak("LA", 130.0, intensity=36.0, width_fwhm=22.0, area=1800.0)])]
 
-        assert aggregate_fit_results(fits)[0].intensity_mean == 36.0
+        assert aggregate_fit_results(list(enumerate(fits)))[0].intensity_mean == 36.0
 
 
 class TestComputePeakIntensityRatio:
@@ -185,7 +188,7 @@ class TestQuantityNamingIsUnambiguous:
 
     def test_peak_stat_reports_intensity_under_that_name(self):
         fits = [_fit_result([_peak("LA", 130.0, intensity=36.0, width_fwhm=22.0)])]
-        stat = aggregate_fit_results(fits)[0]
+        stat = aggregate_fit_results(list(enumerate(fits)))[0]
 
         assert not hasattr(stat, "amplitude_mean")
         assert not hasattr(stat, "height_mean")
@@ -346,3 +349,87 @@ class TestAggregateRawPeakStats:
 
     def test_empty_spectra_return_none(self):
         assert aggregate_raw_peak_stats([_Spectrum(np.array([]), np.array([]))]) is None
+
+
+class TestIqrMask:
+    """The outlier cut inherited from the WSe2 analysis scripts."""
+
+    def test_keeps_everything_when_there_is_no_spread(self):
+        """The property that makes this safe on one-spectrum-per-point samples:
+        no spread means no basis for calling anything an outlier, so nothing is
+        dropped and existing reports keep their numbers."""
+        assert iqr_mask(np.array([5.0])).all()
+        assert iqr_mask(np.array([5.0, 5.0, 5.0])).all()
+
+    def test_drops_a_value_outside_the_fences(self):
+        values = np.array([10.0, 10.1, 9.9, 10.2, 9.8, 500.0])
+
+        mask = iqr_mask(values)
+
+        assert not mask[-1]
+        assert mask[:-1].all()
+
+    def test_empty_input_gives_empty_mask(self):
+        assert iqr_mask(np.array([])).shape == (0,)
+
+
+class TestFilterFitsByQuality:
+    def test_drops_fits_at_or_below_the_r_squared_gate(self):
+        good = _fit_result([_peak("Si", 520.0, 100.0, 5.0)], r_squared=0.95)
+        bad = _fit_result([_peak("Si", 520.0, 100.0, 5.0)], r_squared=0.4)
+
+        kept = filter_fits_by_quality([(1, good), (2, bad)])
+
+        assert [point for point, _ in kept] == [1]
+
+    def test_boundary_value_is_excluded(self):
+        edge = _fit_result([_peak("Si", 520.0, 100.0, 5.0)], r_squared=0.5)
+
+        assert filter_fits_by_quality([(1, edge)]) == []
+
+    def test_preserves_order_and_point_pairing(self):
+        fits = [(p, _fit_result([_peak("Si", 520.0, 100.0, 5.0)])) for p in (3, 1, 2)]
+
+        assert [point for point, _ in filter_fits_by_quality(fits)] == [3, 1, 2]
+
+
+class TestPerPointOutlierRemoval:
+    """Aggregation cleans within a grid point, never across the wafer."""
+
+    def _at(self, point, center):
+        return (point, _fit_result([_peak("Si", center, 100.0, 5.0)]))
+
+    def test_an_outlier_within_one_point_is_excluded_from_the_mean(self):
+        fits = [self._at(1, c) for c in (520.0, 520.1, 519.9, 520.2, 519.8, 600.0)]
+
+        stat = aggregate_fit_results(fits)[0]
+
+        assert stat.center_mean == pytest.approx(520.0, abs=0.05)
+
+    def test_n_counts_measurements_taken_not_survivors(self):
+        """`n` says how many spectra contributed the peak. Per-metric cuts move
+        the mean, not the count, so one number doesn't become three."""
+        fits = [self._at(1, c) for c in (520.0, 520.1, 519.9, 520.2, 519.8, 600.0)]
+
+        assert aggregate_fit_results(fits)[0].n == 6
+
+    def test_position_to_position_variation_survives_cleaning(self):
+        """One spectrum per point across nine points: the spread between points
+        is the signal the report exists to show. Cleaning the pooled set would
+        delete it, so cleaning has to happen inside a point."""
+        fits = [self._at(p, 520.0 + p) for p in range(1, 10)]
+
+        stat = aggregate_fit_results(fits)[0]
+
+        assert stat.n == 9
+        assert stat.center_std == pytest.approx(np.std(
+            [520.0 + p for p in range(1, 10)], ddof=1
+        ))
+
+    def test_many_spectra_at_one_point_aggregate_to_that_point(self):
+        fits = [self._at(1, 520.0), self._at(1, 521.0), self._at(2, 530.0)]
+
+        stat = aggregate_fit_results(fits)[0]
+
+        assert stat.n == 3
+        assert stat.center_mean == pytest.approx((520.0 + 521.0 + 530.0) / 3)
