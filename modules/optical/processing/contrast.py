@@ -181,7 +181,24 @@ def despeckle(m: np.ndarray, minpx: int) -> np.ndarray:
     return np.isin(cc, np.where(sz >= minpx)[0] + 1)
 
 
-def classify(g: np.ndarray, valid: np.ndarray, nsigma: float, minpx: int):
+def _threshold_pair(abs_threshold) -> Tuple[float, float]:
+    """`abs_threshold` as an explicit (below, above) percent pair.
+
+    A scalar means the same cut on both sides. A 2-tuple states them
+    separately, which the HA bilayer films need: 2L->3L is one layer step up,
+    but 2L->substrate can be two or more steps down, so the natural boundaries
+    sit at roughly +4 % and -6 % and are not mirror images. Thresholding
+    symmetrically puts the low cut inside the film's own noise and inflates the
+    "Below" class -- which is what over-reported substrate on the 202609 set.
+    """
+    if isinstance(abs_threshold, (tuple, list)):
+        below, above = abs_threshold
+        return float(below), float(above)
+    return float(abs_threshold), float(abs_threshold)
+
+
+def classify(g: np.ndarray, valid: np.ndarray, nsigma: float, minpx: int,
+             abs_threshold=None):
     """
     Split `valid` pixels into darker / reference / brighter by the green
     channel's own noise width.
@@ -191,14 +208,35 @@ def classify(g: np.ndarray, valid: np.ndarray, nsigma: float, minpx: int):
     shoulder that inflates its own half-width, so using each side's own sigma
     pushes that threshold away from the very domains it should be catching.
     The narrower side is the uncontaminated noise width.
+
+    `abs_threshold` overrides that rule with a fixed green contrast, in percent
+    of the film mode, and exists because `min(sigma_l, sigma_r)` protects only
+    against *one* contaminated side. A film whose domains are small and
+    pervasive rather than few and large widens **both** halves equally, the
+    minimum is then no longer a noise width, and the threshold it sets rises
+    above a full layer step -- so the population hides itself. HADH51 is the
+    worked example: nine frames whose sigma_l and sigma_r agree to twelve
+    decimal places, 4 sigma landing at +7.1 % against a ~5 % layer step, and
+    0.14 % of a visibly trilayer-rich film reported as "Above 2L".
+
+    Stated as a contrast the threshold cannot be moved by the very thing it
+    measures. Half a layer step (~2.5 %) is the midpoint between the reference
+    film at 0 % and the next layer at ~+5 %, which is where a decision boundary
+    belongs. The sigma statistics are still computed and returned, because the
+    diagnostic histograms draw them and `shoulder` still reads as intended.
     """
     st = histogram_stats(g[valid])
     st["sigma_noise"] = min(st["sigma_l"], st["sigma_r"])          # key step
     st["shoulder"] = bool(
         max(st["sigma_l"], st["sigma_r"]) / max(st["sigma_noise"], 1e-6) > SHOULDER_RATIO
     )
-    st["th_hi"] = st["mode"] + nsigma * st["sigma_noise"]
-    st["th_lo"] = st["mode"] - nsigma * st["sigma_noise"]
+    if abs_threshold is None:
+        st["th_hi"] = st["mode"] + nsigma * st["sigma_noise"]
+        st["th_lo"] = st["mode"] - nsigma * st["sigma_noise"]
+    else:
+        below, above = _threshold_pair(abs_threshold)
+        st["th_hi"] = st["mode"] * (1.0 + above / 100.0)
+        st["th_lo"] = st["mode"] * (1.0 - below / 100.0)
     hi = despeckle((g > st["th_hi"]) & valid, minpx)
     lo = despeckle((g < st["th_lo"]) & valid, minpx)
     ref = valid & ~hi & ~lo
@@ -233,7 +271,8 @@ def measure(s: np.ndarray, lo: np.ndarray, ref: np.ndarray,
 
 def analyse(path, ref_label: str, nsigma: float = DEFAULT_NSIGMA,
             minpx: int = DEFAULT_MINPX, margin: Optional[float] = None,
-            ff_divisor: Optional[float] = None) -> dict:
+            ff_divisor: Optional[float] = None,
+            abs_threshold=None) -> dict:
     """Segment one frame. Returns the raw working dict; see `analyse_frame`."""
     a = load(path)
     aperture, valid, ftype = make_mask(a, margin)
@@ -244,7 +283,7 @@ def analyse(path, ref_label: str, nsigma: float = DEFAULT_NSIGMA,
     s = ndi.gaussian_filter(
         flat, sigma=(SMOOTH_SIGMA, SMOOTH_SIGMA, 0), mode="nearest"
     )
-    lo, ref, hi, st = classify(s[..., 1], valid, nsigma, minpx)
+    lo, ref, hi, st = classify(s[..., 1], valid, nsigma, minpx, abs_threshold)
     meas = measure(s, lo, ref, hi, valid)
     return dict(a=a, s=s, valid=valid, lo=lo, ref=ref, hi=hi, st=st,
                 meas=meas, ftype=ftype, ref_label=ref_label)
@@ -294,16 +333,18 @@ def _overlay(res: dict) -> np.ndarray:
 def analyse_frame(path, point: int, ref_label: str, name: Optional[str] = None,
                   nsigma: float = DEFAULT_NSIGMA, minpx: int = DEFAULT_MINPX,
                   margin: Optional[float] = None,
-                  ff_divisor: Optional[float] = None) -> FrameResult:
+                  ff_divisor: Optional[float] = None,
+                  abs_threshold=None) -> FrameResult:
     """Segment one frame and return it as a `FrameResult`.
 
     Every tuning argument defaults to the module constant it overrides, so
     `analyse_frame(path, point, ref)` with no tuning is the vendored algorithm
     exactly -- which is what keeps tests/unit/test_om_contrast.py's locked
-    numbers meaningful.
+    numbers meaningful. `abs_threshold` defaults to None for the same reason:
+    unset, `classify` thresholds on nsigma exactly as it always has.
     """
     res = analyse(path, ref_label, nsigma=nsigma, minpx=minpx, margin=margin,
-                  ff_divisor=ff_divisor)
+                  ff_divisor=ff_divisor, abs_threshold=abs_threshold)
     st, meas = res["st"], res["meas"]
     return FrameResult(
         name=name or str(point),

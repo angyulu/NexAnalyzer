@@ -10,7 +10,7 @@ Architecture, data model and the reasoning behind them live in
 ## Commands
 
 ```bash
-pytest                  # 489 tests; pythonpath and testpaths come from pyproject.toml
+pytest                  # 494 tests; pythonpath and testpaths come from pyproject.toml
 python -m ruff check .   # F + E9 only — deliberately narrow, so a hit is real breakage
 streamlit run app.py     # or start.bat, which also creates venv and pulls updates
 ```
@@ -72,6 +72,18 @@ The full reasoning is in the
   `contrast.layer_word()` is one-way presentation and passes unknown values
   through, so keying persisted JSON by its output would orphan every stored
   block the day the wording changed. Render the word, store the code.
+- **Thresholding has two modes, and `nsigma` is still the default.**
+  `classify()` cuts at `mode ± nsigma · min(sigma_l, sigma_r)` unless
+  `abs_threshold` is set, which replaces it with a fixed green contrast in
+  percent — a scalar, or a `(below, above)` pair, since 2L→3L is one layer step
+  up while 2L→substrate can be several down. `min(sigma_l, sigma_r)` protects
+  against *one* contaminated side; a film with small pervasive domains widens
+  both halves equally and then raises its own bar until the domains vanish
+  (HADH51: sigmas equal to twelve decimals, 4σ landing at +7.1 % against a ~5 %
+  layer step). A fixed contrast is only meaningful when
+  `abs_threshold / (sigma_noise / mode)` clears ~2; below that the cut is inside
+  the reference distribution and the percentages are noise. See the v4.4.0
+  section in [docs/OM_Contrast_Algo.md](docs/OM_Contrast_Algo.md).
 - **`OpticalParams` fields default to `None` meaning "contrast.py's default".**
   Keep the numbers in `contrast.py` alone, so a material with no optical block
   runs `analyse_frame(**{})` — which is what keeps
@@ -99,3 +111,5 @@ The full reasoning is in the
   Its tuning figures are still the defaults, but since v4.0.0 they are
   overridable per material and layer from the preset, and the doc's
   "circular"-labelled rows (σ_ff, margin) are applied to both frame types.
+  Its final section documents v4.4.0's `abs_threshold`, which is a deliberate
+  divergence from the vendored algorithm rather than a restatement of it.

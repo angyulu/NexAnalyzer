@@ -305,6 +305,8 @@ class OpticalParams:
     minpx: Optional[int] = None
     mask_margin: Optional[float] = None
     ff_divisor: Optional[float] = None
+    abs_threshold_below: Optional[float] = None
+    abs_threshold_above: Optional[float] = None
 
     #: Field name -> the `contrast.analyse_frame` keyword it sets.
     _KWARGS = {
@@ -314,18 +316,32 @@ class OpticalParams:
         "ff_divisor": "ff_divisor",
     }
 
+    #: Set together or not at all; they become one `abs_threshold` pair.
+    _ABS_FIELDS = ("abs_threshold_below", "abs_threshold_above")
+
     def as_kwargs(self) -> dict:
         """
         Only the fields that are set, keyed as `analyse_frame` wants them.
 
         An unset field is omitted rather than passed as None, so the defaults
         stay written down once, in contrast.py.
+
+        The two `abs_threshold_*` fields collapse into `analyse_frame`'s single
+        `abs_threshold=(below, above)` argument. They are stored apart because a
+        preset editor wants two number boxes, and passed together because the
+        algorithm wants one pair. Setting them switches thresholding from
+        `nsigma` to a fixed contrast; `nsigma` is then unused but still stored,
+        so a preset can be switched back without losing its old value.
         """
-        return {
+        out = {
             keyword: getattr(self, name)
             for name, keyword in self._KWARGS.items()
             if getattr(self, name) is not None
         }
+        below, above = (getattr(self, f) for f in self._ABS_FIELDS)
+        if below is not None and above is not None:
+            out["abs_threshold"] = (below, above)
+        return out
 
     def validate(self) -> List[str]:
         """Error messages for this block alone (empty list if valid)."""
@@ -338,13 +354,23 @@ class OpticalParams:
             errors.append(f"mask_margin {self.mask_margin} out of range [0.0, 0.5)")
         if self.ff_divisor is not None and not (1.0 <= self.ff_divisor <= 64.0):
             errors.append(f"ff_divisor {self.ff_divisor} out of range [1.0, 64.0]")
+        below, above = (getattr(self, f) for f in self._ABS_FIELDS)
+        if (below is None) != (above is None):
+            errors.append(
+                "abs_threshold_below and abs_threshold_above must be set together "
+                "or left unset; one alone does not describe a segmentation"
+            )
+        for name in self._ABS_FIELDS:
+            value = getattr(self, name)
+            if value is not None and not (0.5 <= value <= 50.0):
+                errors.append(f"{name} {value} out of range [0.5, 50.0] %")
         return errors
 
     def to_dict(self) -> dict:
         """Only the fields that are set; absent means "algorithm default"."""
         return {
             name: getattr(self, name)
-            for name in self._KWARGS
+            for name in tuple(self._KWARGS) + self._ABS_FIELDS
             if getattr(self, name) is not None
         }
 

@@ -63,6 +63,19 @@ _OPTICAL_FIELDS = {
         "local background estimate. Raise to ~16 if vignetting is still "
         "visible.",
     ),
+    "abs_threshold_below": (
+        "absolute threshold, below (%)",
+        "Fixed green contrast below the film mode, in percent. Set this and "
+        "the 'above' box together to threshold on contrast instead of nsigma. "
+        "Leave both empty to keep nsigma.",
+    ),
+    "abs_threshold_above": (
+        "absolute threshold, above (%)",
+        "Fixed green contrast above the film mode, in percent. Roughly half a "
+        "layer step (~+4 %) puts the boundary midway between the film and the "
+        "next layer up. Not a mirror of 'below': one layer up is a smaller "
+        "step than the drop to substrate.",
+    ),
 }
 
 

@@ -322,3 +322,38 @@ class TestTuningOverridesAreOptional:
         trimmed = analyse_frame(path, point=1, ref_label="2L", margin=0.25)
 
         assert int(trimmed.valid.sum()) < int(default.valid.sum())
+
+
+class TestAbsoluteThreshold:
+    """The fixed-contrast alternative to nsigma (v4.4.0)."""
+
+    def test_unset_leaves_the_nsigma_path_untouched(self, tmp_path):
+        path = _synthetic_frame(tmp_path)
+        assert (analyse_frame(path, point=1, ref_label="2L").percentages
+                == analyse_frame(path, point=1, ref_label="2L",
+                                 abs_threshold=None).percentages)
+
+    def test_a_scalar_places_both_cuts_symmetrically(self, tmp_path):
+        frame = analyse_frame(_synthetic_frame(tmp_path), point=1, ref_label="2L",
+                              abs_threshold=5.0)
+        assert frame.threshold_high == pytest.approx(frame.mode * 1.05)
+        assert frame.threshold_low == pytest.approx(frame.mode * 0.95)
+
+    def test_a_pair_places_them_independently(self, tmp_path):
+        """2L->3L is one layer step up; 2L->substrate can be several down, so
+        the two boundaries are not mirror images."""
+        frame = analyse_frame(_synthetic_frame(tmp_path), point=1, ref_label="2L",
+                              abs_threshold=(6.0, 4.25))
+        assert frame.threshold_high == pytest.approx(frame.mode * 1.0425)
+        assert frame.threshold_low == pytest.approx(frame.mode * 0.94)
+
+    def test_the_cut_ignores_the_noise_width(self, tmp_path):
+        """The point of the whole thing: a film whose domains widen both halves
+        of its own histogram must not thereby raise its own threshold."""
+        path = _synthetic_frame(tmp_path)
+        loose = analyse_frame(path, point=1, ref_label="2L", nsigma=2.0,
+                              abs_threshold=4.25)
+        strict = analyse_frame(path, point=1, ref_label="2L", nsigma=9.0,
+                               abs_threshold=4.25)
+        assert loose.threshold_high == pytest.approx(strict.threshold_high)
+        assert loose.percentages == strict.percentages

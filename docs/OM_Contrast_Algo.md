@@ -107,3 +107,49 @@ coverage > 95 %.
   within-class valley search.
 - A frame that is > ~40 % domains has no clean side; min-side still helps
   but N should be checked against the enhanced view.
+
+---
+
+## Divergence from this spec: absolute thresholds (NexAnalyzer v4.4.0)
+
+Everything above describes thresholding at `mode ± N · min(σ_L, σ_R)`, and the
+code still does exactly that by default. `contrast.classify()` additionally
+accepts `abs_threshold`, which replaces that rule with a fixed green contrast
+in percent of the film mode. This section documents the departure; the rest of
+the spec is unchanged and still governs every other step.
+
+**Why.** Taking the minimum of the two half-widths defends against *one*
+contaminated side — a domain population grows a shoulder that inflates its own
+half-width, so the narrower side is the honest noise estimate. The defence
+fails when domains are small and pervasive rather than few and large, because
+then both halves widen together. `min()` of two equally-inflated numbers is not
+a noise width. The threshold rises with the domain content that should be
+lowering it, and the population conceals itself.
+
+HADH51 (HA tool, 202609) is the worked case: `σ_L` and `σ_R` agree to twelve
+decimal places on frames 1, 3 and 9; 4σ places the "Above 2L" cut at +7.1 %
+green contrast against a layer step of ~5 %; 0.14 % of a trilayer-bearing film
+is reported as Above 2L, and the 8.95 % contrast of what does survive — well
+above one step — shows only the extreme tail is getting through.
+
+**The pair is asymmetric.** 2L→3L is one layer step up; 2L→substrate can be two
+or more steps down. Across the HA 202609 set the natural valleys sit near −6 %
+and the upper boundary near +4 %, so a symmetric cut puts the low threshold
+inside the film's own noise and inflates the Below class.
+
+**Validity gate — read this before trusting a coverage number.** A fixed
+contrast only means something when it clears the frame noise. Compute
+`abs_threshold / (σ_noise / mode)`; below about 2 the cut is inside the
+reference distribution and the class percentages are segmentation noise, not
+layer coverage. Of 47 HA 202609 samples, 8 sit at 0.5–1.3 (noise σ of 3.2–8.1 %
+of the green mode) and 3 more at 1.8–1.9. Those frames are unmeasurable at any
+threshold — under `nsigma` they read ~0 % trilayer, under a fixed contrast
+8–31 % — and need re-imaging rather than retuning.
+
+**Which to use.** `nsigma` remains right wherever the histogram has a genuine
+valley between populations, which is most well-exposed frames; TSM260803 is the
+reference for that case and a fixed +4.25 % measurably degrades it (Above 2L
+3.60 % → 1.66 %, class contrast +5.44 % → +7.17 %). Reach for `abs_threshold`
+only where the film is unimodal and its own texture has widened both halves.
+The values are per material: `WSe2` keeps `nsigma`, `WSe2-HA` carries the
+(−6.0, +4.25) pair.

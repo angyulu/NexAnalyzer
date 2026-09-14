@@ -5,6 +5,54 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.4.0] - 2026-09-15
+
+### Added
+
+- **Optical segmentation can threshold on a fixed contrast instead of `nsigma`.**
+  `analyse_frame(..., abs_threshold=...)` takes either a scalar percent or a
+  `(below, above)` pair, and the preset carries it as `abs_threshold_below` /
+  `abs_threshold_above` on `OpticalParams`. Unset -- the default -- leaves the
+  `nsigma` path byte-for-byte as it was, which is what keeps the locked numbers
+  in `tests/unit/test_om_contrast.py` meaningful.
+
+  The reason is a feedback trap in `classify()`. Its threshold is
+  `mode +- nsigma * min(sigma_l, sigma_r)`, and `min()` was chosen because a
+  domain population grows a shoulder that inflates *its own* half-width. That
+  defence assumes only one side is contaminated. A film whose domains are small
+  and pervasive rather than few and large widens **both** halves equally, the
+  minimum stops being a noise width, and the threshold it sets climbs above a
+  full layer step -- so the population hides itself. HADH51 is the worked
+  example: nine frames whose `sigma_l` and `sigma_r` agree to twelve decimal
+  places, 4 sigma landing at +7.1 % against a ~5 % layer step, and 0.14 % of a
+  trilayer-bearing film reported as "Above 2L". Stated as a contrast, the
+  threshold cannot be moved by the thing it measures.
+
+  The pair is asymmetric on purpose. 2L->3L is one layer step up, but
+  2L->substrate can be two or more steps down, so the natural boundaries across
+  the HA 202609 set sit near +4 % and -6 % and are not mirror images. Cutting
+  symmetrically puts the low threshold inside the film's own noise and inflates
+  the "Below" class.
+
+- **`WSe2-HA` material preset**, carrying `abs_threshold_below` 6.0 and
+  `abs_threshold_above` 4.25 on its `2L` optical block. A separate material
+  rather than a change to `WSe2`, because the pair is calibrated for the HA
+  tool's noisier frames and measurably degrades the TSM260803 reference: its
+  "Above 2L" falls 3.60 % -> 1.66 % and the class contrast rises +5.44 % ->
+  +7.17 %, i.e. back above one layer step. TSM260803's noise sigma is 0.65 % of
+  the green mode, so its natural 4-sigma cut is +2.6 %; a fixed +4.25 % clips
+  its tail. `WSe2` is unchanged and still runs `nsigma=4`.
+
+### Notes
+
+- A fixed contrast threshold is only meaningful when it clears the frame noise.
+  Across the HA 202609 set, 8 of 47 samples have a green-mode noise sigma of
+  3.2-8.1 %, which puts a +4.25 % cut at 0.5-1.3 sigma -- inside the bilayer
+  distribution. Those frames cannot be segmented at any threshold and need
+  re-imaging; under `nsigma` they read ~0 % trilayer and under a fixed contrast
+  8-31 %, and neither number is real. Check the threshold-to-sigma ratio before
+  trusting a coverage figure.
+
 ## [4.3.0] - 2026-09-14
 
 ### Added
@@ -54,9 +102,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   system codepage and mangles any non-ASCII peak label; the BOM is what stops
   that. Applies to the files this page writes to disk, not to the download
   buttons elsewhere in the app.
-
-> Note: v4.2.0 (Plot Explorer) is developed but not yet published to this
-> repository, so the version below follows 4.1.0 here.
 
 ## [4.1.0] - 2026-09-11
 
