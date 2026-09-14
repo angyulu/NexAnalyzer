@@ -29,8 +29,12 @@ def initialize_qc_panel_state() -> None:
             "frames": None,             # list[contrast.FrameResult]
             "om_png": None,             # Image 1 bytes, clean (for the report)
             "om_diagnostic_png": None,  # Image 1 with the histogram row
+            "om_stats_csv": None,       # per-class coverage/contrast, CSV text
+            "om_points_csv": None,      # per-frame detail, CSV text
             "raman_png": None,          # Image 2 bytes
             "raman_stats": None,
+            "raman_stats_csv": None,    # per-peak mean/std/n, CSV text
+            "raman_points_csv": None,   # per-peak-per-point detail, CSV text
             "errors": None,             # list[(point, message)] from fitting
             "dropped": None,            # count gated out by R_SQUARED_MIN
             "fitted": None,             # count that converged, gate aside
@@ -54,9 +58,13 @@ def get_qc_panel_state() -> dict:
 _SELECTIONS = ("folder", "scan", "magnification", "material", "reference_layer")
 
 #: Derived keys, grouped by the preset block whose settings produced them.
-_OPTICAL_ARTIFACTS = ("frames", "om_png", "om_diagnostic_png", "optical_fingerprint")
+_OPTICAL_ARTIFACTS = (
+    "frames", "om_png", "om_diagnostic_png", "om_stats_csv", "om_points_csv",
+    "optical_fingerprint",
+)
 _RAMAN_ARTIFACTS = (
-    "raman_png", "raman_stats", "errors", "dropped", "fitted", "raman_fingerprint",
+    "raman_png", "raman_stats", "raman_stats_csv", "raman_points_csv",
+    "errors", "dropped", "fitted", "raman_fingerprint",
 )
 
 
@@ -77,12 +85,12 @@ def reset_results(state: dict) -> None:
 
 
 def reset_optical_results(state: dict) -> None:
-    """Drop the OM figures and the segmentation behind them."""
+    """Drop the OM figures, their CSVs, and the segmentation behind them."""
     for key in _OPTICAL_ARTIFACTS:
         state[key] = None
 
 
 def reset_raman_results(state: dict) -> None:
-    """Drop the Raman figure and its statistics."""
+    """Drop the Raman figure, its statistics, and their CSVs."""
     for key in _RAMAN_ARTIFACTS:
         state[key] = None

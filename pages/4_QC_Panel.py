@@ -16,6 +16,15 @@ copy carrying the green-channel histograms. The histograms are what make a
 saturated frame legible *as* one, which an internal reviewer needs and a
 customer reading a report does not.
 
+Saving writes the numbers beside the images: a `_stats` CSV per technique
+holding the mean +/- std the figure summarises, and a `_points` CSV holding the
+rows those averages were taken over. Both are built during the run from the
+very objects the figures were drawn from, not recomputed at save time, so a
+saved CSV cannot describe a different segmentation or a different set of fits
+than the PNG saved next to it. There is no PL pair: this page fits Raman only
+(`run_sample_batch(..., pl_preset=None)`), so no PL measurement exists here to
+tabulate -- the Sample Report page is where both techniques get written out.
+
 Run-and-view by design: press Run, look at the result. The segmentation's
 tunables — `nsigma`, `minpx`, the mask margin and the flat-field divisor — come
 from the material preset's optical block for the chosen layer, so a figure's
@@ -32,6 +41,7 @@ import streamlit as st
 from core.io.export import prompt_save_path
 from core.io.folder_picker import prompt_folder_path
 from core.io.report_settings import load_default_material, save_default_material
+from modules.optical.io.frame_csv import export_frame_points_csv, export_frame_stats_csv
 from modules.optical.processing.contrast import (
     REFERENCE_CHOICES,
     analyse_frame,
@@ -46,6 +56,7 @@ from modules.optical.ui.qc_panel_state import (
 )
 from modules.optical.viz.om_grid import build_om_grid_figure
 from modules.spectra.io.preset_store import load_presets
+from modules.spectra.io.results_csv import export_peak_stats_csv, export_point_fits_csv
 from modules.spectra.processing.peak_metrics import (
     R_SQUARED_MIN,
     aggregate_fit_results,
@@ -228,6 +239,11 @@ if scan is not None:
                             magnification=state["magnification"],
                             show_histograms=True,
                         )
+                        # Built here, from the frames the figures were drawn
+                        # from, so a CSV saved beside an image describes that
+                        # image's segmentation and not a later one's.
+                        state["om_stats_csv"] = export_frame_stats_csv(frames)
+                        state["om_points_csv"] = export_frame_points_csv(frames)
                         state["optical_fingerprint"] = _optical_now
 
                     if scan.raman_files and raman_preset:
@@ -255,6 +271,14 @@ if scan is not None:
                                 pairs, sample_name=scan.sample_name,
                                 material_name=state["material"],
                             )
+                            # `pairs`, not `fitted`: the gate's survivors are
+                            # what the figure and the stats were built from, so
+                            # averaging a column of the points CSV lands on the
+                            # number the stats CSV reports.
+                            state["raman_stats_csv"] = export_peak_stats_csv(
+                                state["raman_stats"]
+                            )
+                            state["raman_points_csv"] = export_point_fits_csv(pairs)
                             state["raman_fingerprint"] = _raman_now
                         # Nothing is said here about an empty `pairs`. Anything
                         # written inside this button block lives for exactly one
@@ -336,37 +360,59 @@ if state.get("om_png") or state.get("raman_png") or state.get("dropped"):
             for point, message in state["errors"][:50]:
                 st.text(f"point {point}: {message}")
 
-    st.subheader("Save Images")
+    st.subheader("Save Results")
     st.caption(
-        "Saves one PNG per image, under the name you choose: `_OM` for the "
+        "One dialog, one name, one file per artifact. Images: `_OM` for the "
         "clean segmentation grid, `_OM_diagnostic` for the copy with "
-        "histograms, `_Raman` for the quality panels."
+        "histograms, `_Raman` for the quality panels. Numbers: `_stats` for "
+        "the per-class and per-peak mean ± std the figures summarise, "
+        "`_points` for the row behind each of those averages — one per "
+        "frame, one per fitted peak per position."
     )
-    if st.button("💾 Save Images As...", use_container_width=True):
+    st.caption(
+        "**No PL table:** this page fits Raman only, so there is no PL "
+        "measurement here to tabulate. The **Sample Report** page fits both "
+        "techniques and writes them to one workbook."
+    )
+    if st.button("💾 Save Images & Data As...", use_container_width=True):
         try:
             save_path = prompt_save_path(
                 default_dir=state["folder"],
                 default_filename=f"{state['scan'].sample_name}_QC.png",
-                title="Save QC Images",
+                title="Save QC Results",
                 filetypes=(("PNG images", "*.png"), ("All files", "*.*")),
                 default_extension=".png",
             )
             if save_path:
-                # One dialog, two files: the chosen name supplies the stem and
-                # each image appends its own suffix, so the pair stays together
-                # and neither can overwrite the other.
+                # One dialog, many files: the chosen name supplies the stem and
+                # each artifact appends its own suffix and extension, so the set
+                # stays together and none can overwrite another. The extension
+                # the dialog collected is dropped -- it only ever named the
+                # first image, and the CSVs are not PNGs.
                 base, _ext = os.path.splitext(save_path)
                 saved_files = []
-                for suffix, payload in (
-                    ("OM", state.get("om_png")),
-                    ("OM_diagnostic", state.get("om_diagnostic_png")),
-                    ("Raman", state.get("raman_png")),
+                for suffix, extension, payload in (
+                    ("OM", ".png", state.get("om_png")),
+                    ("OM_diagnostic", ".png", state.get("om_diagnostic_png")),
+                    ("OM_stats", ".csv", state.get("om_stats_csv")),
+                    ("OM_points", ".csv", state.get("om_points_csv")),
+                    ("Raman", ".png", state.get("raman_png")),
+                    ("Raman_stats", ".csv", state.get("raman_stats_csv")),
+                    ("Raman_points", ".csv", state.get("raman_points_csv")),
                 ):
-                    if payload:
-                        target = f"{base}_{suffix}.png"
+                    if not payload:
+                        continue
+                    target = f"{base}_{suffix}{extension}"
+                    if isinstance(payload, bytes):
                         with open(target, "wb") as f:
                             f.write(payload)
-                        saved_files.append(target)
+                    else:
+                        # utf-8-sig: Excel reads a bare UTF-8 CSV as the system
+                        # codepage and mangles any non-ASCII peak label. newline=""
+                        # leaves the line terminator pandas chose alone.
+                        with open(target, "w", encoding="utf-8-sig", newline="") as f:
+                            f.write(payload)
+                    saved_files.append(target)
                 st.success("Saved:\n" + "\n".join(f"- {p}" for p in saved_files))
             # save_path is None => user cancelled => no-op
         except Exception as e:

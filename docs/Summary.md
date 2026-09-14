@@ -65,6 +65,13 @@ nexanalyzer/
 │   └── viz/
 │       └── render.py               # Page-width-aware st.plotly_chart wrapper
 ├── modules/                        # One package per measurement technique
+│   ├── optical/                    # Optical microscopy: contrast-based layer classification
+│   │   ├── processing/contrast.py  # The vendored segmentation (see OM_Contrast_Algo.md),
+│   │   │                           # plus class_summary/contrast_summary across frames
+│   │   ├── io/frame_csv.py         # The segmentation's numbers as CSV: per-class stats and
+│   │   │                           # the per-frame rows behind them
+│   │   ├── ui/qc_panel_state.py    # Isolated session-state namespace for the QC Panel
+│   │   └── viz/om_grid.py          # The OM grid figure, clean and histogram-diagnostic
 │   └── spectra/                    # Raman & PL
 │       ├── models/
 │       │   ├── spectrum.py         # SpectrumFile, ProcessingSettings, SpectrumData
@@ -84,7 +91,8 @@ nexanalyzer/
 │       ├── io/
 │       │   ├── preset_store.py     # JSON material-preset storage (data/materials.json),
 │       │   │                       # schema v2 + the v1 migration
-│       │   ├── results_csv.py      # Fit-results CSVs: per-file and master
+│       │   ├── results_csv.py      # Fit-results CSVs: per-file, master, per-grid-point,
+│       │   │                       # and the aggregated per-peak statistics
 │       │   └── results_excel.py    # Sample-results .xlsx: per-point sheets + summary
 │       ├── ui/
 │       │   ├── sidebar.py          # Material dropdown, the only processing entry point

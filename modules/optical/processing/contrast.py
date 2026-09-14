@@ -331,17 +331,38 @@ def analyse_frame(path, point: int, ref_label: str, name: Optional[str] = None,
     )
 
 
-def class_summary(frames: Sequence[FrameResult]) -> Tuple[Tuple[float, float], ...]:
-    """(mean, std) coverage per class across frames, in label order.
+def _across_frames(values: Sequence[float]) -> Tuple[float, float]:
+    """(mean, std) of one per-frame quantity.
 
     Standard deviation uses ddof=1 when more than one frame contributed, so a
-    single-frame sample reports 0.0 rather than nan.
+    single-frame sample reports 0.0 rather than nan. The one place that rule
+    lives, so the coverage summary and the contrast summary cannot drift apart.
     """
+    if not len(values):
+        return (0.0, 0.0)
+    arr = np.asarray(values, dtype=float)
+    ddof = 1 if arr.size > 1 else 0
+    return (float(arr.mean()), float(arr.std(ddof=ddof)))
+
+
+def class_summary(frames: Sequence[FrameResult]) -> Tuple[Tuple[float, float], ...]:
+    """(mean, std) coverage per class across frames, in label order."""
     if not frames:
         return ((0.0, 0.0),) * 3
     pcts = np.array([f.percentages for f in frames], dtype=float)
-    ddof = 1 if len(frames) > 1 else 0
-    return tuple(
-        (float(pcts[:, i].mean()), float(pcts[:, i].std(ddof=ddof)))
-        for i in range(3)
+    return tuple(_across_frames(pcts[:, i]) for i in range(3))
+
+
+def contrast_summary(frames: Sequence[FrameResult]) -> Tuple[Tuple[float, float], ...]:
+    """(mean, std) green contrast for the below and above classes, in that order.
+
+    Two entries, not three: contrast is measured *relative to* the reference
+    film, so the reference class has none of its own. Aggregated the same way
+    as `class_summary`, and returned beside it by the CSV export.
+    """
+    if not frames:
+        return ((0.0, 0.0),) * 2
+    return (
+        _across_frames([f.contrast_below for f in frames]),
+        _across_frames([f.contrast_above for f in frames]),
     )

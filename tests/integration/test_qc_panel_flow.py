@@ -16,7 +16,10 @@ and until v3.10.0 the report path parsed only the first two columns and
 silently excluded every such file, so the Raman half produced nothing at all.
 """
 
+import codecs
+
 import numpy as np
+import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
@@ -179,6 +182,12 @@ class TestSaveImages:
     `default_dir`, and the filename keyword is `default_filename`), which the
     page catches and reports as a toast. Nothing else in the suite touches this
     code, so it shipped broken once already.
+
+    One dialog now writes seven files -- three images and four CSVs -- off one
+    chosen stem. The CSVs' own contents are covered by
+    tests/unit/test_qc_csv_export.py; what is covered here is that the run
+    actually produced them and the save loop actually wrote them, which is the
+    seam a state key missing from `_OPTICAL_ARTIFACTS` would break.
     """
 
     def _run_and_save(self, tmp_path, monkeypatch, target):
@@ -201,7 +210,7 @@ class TestSaveImages:
         return at, calls
 
     def test_all_three_images_are_written_with_distinct_suffixes(self, tmp_path, monkeypatch):
-        """One dialog, three files: the clean OM grid a report carries, the
+        """One dialog, three images: the clean OM grid a report carries, the
         diagnostic copy carrying the histograms, and the Raman panels."""
         out = tmp_path / "out"
         out.mkdir()
@@ -232,7 +241,54 @@ class TestSaveImages:
         at, _calls = self._run_and_save(tmp_path, monkeypatch, None)
 
         assert not at.exception
-        assert list(out.glob("*.png")) == []
+        assert list(out.iterdir()) == []
+
+    def test_both_techniques_write_a_stats_and_a_points_csv(self, tmp_path, monkeypatch):
+        """The numbers, saved beside the images they summarise."""
+        out = tmp_path / "out"
+        out.mkdir()
+        at, _calls = self._run_and_save(tmp_path, monkeypatch, str(out / "TSM_QC.png"))
+
+        assert not at.exception, [e.value for e in at.exception]
+        assert sorted(p.name for p in out.glob("*.csv")) == [
+            "TSM_QC_OM_points.csv",
+            "TSM_QC_OM_stats.csv",
+            "TSM_QC_Raman_points.csv",
+            "TSM_QC_Raman_stats.csv",
+        ]
+
+    def test_the_saved_tables_describe_the_run_that_produced_them(
+        self, tmp_path, monkeypatch
+    ):
+        """Nine grid positions in, nine OM rows out; three classes summarised.
+        The Raman detail carries every sub-spectrum, not one row per file --
+        the same defect `test_every_sub_spectrum_is_fitted_not_just_the_first`
+        guards one level up."""
+        out = tmp_path / "out"
+        out.mkdir()
+        self._run_and_save(tmp_path, monkeypatch, str(out / "TSM_QC.png"))
+
+        om_points = pd.read_csv(out / "TSM_QC_OM_points.csv")
+        om_stats = pd.read_csv(out / "TSM_QC_OM_stats.csv")
+        raman_points = pd.read_csv(out / "TSM_QC_Raman_points.csv")
+
+        assert list(om_points["Point"]) == list(range(1, 10))
+        assert list(om_stats["Class"]) == ["Below 2L", "Bilayer", "Above 2L"]
+        assert len(raman_points) == 9 * SUB_SPECTRA
+
+    def test_the_csvs_open_as_utf8_with_the_bom_excel_expects(
+        self, tmp_path, monkeypatch
+    ):
+        """A bare UTF-8 CSV opens in Excel as the system codepage, which mangles
+        any non-ASCII peak label. The BOM is what stops that."""
+        out = tmp_path / "out"
+        out.mkdir()
+        self._run_and_save(tmp_path, monkeypatch, str(out / "TSM_QC.png"))
+
+        raw = (out / "TSM_QC_Raman_stats.csv").read_bytes()
+
+        assert raw.startswith(codecs.BOM_UTF8)
+        assert raw.decode("utf-8-sig").startswith("Peak_Label,")
 
     def test_the_clean_copy_and_the_diagnostic_copy_are_different_images(
         self, tmp_path, monkeypatch

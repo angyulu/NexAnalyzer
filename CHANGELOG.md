@@ -5,6 +5,59 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.0] - 2026-09-14
+
+### Added
+
+- **The QC Panel saves its numbers, not just its pictures.** One Save dialog now
+  writes four CSVs beside the three PNGs, off the same chosen stem: `_OM_stats`
+  and `_Raman_stats` hold the per-class and per-peak mean +/- std the figures
+  summarise, `_OM_points` and `_Raman_points` hold the rows those averages were
+  taken over -- one per segmented frame, one per fitted peak per grid position.
+
+  The point of shipping both halves is that they agree: averaging a column of a
+  `_points` file lands on the number in the matching `_stats` file. Keeping that
+  true is why the Raman detail table holds the fits that survived the
+  R-squared gate rather than every fit attempted -- the gate's survivors are
+  what the figure and the statistics were built from, and a detail table with
+  extra rows in it would quietly average to a different answer. The excluded
+  count is still reported on screen.
+
+  Both tables are built during the run, from the very `FrameResult` list and
+  `(point, FitResult)` pairs the figures were drawn from, and held in session
+  state next to the PNGs. A CSV saved beside an image therefore cannot describe
+  a different segmentation or a different set of fits than the image it sits
+  next to, and a preset edit that invalidates one technique's figure drops that
+  technique's CSVs with it.
+
+  New: `modules/optical/io/frame_csv.py` (`export_frame_stats_csv`,
+  `export_frame_points_csv`) and two additions to
+  `modules/spectra/io/results_csv.py` (`export_point_fits_csv`,
+  `export_peak_stats_csv`, the latter taking the `PeakStat` list the report
+  tables already use). `contrast.contrast_summary()` joins `class_summary()`,
+  both now sharing one ddof rule.
+
+  No PL pair is written. This page fits Raman only -- it calls
+  `run_sample_batch(..., pl_preset=None)` -- so no PL measurement exists here to
+  tabulate, and the page now says so where the files are listed rather than
+  leaving the absence to be noticed. The Sample Report page is where both
+  techniques are fitted and written out, to one `.xlsx`.
+
+### Changed
+
+- **QC Panel: "Save Images" is now "Save Results".** The button reads
+  "Save Images & Data As...". Same one dialog, same stem-plus-suffix naming, same
+  pre-filled `<sample>_QC.png`; the extension the dialog collects is used for
+  the images and ignored for the CSVs.
+
+- **CSVs are written as UTF-8 with a BOM.** Excel reads a bare UTF-8 CSV as the
+  system codepage and mangles any non-ASCII peak label; the BOM is what stops
+  that. Applies to the files this page writes to disk, not to the download
+  buttons elsewhere in the app.
+
+> Note: v4.2.0 (Plot Explorer) is developed but not yet published to this
+> repository, so the version below follows 4.1.0 here.
+
 ## [4.1.0] - 2026-09-11
 
 ### Added
