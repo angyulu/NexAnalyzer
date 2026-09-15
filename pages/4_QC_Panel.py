@@ -42,6 +42,7 @@ from core.io.export import prompt_save_path
 from core.io.folder_picker import prompt_folder_path
 from core.io.report_settings import load_default_material, save_default_material
 from modules.optical.io.frame_csv import export_frame_points_csv, export_frame_stats_csv
+from modules.optical.processing.adaptive import derive_pair
 from modules.optical.processing.contrast import (
     REFERENCE_CHOICES,
     analyse_frame,
@@ -209,6 +210,31 @@ if scan is not None:
             try:
                 with st.status("Running…", expanded=True) as status:
                     if om_paths:
+                        # Only the fields the preset actually sets; everything
+                        # else keeps contrast.py's default.
+                        om_kwargs = optical.as_kwargs()
+                        if optical.adaptive_threshold and "abs_threshold" in om_kwargs:
+                            # The pair comes from the wafer itself: pooled over
+                            # every frame, the preset pair as the base only
+                            # strong evidence can move. Resolved here, once,
+                            # because analyse_frame sees one frame at a time.
+                            st.write("Deriving the adaptive threshold pair "
+                                     "from the wafer's pooled frames…")
+                            derived = derive_pair(
+                                [om_paths[p] for p in sorted(om_paths)],
+                                base=om_kwargs["abs_threshold"],
+                                margin=om_kwargs.get("margin"),
+                                ff_divisor=om_kwargs.get("ff_divisor"),
+                            )
+                            om_kwargs["abs_threshold"] = derived.pair
+                            st.write(derived.describe())
+                            for flag in derived.flags:
+                                st.warning(
+                                    f"{flag}: even the base cut sits inside "
+                                    "this wafer's noise — its percentages are "
+                                    "segmentation noise; re-image rather than "
+                                    "retune."
+                                )
                         st.write(f"Segmenting {len(om_paths)} optical frames…")
                         bar = st.progress(0.0)
                         frames = []
@@ -217,9 +243,7 @@ if scan is not None:
                                 om_paths[point], point=point,
                                 ref_label=state["reference_layer"],
                                 name=f"{state['magnification']}-{point}",
-                                # Only the fields the preset actually sets;
-                                # everything else keeps contrast.py's default.
-                                **optical.as_kwargs(),
+                                **om_kwargs,
                             ))
                             # Fraction of work finished, so the bar isn't full
                             # while the last (equally slow) frame is running.

@@ -307,6 +307,13 @@ class OpticalParams:
     ff_divisor: Optional[float] = None
     abs_threshold_below: Optional[float] = None
     abs_threshold_above: Optional[float] = None
+    #: Third threshold method. True derives the pair per wafer from its own
+    #: pooled frames (modules/optical/processing/adaptive.py), using the two
+    #: `abs_threshold_*` fields as the base pair that only strong evidence can
+    #: move -- so both must be set. Not passed to `analyse_frame` (as_kwargs
+    #: skips it): the QC Panel resolves it into a concrete pair first, because
+    #: the derivation needs every frame and `analyse_frame` sees one at a time.
+    adaptive_threshold: Optional[bool] = None
 
     #: Field name -> the `contrast.analyse_frame` keyword it sets.
     _KWARGS = {
@@ -364,13 +371,18 @@ class OpticalParams:
             value = getattr(self, name)
             if value is not None and not (0.5 <= value <= 50.0):
                 errors.append(f"{name} {value} out of range [0.5, 50.0] %")
+        if self.adaptive_threshold and (below is None or above is None):
+            errors.append(
+                "adaptive_threshold needs abs_threshold_below and "
+                "abs_threshold_above as its base pair; set both or turn it off"
+            )
         return errors
 
     def to_dict(self) -> dict:
         """Only the fields that are set; absent means "algorithm default"."""
         return {
             name: getattr(self, name)
-            for name in tuple(self._KWARGS) + self._ABS_FIELDS
+            for name in tuple(self._KWARGS) + self._ABS_FIELDS + ("adaptive_threshold",)
             if getattr(self, name) is not None
         }
 

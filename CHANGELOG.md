@@ -5,6 +5,40 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.0] - 2026-09-15
+
+### Added
+
+- **Adaptive per-wafer threshold** -- the third threshold method, after
+  `nsigma` and `abs`. `OpticalParams.adaptive_threshold: true` makes the QC
+  Panel derive the abs pair per wafer from its own pooled frames
+  (`modules/optical/processing/adaptive.py`), with the preset's
+  `abs_threshold_below` / `abs_threshold_above` as the base pair that only
+  strong evidence can move: an empirical valley in the pooled density
+  (preferred -- it is what a manual threshold sweep finds by eye), else a
+  posterior crossing against a mixture population that is compact
+  (sigma <= 1.5x the film's) and substantial (>= 3 % weight). A cut never
+  sits closer to the mode than 2x the robust noise sigma (MAD of lag-4 pixel
+  differences -- the estimate domain content cannot inflate), and a side
+  whose *base* cut fails that gate is reported NOT MEASURABLE before any
+  percentage is produced, which is the summary CSV's threshold-to-sigma rule
+  applied up front instead of after the fact.
+
+  Validated against the HA 202609 set (52 wafers): 21 moved a cut, 30 kept
+  the preset pair byte-for-byte, 7 flagged not measurable -- a superset of
+  the QC summary's re-image list. HADH51 is the motivating case: its fixed
+  +4.25 cut reported 2.0 % "Above 2L"; the derived +2.46 -- within 0.04 of
+  the +2.5 the operator had found by hand in that wafer's threshold sweep --
+  reports 10.8 %. HADG38 and HADH26, where the fixed pair was already right,
+  reproduce it exactly. The classifier itself is untouched: adaptive resolves
+  to a concrete `abs_threshold` pair before `analyse_frame` runs, so
+  `contrast.py` is byte-for-byte as it was and the locked numbers in
+  `tests/unit/test_om_contrast.py` keep meaning what they meant.
+
+- **`WSe2-HA` carries `adaptive_threshold: true`** on its `2L` optical block:
+  its wafers are the ones whose trilayer valley drifts per wafer. `WSe2`
+  still runs plain `nsigma`.
+
 ## [4.4.0] - 2026-09-15
 
 ### Added

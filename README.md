@@ -1,12 +1,13 @@
-# NexAnalyzer v3.8.1
+# NexAnalyzer v4.5.0
 
 Nexstrom's measurement data analyzer. A desktop web app that turns raw measurement files into
 fitted results and shareable reports, driven by per-material presets rather than manual
 parameter tuning.
 
-**Modules available today:** Raman & photoluminescence spectra (peak fitting + sample reports).
-The platform is built so further techniques plug in alongside it — see
-[Architecture](#architecture).
+**Modules available today:** Raman & photoluminescence spectra (peak fitting + sample reports),
+and optical-microscopy layer QC (contrast segmentation with `nsigma`, fixed-contrast, or
+adaptive per-wafer thresholds — see `docs/OM_Contrast_Algo.md`). The platform is built so
+further techniques plug in alongside it — see [Architecture](#architecture).
 
 ---
 

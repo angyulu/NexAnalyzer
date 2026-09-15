@@ -153,3 +153,31 @@ reference for that case and a fixed +4.25 % measurably degrades it (Above 2L
 only where the film is unimodal and its own texture has widened both halves.
 The values are per material: `WSe2` keeps `nsigma`, `WSe2-HA` carries the
 (−6.0, +4.25) pair.
+
+---
+
+## Second divergence: adaptive per-wafer pair (NexAnalyzer v4.5.0)
+
+`abs_threshold` fixed one pair per material; wafers drift. HADH51's trilayer
+valley sits at +2.5 % where the material pair says +4.25, and at +4.25 the
+population reports 2.0 % instead of ~11 %. The adaptive method
+(`modules/optical/processing/adaptive.py`, preset flag
+`adaptive_threshold: true`) derives the pair per wafer from its pooled frames
+and hands the classifier a concrete abs pair -- everything in this spec is
+otherwise unchanged.
+
+Placement, per side: empirical valley of the pooled density if one exists,
+else the posterior crossing against a physics-seeded mixture population that
+is compact (sigma <= 1.5x the film's) and substantial (>= 3 % weight); weaker
+evidence keeps the preset pair. Guardrails: a cut never sits closer than
+2 sigma_robust to the mode (sigma_robust = MAD of lag-4 pixel differences,
+which domain content cannot inflate -- the same trap section 6 defends
+against, closed at the source); a population overlapping the film by more
+than 65 % Bhattacharyya cannot be cut at any value and keeps the preset cut
+with a note; a side whose base cut fails the 2 sigma gate is NOT MEASURABLE
+and the wafer needs re-imaging, not retuning.
+
+Validated 2026-09-15 on HA 202609 (52 wafers): 21 moved, 30 identical to the
+fixed pair, 7 not measurable (superset of the QC re-image list). Where the
+fixed pair was already right (TSM-like frames, HADG38, HADH26) the adaptive
+result is byte-identical, because "no evidence" keeps the base pair.
