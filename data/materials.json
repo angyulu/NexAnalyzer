@@ -277,8 +277,7 @@
           "nsigma": 4.0,
           "minpx": 3,
           "abs_threshold_below": 6.0,
-          "abs_threshold_above": 4.25,
-          "adaptive_threshold": true
+          "abs_threshold_above": 4.25
         }
       }
     }

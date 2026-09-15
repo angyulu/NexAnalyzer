@@ -161,10 +161,12 @@ The values are per material: `WSe2` keeps `nsigma`, `WSe2-HA` carries the
 `abs_threshold` fixed one pair per material; wafers drift. HADH51's trilayer
 valley sits at +2.5 % where the material pair says +4.25, and at +4.25 the
 population reports 2.0 % instead of ~11 %. The adaptive method
-(`modules/optical/processing/adaptive.py`, preset flag
-`adaptive_threshold: true`) derives the pair per wafer from its pooled frames
-and hands the classifier a concrete abs pair -- everything in this spec is
-otherwise unchanged.
+(`modules/optical/processing/adaptive.py`) derives the pair per wafer from its
+pooled frames and hands the classifier a concrete abs pair -- everything in
+this spec is otherwise unchanged. Since v4.6.0 it is the *default* whenever a
+preset sets the abs pair; `adaptive_threshold: false` opts a preset out and
+pins the fixed pair (v4.5.0 shipped it opt-in as `adaptive_threshold: true`,
+which still loads).
 
 Placement, per side: empirical valley of the pooled density if one exists,
 else the posterior crossing against a physics-seeded mixture population that

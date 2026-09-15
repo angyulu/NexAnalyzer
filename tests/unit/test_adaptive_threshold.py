@@ -109,6 +109,33 @@ def test_derivation_is_deterministic():
 
 
 # ------------------------------------------------------------------ preset
+def test_adaptive_is_the_default_when_the_pair_is_set():
+    """Since v4.6.0 the flag is an opt-out: a preset that sets the abs pair
+    runs adaptive unless it says `adaptive_threshold: false`."""
+    pair = dict(abs_threshold_below=6.0, abs_threshold_above=4.25)
+    assert OpticalParams(**pair).adaptive_enabled is True
+    assert OpticalParams(**pair, adaptive_threshold=True).adaptive_enabled is True
+    assert OpticalParams(**pair, adaptive_threshold=False).adaptive_enabled is False
+
+
+def test_no_pair_means_no_adaptive_whatever_the_flag_says():
+    """There is no base to derive from without the pair, so `adaptive_enabled`
+    is False for the nsigma path -- unset, tuned, or even (invalidly) True."""
+    assert OpticalParams().adaptive_enabled is False
+    assert OpticalParams(nsigma=4.0).adaptive_enabled is False
+    assert OpticalParams(adaptive_threshold=True).adaptive_enabled is False
+
+
+def test_the_opt_out_survives_the_store_roundtrip():
+    """False is a stored value, not an absence: it is the one state that must
+    persist, because absent now means on."""
+    params = OpticalParams(adaptive_threshold=False,
+                           abs_threshold_below=6.0, abs_threshold_above=4.25)
+    restored = OpticalParams.from_dict(params.to_dict())
+    assert restored == params
+    assert restored.adaptive_enabled is False
+
+
 def test_adaptive_needs_the_base_pair():
     """The flag without the pair describes nothing: validate must say so."""
     params = OpticalParams(adaptive_threshold=True)
@@ -147,11 +174,11 @@ def test_toggling_adaptive_changes_the_optical_fingerprint():
         def optical_for(self, layer):
             return self._params
 
-    plain = OpticalParams(abs_threshold_below=6.0, abs_threshold_above=4.25)
-    adaptive = OpticalParams(abs_threshold_below=6.0, abs_threshold_above=4.25,
-                             adaptive_threshold=True)
-    assert optical_fingerprint(_Preset(plain), "2L") != \
-        optical_fingerprint(_Preset(adaptive), "2L")
+    adaptive = OpticalParams(abs_threshold_below=6.0, abs_threshold_above=4.25)
+    pinned = OpticalParams(abs_threshold_below=6.0, abs_threshold_above=4.25,
+                           adaptive_threshold=False)
+    assert optical_fingerprint(_Preset(adaptive), "2L") != \
+        optical_fingerprint(_Preset(pinned), "2L")
 
 
 if __name__ == "__main__":

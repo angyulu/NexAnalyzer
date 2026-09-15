@@ -1,10 +1,12 @@
 """
 Image 1 of the QC Panel: the optical-microscopy analysis figure.
 
-Layout follows the WSe2 analysis grid this replaces — nine grid positions as
+Layout follows the WSe2 analysis grid this replaces — grid positions as
 Original / segmented-overlay pairs, three positions per row — with one addition:
-a row of the nine green-channel histograms underneath, each marked with its mode
-and both thresholds.
+a row of the green-channel histograms underneath, each marked with its mode
+and both thresholds. A ten-point wafer instead mirrors its measurement map:
+rows of 2-3-3-2, the short rows centred, so P1..P10 land where they sit on
+the wafer.
 
 That row is the point of the figure. Coverage percentages alone cannot show
 whether a frame segmented sensibly; the predecessor algorithm's characteristic
@@ -34,9 +36,32 @@ from ..processing.contrast import GREEN, RED, FrameResult, class_summary  # noqa
 GRID_COLUMNS = 3
 """Grid positions per row, so nine positions fill three rows."""
 
-#: 18 = lcm(6, 9): three Original/overlay pairs per row span 3 cells each, and
-#: the nine histograms below span 2 each, so both rows align on one grid.
-_UNITS = 18
+#: Wafer-map row layouts keyed by position count. A ten-point wafer is
+#: measured 2-3-3-2 -- two points on the top and bottom chords, three across
+#: each middle row -- and the figure mirrors that so P1..P10 land where they
+#: sit on the wafer. Any count without an entry fills GRID_COLUMNS-wide rows.
+_ROW_LAYOUTS = {10: (2, 3, 3, 2)}
+
+
+def _row_layout(n_points: int) -> tuple:
+    """Row lengths for `n_points` grid positions."""
+    layout = _ROW_LAYOUTS.get(n_points)
+    if layout is None:
+        layout = (GRID_COLUMNS,) * (n_points // GRID_COLUMNS)
+        if n_points % GRID_COLUMNS:
+            layout += (n_points % GRID_COLUMNS,)
+    return layout
+
+
+def _grid_units(n_points: int) -> int:
+    """Width of the layout grid, in cells.
+
+    lcm(6, n): each Original/overlay pair spans units/3 cells (so three pairs
+    fill a row), a two-pair row centres on a units/6 offset, and the n
+    histograms below span units/n each -- all of which must come out whole.
+    Nine positions give the 18 this module always used; ten give 30.
+    """
+    return int(np.lcm(6, max(n_points, 1)))
 
 #: Gap between one position's raw and analyzed panels, on their own nested
 #: GridSpec so it can be tighter than `_POSITION_WSPACE` -- that value is
@@ -160,9 +185,14 @@ def build_om_grid_figure(
     by_point = {f.point: f for f in frames}
     if points is None:
         points = sorted(by_point)
-    points = list(points)[:GRID_COLUMNS * GRID_COLUMNS]
+    points = list(points)
 
-    rows = max(1, -(-len(points) // GRID_COLUMNS))  # ceiling division
+    # Until v4.6.0 this truncated to nine positions while the title and the
+    # coverage summary still counted every frame -- a ten-point wafer's P10
+    # was segmented, averaged, and silently missing from the panels.
+    layout = _row_layout(len(points))
+    rows = len(layout)
+    units = _grid_units(len(points))
     labels = frames[0].labels
     summary = class_summary(frames)
 
@@ -173,18 +203,26 @@ def build_om_grid_figure(
                      dpi=dpi)
     try:
         grid = gridspec.GridSpec(
-            rows + hist_rows, _UNITS, figure=fig,
+            rows + hist_rows, units, figure=fig,
             height_ratios=[1.0] * rows + [0.60] * hist_rows,
             hspace=0.20, wspace=_POSITION_WSPACE,
         )
 
-        for index, point in enumerate(points):
-            row, col = divmod(index, GRID_COLUMNS)
-            frame = by_point.get(point)
-            left = col * (_UNITS // GRID_COLUMNS)
-            span = _UNITS // (GRID_COLUMNS * 2)
+        pair_span = units // GRID_COLUMNS
+        # Wafer-map layouts centre their short rows, the way the points sit on
+        # the wafer; plain chunked layouts keep the left alignment they had.
+        centred = len(points) in _ROW_LAYOUTS
+        cells = [
+            (row, offset + col * pair_span)
+            for row, count in enumerate(layout)
+            for offset in [(units - count * pair_span) // 2 if centred else 0]
+            for col in range(count)
+        ]
 
-            pair = grid[row, left:left + 2 * span].subgridspec(1, 2, wspace=_PAIR_WSPACE)
+        for (row, left), point in zip(cells, points):
+            frame = by_point.get(point)
+
+            pair = grid[row, left:left + pair_span].subgridspec(1, 2, wspace=_PAIR_WSPACE)
             ax_raw = fig.add_subplot(pair[0, 0])
             ax_seg = fig.add_subplot(pair[0, 1])
             for ax in (ax_raw, ax_seg):
@@ -216,7 +254,7 @@ def build_om_grid_figure(
         if show_histograms:
             for index, point in enumerate(points):
                 frame = by_point.get(point)
-                span = _UNITS // len(points) if len(points) else _UNITS
+                span = units // len(points) if len(points) else units
                 left = index * span
                 ax = fig.add_subplot(grid[rows, left:left + span])
                 if frame is None:

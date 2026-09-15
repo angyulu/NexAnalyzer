@@ -84,6 +84,10 @@ The full reasoning is in the
   `abs_threshold / (sigma_noise / mode)` clears ~2; below that the cut is inside
   the reference distribution and the percentages are noise. See the v4.4.0
   section in [docs/OM_Contrast_Algo.md](docs/OM_Contrast_Algo.md).
+  On top of these, a preset that sets the abs pair gets the per-wafer
+  *adaptive* derivation **by default** (v4.6.0): `adaptive_threshold` is an
+  opt-out, so read `OpticalParams.adaptive_enabled`, never the raw field —
+  `None` means on-with-pair, and only an explicit `false` pins the fixed pair.
 - **`OpticalParams` fields default to `None` meaning "contrast.py's default".**
   Keep the numbers in `contrast.py` alone, so a material with no optical block
   runs `analyse_frame(**{})` — which is what keeps

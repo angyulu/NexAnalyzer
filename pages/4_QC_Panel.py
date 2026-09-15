@@ -213,7 +213,9 @@ if scan is not None:
                         # Only the fields the preset actually sets; everything
                         # else keeps contrast.py's default.
                         om_kwargs = optical.as_kwargs()
-                        if optical.adaptive_threshold and "abs_threshold" in om_kwargs:
+                        # Default-on: any preset with an abs pair derives it
+                        # per wafer unless it says adaptive_threshold: false.
+                        if optical.adaptive_enabled:
                             # The pair comes from the wafer itself: pooled over
                             # every frame, the preset pair as the base only
                             # strong evidence can move. Resolved here, once,

@@ -307,13 +307,30 @@ class OpticalParams:
     ff_divisor: Optional[float] = None
     abs_threshold_below: Optional[float] = None
     abs_threshold_above: Optional[float] = None
-    #: Third threshold method. True derives the pair per wafer from its own
-    #: pooled frames (modules/optical/processing/adaptive.py), using the two
+    #: Third threshold method: derive the pair per wafer from its own pooled
+    #: frames (modules/optical/processing/adaptive.py), using the two
     #: `abs_threshold_*` fields as the base pair that only strong evidence can
-    #: move -- so both must be set. Not passed to `analyse_frame` (as_kwargs
-    #: skips it): the QC Panel resolves it into a concrete pair first, because
-    #: the derivation needs every frame and `analyse_frame` sees one at a time.
+    #: move. Since v4.6.0 this is the *default* whenever the pair is set --
+    #: `None` means on, and only an explicit `False` pins the fixed pair --
+    #: because the adaptive path degrades to the base pair exactly when the
+    #: evidence is weak, so opting out is the decision worth writing down.
+    #: Read `adaptive_enabled`, not this field. Not passed to `analyse_frame`
+    #: (as_kwargs skips it): the QC Panel resolves it into a concrete pair
+    #: first, because the derivation needs every frame and `analyse_frame`
+    #: sees one at a time.
     adaptive_threshold: Optional[bool] = None
+
+    @property
+    def adaptive_enabled(self) -> bool:
+        """Whether the per-wafer derivation should run.
+
+        Requires the abs pair (there is no base to derive from otherwise) and
+        honours only an explicit ``False`` as an opt-out.
+        """
+        below, above = (getattr(self, f) for f in self._ABS_FIELDS)
+        if below is None or above is None:
+            return False
+        return self.adaptive_threshold is not False
 
     #: Field name -> the `contrast.analyse_frame` keyword it sets.
     _KWARGS = {

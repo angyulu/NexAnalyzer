@@ -5,6 +5,38 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.0] - 2026-09-15
+
+### Changed
+
+- **Adaptive is now the default threshold mode wherever the abs pair is set.**
+  `OpticalParams.adaptive_threshold` flips from opt-in to opt-out: unset means
+  the QC Panel derives the pair per wafer, and only an explicit `false` pins
+  the fixed pair (read `OpticalParams.adaptive_enabled`, not the raw field).
+  The Material Presets checkbox now stores `False` or absent -- never `True` --
+  and `WSe2-HA`'s now-redundant `adaptive_threshold: true` is dropped from
+  `data/materials.json` (a legacy `true` still loads, and saving normalises
+  it away). Rationale: the derivation degrades to the base pair exactly when
+  the evidence for moving it is weak, so on-by-default costs nothing on clean
+  wafers -- the HA 202609 validation had 30 of 52 keep the pair
+  byte-for-byte -- and opting *out* is the decision worth writing down.
+  Numbers move only for a wafer whose pooled histogram carries strong
+  evidence the fixed pair missed; `nsigma`-only presets (no abs pair) are
+  untouched.
+
+- **Ten-point wafers draw as their 2-3-3-2 measurement map.** `build_om_grid_figure`
+  laid positions three per row and silently truncated to nine while the title
+  and the coverage summary still counted every frame -- a ten-point wafer's
+  P10 (HADH41_RECHECK, for one) was segmented, averaged, and missing from the
+  panels. Ten positions now draw as centred rows of 2-3-3-2, mirroring where
+  the points sit on the wafer, and the truncation is gone for every count.
+  Nine-point figures are pixel-identical to before; no numbers move.
+
+### Fixed
+
+- **`core/version.py` said 4.4.0 through two releases.** The v4.5.0 commit
+  bumped the changelog but not the module; both now say 4.6.0.
+
 ## [4.5.0] - 2026-09-15
 
 ### Added

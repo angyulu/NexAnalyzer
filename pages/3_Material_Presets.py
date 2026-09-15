@@ -240,19 +240,22 @@ def _render_optical_block(key_prefix: str, layer: str,
             values[name] = None
 
     # A checkbox, not a text field: this is the one optical setting that is a
-    # mode rather than a number. Stored as True or absent -- never False -- so
-    # an untouched preset file stays untouched.
+    # mode rather than a number. Adaptive is the default whenever the abs pair
+    # is set, so what gets stored is the opt-out -- False or absent, never
+    # True -- and an untouched preset file stays untouched. (A legacy
+    # `adaptive_threshold: true` still loads; saving normalises it to absent.)
     adaptive = st.checkbox(
-        "adaptive per-wafer threshold",
-        value=bool(getattr(params, "adaptive_threshold", None)) if params else False,
+        "adaptive per-wafer threshold (default)",
+        value=(params.adaptive_threshold is not False) if params else True,
         help="Derive the threshold pair per wafer from its own pooled frames, "
              "using the two absolute threshold boxes as the base pair that "
              "only strong evidence (a valley or a resolvable population) can "
-             "move. Needs both absolute boxes set. A wafer whose noise "
-             "swallows even the base pair is flagged NOT MEASURABLE.",
+             "move. On by default whenever both absolute boxes are set; "
+             "untick to pin the fixed pair. A wafer whose noise swallows even "
+             "the base pair is flagged NOT MEASURABLE.",
         key=f"{key_prefix}_{layer}_adaptive_threshold",
     )
-    values["adaptive_threshold"] = True if adaptive else None
+    values["adaptive_threshold"] = None if adaptive else False
 
     return OpticalParams(**values)
 
