@@ -59,22 +59,42 @@ def test_grid_units_divide_pairs_centring_and_histograms():
 def test_every_position_of_a_ten_point_wafer_is_drawn():
     """Ten frames render four panel rows, not a truncated three: the ten-point
     figure must come out taller than the nine-point one built the same way."""
-    from PIL import Image
-    import io
-
-    def height(n):
-        png = build_om_grid_figure([_fake_frame(p) for p in range(1, n + 1)],
-                                   sample_name="T", show_histograms=False)
-        assert png[:8] == b"\x89PNG\r\n\x1a\n"
-        return Image.open(io.BytesIO(png)).height
-
-    assert height(10) > height(9)
+    assert _height([_fake_frame(p) for p in range(1, 11)]) > \
+        _height([_fake_frame(p) for p in range(1, 10)])
 
 
 def test_ten_points_render_with_histograms_too():
     png = build_om_grid_figure([_fake_frame(p) for p in range(1, 11)],
                                sample_name="T", show_histograms=True)
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def _height(frames):
+    from PIL import Image
+    import io
+
+    png = build_om_grid_figure(frames, sample_name="T", show_histograms=False)
+    return Image.open(io.BytesIO(png)).height
+
+
+def test_the_wafer_map_is_detected_from_point_numbers_not_frame_count():
+    """A ten-point wafer missing P7 hands over nine frames, but it is still a
+    ten-point wafer: it must draw the four-row 2-3-3-2 map with P7 an empty
+    cell, not collapse into the nine-point grid -- which would silently shift
+    P8..P10 one cell over."""
+    ten_with_gap = [_fake_frame(p) for p in range(1, 11) if p != 7]
+    ten_full = [_fake_frame(p) for p in range(1, 11)]
+    nine = [_fake_frame(p) for p in range(1, 10)]
+
+    assert _height(ten_with_gap) == _height(ten_full)
+    assert _height(ten_with_gap) > _height(nine)
+
+
+def test_a_sparse_nine_point_wafer_keeps_its_three_rows():
+    """The archive wafer carrying only positions 4-6 must still draw rows one
+    and two -- position 4 belongs in row 2, not in the top-left cell."""
+    assert _height([_fake_frame(p) for p in (4, 5, 6)]) == \
+        _height([_fake_frame(p) for p in range(1, 7)])
 
 
 if __name__ == "__main__":

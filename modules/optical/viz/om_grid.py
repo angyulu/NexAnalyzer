@@ -166,7 +166,10 @@ def build_om_grid_figure(
     `points` names the grid positions to lay out, so a sample missing positions
     still puts the ones it has in the right cells rather than closing the gaps —
     several wafers in the archive carry only six frames, and one only positions
-    4 to 6. Defaults to the positions present in `frames`.
+    4 to 6. Defaults to 1..max(point): the wafer map is detected from the point
+    *numbers*, not the frame count, so a ten-point wafer missing P7 still draws
+    as 2-3-3-2 with P7 an empty cell instead of collapsing into a nine-point
+    grid that shifts every later point one cell over.
 
     `show_histograms` draws the diagnostics row. It exists because this figure
     serves two audiences: the histograms are what make a saturated frame legible
@@ -184,7 +187,10 @@ def build_om_grid_figure(
 
     by_point = {f.point: f for f in frames}
     if points is None:
-        points = sorted(by_point)
+        # 1..max, not the sorted presence list: a ten-point wafer missing P7
+        # is still a ten-point wafer, and its remaining points must keep
+        # their wafer cells. min() guards the (unseen) zero-based wafer.
+        points = list(range(min(min(by_point), 1), max(by_point) + 1))
     points = list(points)
 
     # Until v4.6.0 this truncated to nine positions while the title and the

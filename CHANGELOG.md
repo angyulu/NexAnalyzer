@@ -5,6 +5,20 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.1] - 2026-09-15
+
+### Fixed
+
+- **The OM grid's wafer map is detected from the point numbers, not the frame
+  count.** `build_om_grid_figure`'s default `points` was the sorted presence
+  list, so a ten-point wafer missing one frame handed over nine points and
+  fell back to the nine-point 3x3 layout -- silently shifting every point
+  after the gap one cell over. The default is now `1..max(point)`: a
+  ten-point wafer missing P7 still draws the 2-3-3-2 map with P7 an empty
+  "(no frame)" cell, and the archive's sparse wafers (positions 4-6 only)
+  put their frames in the rows they belong to instead of the top row. No
+  numbers move; complete wafers render exactly as in v4.6.0.
+
 ## [4.6.0] - 2026-09-15
 
 ### Changed
