@@ -8,6 +8,7 @@ that enable automated workflow execution.
 from dataclasses import dataclass, field, fields
 from typing import Dict, List, Tuple, Optional
 from .peak import PeakDefinition
+from modules.optical.processing.contrast import THRESHOLD_MODES
 
 #: Layers an optical block may be keyed by. The stored form, never the words
 #: `contrast.layer_word` prints for them.
@@ -299,6 +300,12 @@ class OpticalParams:
 
     `ff_divisor` is a **divisor**, not a sigma: the flat-field blur runs at
     max(H, W) / ff_divisor, so a larger number means a *smaller* sigma.
+
+    `threshold_mode` (v4.6.0) picks the rule that places the cuts: "adaptive",
+    "absolute" or "midpoint". Unset keeps the v4.4.0 behaviour, where setting
+    the `abs_threshold_*` pair is what selects "absolute". An explicit mode
+    wins over the pair, so a preset can carry its old pair and still run
+    midpoint; "absolute" without a pair is rejected by `validate`.
     """
 
     nsigma: Optional[float] = None
@@ -307,6 +314,7 @@ class OpticalParams:
     ff_divisor: Optional[float] = None
     abs_threshold_below: Optional[float] = None
     abs_threshold_above: Optional[float] = None
+    threshold_mode: Optional[str] = None
 
     #: Field name -> the `contrast.analyse_frame` keyword it sets.
     _KWARGS = {
@@ -314,6 +322,7 @@ class OpticalParams:
         "minpx": "minpx",
         "mask_margin": "margin",
         "ff_divisor": "ff_divisor",
+        "threshold_mode": "threshold_mode",
     }
 
     #: Set together or not at all; they become one `abs_threshold` pair.
@@ -364,6 +373,17 @@ class OpticalParams:
             value = getattr(self, name)
             if value is not None and not (0.5 <= value <= 50.0):
                 errors.append(f"{name} {value} out of range [0.5, 50.0] %")
+        if self.threshold_mode is not None:
+            if self.threshold_mode not in THRESHOLD_MODES:
+                errors.append(
+                    f"threshold_mode {self.threshold_mode!r} is not one of "
+                    f"{list(THRESHOLD_MODES)}"
+                )
+            elif self.threshold_mode == "absolute" and below is None:
+                errors.append(
+                    "threshold_mode 'absolute' needs abs_threshold_below and "
+                    "abs_threshold_above; there is no default contrast"
+                )
         return errors
 
     def to_dict(self) -> dict:

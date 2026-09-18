@@ -60,6 +60,8 @@ tests/fixtures/*.txt
 # Per-installation "last used material" preference, regenerated on first use
 # (unlike data/materials.json, which is shared and committed).
 data/report_settings.json
+# Per-installation remembered Plot Explorer settings, keyed by sheet name.
+data/plot_explorer.json
 
 # Local Claude Code settings (per-developer, unlike .claude/commands/)
 .claude/settings.local.json

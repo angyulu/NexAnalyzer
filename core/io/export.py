@@ -151,7 +151,7 @@ def export_figure_png(fig, width: int = 1200, height: int = 600, scale: float = 
         ) from e
 
 
-def export_figure_html(fig) -> str:
+def export_figure_html(fig, self_contained: bool = False) -> str:
     """
     Export Plotly figure to interactive HTML.
 
@@ -159,25 +159,35 @@ def export_figure_html(fig) -> str:
     ----------
     fig : plotly.graph_objects.Figure
         Figure to export.
+    self_contained : bool
+        Embed plotly.js in the file (roughly +3 MB) instead of linking it from
+        a CDN. Defaults to False, preserving the behaviour every existing
+        caller was written against.
 
     Returns
     -------
     html_string : str
-        Standalone HTML file content.
+        HTML file content.
 
     Notes
     -----
-    The HTML file is fully self-contained (includes Plotly.js library).
-    Can be opened in any web browser with full interactivity.
+    The default output **is not self-contained**: it pulls plotly.js from a CDN
+    at open time, so the file renders blank on a machine with no internet or
+    behind a strict proxy. That is the right trade for a file downloaded and
+    opened on the same machine, and the wrong one for a file emailed to a
+    colleague — pass ``self_contained=True`` for the latter.
+
+    (This docstring previously claimed the opposite of what the code did; the
+    code was the honest half.)
 
     Examples
     --------
-    >>> html = export_figure_html(fig)
+    >>> html = export_figure_html(fig, self_contained=True)
     >>> with open('plot.html', 'w') as f:
     ...     f.write(html)
     """
     html_string = fig.to_html(
-        include_plotlyjs='cdn',  # Use CDN for smaller file size
+        include_plotlyjs=True if self_contained else 'cdn',
         full_html=True,
         config={'displayModeBar': True, 'displaylogo': False}
     )

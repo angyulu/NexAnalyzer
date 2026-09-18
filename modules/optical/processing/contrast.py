@@ -55,6 +55,25 @@ SHOULDER_RATIO = 1.3
 DEFAULT_NSIGMA = 4.0
 DEFAULT_MINPX = 3
 
+#: How `classify` places its two cuts. "adaptive" is the vendored rule,
+#: mode +/- nsigma * sigma_noise. "absolute" is a fixed green contrast
+#: (v4.4.0). "midpoint" (v4.6.0) measures each side's population and cuts
+#: halfway between the film and it; see `_midpoint_side`.
+THRESHOLD_MODES = ("adaptive", "absolute", "midpoint")
+
+#: Midpoint-mode constants. A side's half-step must clear this many noise
+#: sigmas to be a resolvable boundary; below it the cut is held at this
+#: distance and the side is reported "noise-limited". At 2.5 sigma about 0.6 %
+#: of the film's own pixels fall on the wrong side before despeckling --
+#: roughly a 20 % error on a 3 % class, which is the most that is worth
+#: printing as a number.
+MIDPOINT_GATE_SIGMAS = 2.5
+#: A side must hold at least this much of the valid area at the adaptive cut
+#: before there is a population to measure a step from. Gaussian noise leaves
+#: 0.003 % beyond 4 sigma; real frames' heavier tails stay well under this
+#: once despeckled.
+MIDPOINT_MIN_POPULATION_PCT = 0.1
+
 #: Overlay tints. Red marks the darker class, green the brighter one.
 RED = np.array([220, 50, 50])
 GREEN = np.array([40, 210, 100])
@@ -197,8 +216,88 @@ def _threshold_pair(abs_threshold) -> Tuple[float, float]:
     return float(abs_threshold), float(abs_threshold)
 
 
+def resolve_threshold_mode(threshold_mode, abs_threshold) -> str:
+    """The mode `classify` will run in, from the two ways of asking for one.
+
+    `threshold_mode=None` keeps v4.4.0's contract: an `abs_threshold` selects
+    the absolute rule and nothing selects the adaptive one. An explicit mode
+    wins over the pair -- a preset that carries an old pair and asks for
+    "midpoint" gets midpoint -- except that "absolute" with no pair is an
+    error rather than a silent fall-back, because there is no default contrast.
+    """
+    if threshold_mode is None:
+        return "absolute" if abs_threshold is not None else "adaptive"
+    if threshold_mode not in THRESHOLD_MODES:
+        raise ValueError(
+            f"threshold_mode {threshold_mode!r} is not one of {THRESHOLD_MODES}"
+        )
+    if threshold_mode == "absolute" and abs_threshold is None:
+        raise ValueError("threshold_mode='absolute' needs an abs_threshold pair")
+    return threshold_mode
+
+
+def _plateau_green(g: np.ndarray, m: np.ndarray) -> float:
+    """Mean green of a class, eroded 1 px so boundary-mixed pixels don't pull
+    it toward the film. The same rule as `interior_mean`, on one plane."""
+    mi = ndi.binary_erosion(m, iterations=1)
+    if mi.sum() < 30:
+        mi = m
+    return float(g[mi].mean())
+
+
+def _midpoint_side(g: np.ndarray, valid: np.ndarray, minpx: int,
+                   mode: float, sigma: float, start: float, sign: int
+                   ) -> Tuple[float, float, str]:
+    """One side of the midpoint rule: (threshold, step in % of mode, status).
+
+    `sign` is +1 for the brighter side, -1 for the darker; `start` is the
+    adaptive cut, where the search for a population begins.
+
+    The idea: the film sits at the mode, the next layer sits at a plateau
+    some step away, and the Bayes boundary between two populations of equal
+    noise is the midpoint between them. So measure the plateau of what lies
+    beyond the adaptive cut and place the boundary at half that distance.
+    Measured from the sample itself, the step needs no per-material constant,
+    and the asymmetry between the two sides falls out instead of being
+    asserted.
+
+    One pass, deliberately. The step is measured where the population is
+    cleanly separated from the film -- beyond nsigma -- so the plateau is the
+    domain interior and the truncation bias is negligible for anything
+    resolvable. Re-measuring at the tightened cut (iterating to a fixed point)
+    was tried and rejected on HADH37: each tighter cut admits more of the
+    film's own tail, the "plateau" drifts toward the cut, and the rule walks
+    the threshold into the film's shoulder (Above 2L 2.2 % -> 7.4 % on a frame
+    with visibly few bright domains).
+
+    Two outcomes are not a midpoint. A side holding less than
+    `MIDPOINT_MIN_POPULATION_PCT` of the frame at the adaptive cut has no
+    population ("empty"): the cut stays put and the class reads ~0, which is
+    right. And a half-step narrower than `MIDPOINT_GATE_SIGMAS` noise sigmas
+    is a boundary the film's own tail would cross, so the adaptive cut is
+    kept and the side is reported "noise-limited": the coverage it yields is
+    a lower bound (the wider cut leaves part of the population counted as
+    film), and the figure and CSV say so rather than printing it as a
+    measurement.
+
+    Known limit, shared with the rest of this module: two populations on one
+    side (1L and bare substrate below a 2L film) are not separated. The
+    plateau is then their area-weighted mean and the cut lands at half of
+    that, which can split the nearer one. The histogram row shows it.
+    """
+    beyond = (g > start) if sign > 0 else (g < start)
+    mask = despeckle(beyond & valid, minpx)
+    if mask.sum() / float(valid.sum()) * 100.0 < MIDPOINT_MIN_POPULATION_PCT:
+        return start, float("nan"), "empty"
+    step = abs(_plateau_green(g, mask) - mode)
+    step_pct = step / mode * 100.0
+    if step / 2.0 < MIDPOINT_GATE_SIGMAS * sigma:
+        return start, step_pct, "noise-limited"
+    return mode + sign * step / 2.0, step_pct, "midpoint"
+
+
 def classify(g: np.ndarray, valid: np.ndarray, nsigma: float, minpx: int,
-             abs_threshold=None):
+             abs_threshold=None, threshold_mode: Optional[str] = None):
     """
     Split `valid` pixels into darker / reference / brighter by the green
     channel's own noise width.
@@ -219,6 +318,11 @@ def classify(g: np.ndarray, valid: np.ndarray, nsigma: float, minpx: int,
     decimal places, 4 sigma landing at +7.1 % against a ~5 % layer step, and
     0.14 % of a visibly trilayer-rich film reported as "Above 2L".
 
+    `threshold_mode="midpoint"` is the third rule, and the one that needs no
+    number typed in: it measures the step from the data. See `_midpoint_side`
+    and `resolve_threshold_mode` for the rule and for how the three modes are
+    selected.
+
     Stated as a contrast the threshold cannot be moved by the very thing it
     measures. Half a layer step (~2.5 %) is the midpoint between the reference
     film at 0 % and the next layer at ~+5 %, which is where a decision boundary
@@ -230,13 +334,23 @@ def classify(g: np.ndarray, valid: np.ndarray, nsigma: float, minpx: int,
     st["shoulder"] = bool(
         max(st["sigma_l"], st["sigma_r"]) / max(st["sigma_noise"], 1e-6) > SHOULDER_RATIO
     )
-    if abs_threshold is None:
+    mode = resolve_threshold_mode(threshold_mode, abs_threshold)
+    st["threshold_mode"] = mode
+    st["step_below"] = st["step_above"] = float("nan")
+    st["status_below"] = st["status_above"] = mode
+    if mode == "adaptive":
         st["th_hi"] = st["mode"] + nsigma * st["sigma_noise"]
         st["th_lo"] = st["mode"] - nsigma * st["sigma_noise"]
-    else:
+    elif mode == "absolute":
         below, above = _threshold_pair(abs_threshold)
         st["th_hi"] = st["mode"] * (1.0 + above / 100.0)
         st["th_lo"] = st["mode"] * (1.0 - below / 100.0)
+    else:
+        centre, sigma = st["mode"], st["sigma_noise"]
+        st["th_hi"], st["step_above"], st["status_above"] = _midpoint_side(
+            g, valid, minpx, centre, sigma, centre + nsigma * sigma, +1)
+        st["th_lo"], st["step_below"], st["status_below"] = _midpoint_side(
+            g, valid, minpx, centre, sigma, centre - nsigma * sigma, -1)
     hi = despeckle((g > st["th_hi"]) & valid, minpx)
     lo = despeckle((g < st["th_lo"]) & valid, minpx)
     ref = valid & ~hi & ~lo
@@ -272,7 +386,7 @@ def measure(s: np.ndarray, lo: np.ndarray, ref: np.ndarray,
 def analyse(path, ref_label: str, nsigma: float = DEFAULT_NSIGMA,
             minpx: int = DEFAULT_MINPX, margin: Optional[float] = None,
             ff_divisor: Optional[float] = None,
-            abs_threshold=None) -> dict:
+            abs_threshold=None, threshold_mode: Optional[str] = None) -> dict:
     """Segment one frame. Returns the raw working dict; see `analyse_frame`."""
     a = load(path)
     aperture, valid, ftype = make_mask(a, margin)
@@ -283,7 +397,8 @@ def analyse(path, ref_label: str, nsigma: float = DEFAULT_NSIGMA,
     s = ndi.gaussian_filter(
         flat, sigma=(SMOOTH_SIGMA, SMOOTH_SIGMA, 0), mode="nearest"
     )
-    lo, ref, hi, st = classify(s[..., 1], valid, nsigma, minpx, abs_threshold)
+    lo, ref, hi, st = classify(s[..., 1], valid, nsigma, minpx, abs_threshold,
+                               threshold_mode)
     meas = measure(s, lo, ref, hi, valid)
     return dict(a=a, s=s, valid=valid, lo=lo, ref=ref, hi=hi, st=st,
                 meas=meas, ftype=ftype, ref_label=ref_label)
@@ -316,10 +431,24 @@ class FrameResult:
     threshold_low: float
     threshold_high: float
     shoulder: bool
+    # v4.6.0: how the cuts were placed. `step_*` is the measured plateau
+    # contrast in % of the mode (NaN unless midpoint found a population);
+    # `status_*` is "adaptive" / "absolute", or for midpoint one of
+    # "midpoint", "empty", "noise-limited" -- see `_midpoint_side`.
+    threshold_mode: str = "adaptive"
+    step_below: float = float("nan")
+    step_above: float = float("nan")
+    status_below: str = "adaptive"
+    status_above: str = "adaptive"
 
     @property
     def reference_pct(self) -> float:
         return self.percentages[1]
+
+    @property
+    def noise_limited(self) -> bool:
+        """True when either side's coverage is a lower bound, not a measurement."""
+        return "noise-limited" in (self.status_below, self.status_above)
 
 
 def _overlay(res: dict) -> np.ndarray:
@@ -334,7 +463,8 @@ def analyse_frame(path, point: int, ref_label: str, name: Optional[str] = None,
                   nsigma: float = DEFAULT_NSIGMA, minpx: int = DEFAULT_MINPX,
                   margin: Optional[float] = None,
                   ff_divisor: Optional[float] = None,
-                  abs_threshold=None) -> FrameResult:
+                  abs_threshold=None,
+                  threshold_mode: Optional[str] = None) -> FrameResult:
     """Segment one frame and return it as a `FrameResult`.
 
     Every tuning argument defaults to the module constant it overrides, so
@@ -344,7 +474,8 @@ def analyse_frame(path, point: int, ref_label: str, name: Optional[str] = None,
     unset, `classify` thresholds on nsigma exactly as it always has.
     """
     res = analyse(path, ref_label, nsigma=nsigma, minpx=minpx, margin=margin,
-                  ff_divisor=ff_divisor, abs_threshold=abs_threshold)
+                  ff_divisor=ff_divisor, abs_threshold=abs_threshold,
+                  threshold_mode=threshold_mode)
     st, meas = res["st"], res["meas"]
     return FrameResult(
         name=name or str(point),
@@ -369,6 +500,11 @@ def analyse_frame(path, point: int, ref_label: str, name: Optional[str] = None,
         threshold_low=st["th_lo"],
         threshold_high=st["th_hi"],
         shoulder=st["shoulder"],
+        threshold_mode=st["threshold_mode"],
+        step_below=st["step_below"],
+        step_above=st["step_above"],
+        status_below=st["status_below"],
+        status_above=st["status_above"],
     )
 
 

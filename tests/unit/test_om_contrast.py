@@ -31,11 +31,14 @@ from modules.optical.processing.contrast import (
 )
 
 
-def _synthetic_frame(tmp_path, name="50x-1.png"):
+def _synthetic_frame(tmp_path, name="50x-1.png", bright=9.0, dark=-9.0,
+                     extra=None):
     """A rectangular frame with vignetting, noise, and planted domains.
 
     Deterministic: the gradient is what makes the flat-field boundary mode
     matter, and the planted patches are what the classifier should find.
+    `bright` / `dark` are the planted domains' green offsets (0 plants
+    nothing); `extra` is an optional (slice_y, slice_x, offset) third patch.
     """
     from PIL import Image
 
@@ -53,8 +56,11 @@ def _synthetic_frame(tmp_path, name="50x-1.png"):
     green = base + rng.normal(0, 1.2, size=(H, W))
 
     # Planted domains, well inside the 5 % valid margin.
-    green[60:90, 80:140] += 9.0     # brighter: an "Above 2L" domain
-    green[180:200, 250:300] -= 9.0  # darker: a "Below 2L" domain
+    green[60:90, 80:140] += bright      # brighter: an "Above 2L" domain
+    green[180:200, 250:300] += dark     # darker: a "Below 2L" domain
+    if extra is not None:
+        sy, sx, offset = extra
+        green[sy, sx] += offset
 
     rgb = np.stack([green * 0.95, green, green * 1.02], axis=-1)
     path = tmp_path / name
@@ -357,3 +363,149 @@ class TestAbsoluteThreshold:
                                abs_threshold=4.25)
         assert loose.threshold_high == pytest.approx(strict.threshold_high)
         assert loose.percentages == strict.percentages
+
+
+class TestMidpointThreshold:
+    """The self-calibrating rule (v4.6.0): cut halfway between the film mode
+    and the measured plateau of whatever lies beyond the adaptive cut."""
+
+    #: Captured from this module on the synthetic frame. The planted domains
+    #: sit 9 grey levels off a ~187 mode, so both measured steps are ~4.3 %
+    #: and both cuts land ~4 levels out instead of the adaptive ~2.3.
+    GOLDEN = {
+        "below": 1.024691,
+        "reference": 97.126543,
+        "above": 1.848765,
+        "threshold_low": 182.9552,
+        "threshold_high": 191.0128,
+    }
+
+    def test_unset_mode_is_the_adaptive_rule(self, tmp_path):
+        path = _synthetic_frame(tmp_path)
+        bare = analyse_frame(path, point=1, ref_label="2L")
+        assert bare.threshold_mode == "adaptive"
+        assert bare.status_below == bare.status_above == "adaptive"
+        assert np.isnan(bare.step_below) and np.isnan(bare.step_above)
+
+    def test_an_abs_pair_alone_still_selects_absolute(self, tmp_path):
+        """v4.4.0's contract, kept: a preset with the pair and no mode."""
+        frame = analyse_frame(_synthetic_frame(tmp_path), point=1, ref_label="2L",
+                              abs_threshold=(6.0, 4.25))
+        assert frame.threshold_mode == "absolute"
+        assert frame.status_above == "absolute"
+
+    def test_an_explicit_mode_wins_over_the_pair(self, tmp_path):
+        """A preset carrying its old pair can still ask for midpoint."""
+        frame = analyse_frame(_synthetic_frame(tmp_path), point=1, ref_label="2L",
+                              abs_threshold=(6.0, 4.25), threshold_mode="midpoint")
+        assert frame.threshold_mode == "midpoint"
+        assert frame.threshold_high != pytest.approx(frame.mode * 1.0425)
+
+    def test_absolute_without_a_pair_is_an_error_not_a_fallback(self, tmp_path):
+        with pytest.raises(ValueError, match="abs_threshold"):
+            analyse_frame(_synthetic_frame(tmp_path), point=1, ref_label="2L",
+                          threshold_mode="absolute")
+
+    def test_an_unknown_mode_is_an_error(self, tmp_path):
+        with pytest.raises(ValueError, match="otsu"):
+            analyse_frame(_synthetic_frame(tmp_path), point=1, ref_label="2L",
+                          threshold_mode="otsu")
+
+    def test_each_cut_sits_at_half_the_measured_step(self, tmp_path):
+        frame = analyse_frame(_synthetic_frame(tmp_path), point=1, ref_label="2L",
+                              threshold_mode="midpoint")
+
+        assert frame.status_below == frame.status_above == "midpoint"
+        # Planted +/-9 on a ~187 mode is a ~4.8 % step before smoothing and
+        # erosion; anything in 3.5-5.5 is that domain and not the noise.
+        assert 3.5 < frame.step_above < 5.5
+        assert 3.5 < frame.step_below < 5.5
+        assert frame.threshold_high == pytest.approx(
+            frame.mode * (1 + frame.step_above / 200.0))
+        assert frame.threshold_low == pytest.approx(
+            frame.mode * (1 - frame.step_below / 200.0))
+
+    def test_the_step_is_measured_from_the_data_not_typed_in(self, tmp_path):
+        """Plant the bright domain further out and the cut must follow it."""
+        near = analyse_frame(_synthetic_frame(tmp_path, "near.png", bright=6.0),
+                             point=1, ref_label="2L", threshold_mode="midpoint")
+        far = analyse_frame(_synthetic_frame(tmp_path, "far.png", bright=12.0),
+                            point=1, ref_label="2L", threshold_mode="midpoint")
+
+        assert far.step_above > near.step_above * 1.5
+        assert far.threshold_high > near.threshold_high
+
+    def test_the_planted_domains_survive_the_wider_cut(self, tmp_path):
+        """Both planted patches are far outside either cut, so moving the cut
+        from ~4 sigma to half the step must not lose them -- only shed some
+        noise pixels that the tighter adaptive cut had let through."""
+        path = _synthetic_frame(tmp_path)
+        adaptive = analyse_frame(path, point=1, ref_label="2L")
+        midpoint = analyse_frame(path, point=1, ref_label="2L",
+                                 threshold_mode="midpoint")
+
+        assert midpoint.percentages[2] == pytest.approx(adaptive.percentages[2], abs=0.1)
+        assert midpoint.percentages[0] == pytest.approx(adaptive.percentages[0], abs=0.1)
+        assert midpoint.reference_pct >= adaptive.reference_pct
+
+    def test_a_side_with_nothing_beyond_the_cut_is_empty(self, tmp_path):
+        frame = analyse_frame(_synthetic_frame(tmp_path, dark=0.0), point=1,
+                              ref_label="2L", threshold_mode="midpoint")
+
+        assert frame.status_below == "empty"
+        assert np.isnan(frame.step_below)
+        # The cut stays where the adaptive rule put it.
+        assert frame.threshold_low == pytest.approx(frame.mode - 4.0 * frame.sigma_noise)
+        assert frame.status_above == "midpoint"
+
+    def test_a_population_inside_the_noise_never_tightens_the_cut(self, tmp_path):
+        """A broad, faint patch sitting ~2 sigma above the film: whatever of
+        it leaks past 4 sigma is not a resolvable population. The rule must
+        report that (empty or noise-limited) and leave the adaptive cut alone,
+        rather than halve a truncated tail and walk into the film."""
+        probe = analyse_frame(_synthetic_frame(tmp_path, "probe.png"), point=1,
+                              ref_label="2L")
+        faint = 2.0 * probe.sigma_noise
+        frame = analyse_frame(
+            _synthetic_frame(tmp_path, "faint.png", bright=0.0,
+                             extra=(slice(40, 160), slice(60, 220), faint)),
+            point=1, ref_label="2L", threshold_mode="midpoint")
+
+        assert frame.status_above in ("empty", "noise-limited")
+        assert frame.threshold_high == pytest.approx(frame.mode + 4.0 * frame.sigma_noise)
+
+    def test_noise_limited_keeps_the_adaptive_cut_and_says_so(self, tmp_path, monkeypatch):
+        """The gate itself: with it raised past any real step, every
+        population is noise-limited -- the cut is the adaptive one, the step
+        is still reported, and the frame flags itself."""
+        from modules.optical.processing import contrast
+
+        monkeypatch.setattr(contrast, "MIDPOINT_GATE_SIGMAS", 1e6)
+        path = _synthetic_frame(tmp_path)
+        adaptive = analyse_frame(path, point=1, ref_label="2L")
+        limited = analyse_frame(path, point=1, ref_label="2L",
+                                threshold_mode="midpoint")
+
+        assert limited.status_above == limited.status_below == "noise-limited"
+        assert limited.noise_limited
+        assert limited.threshold_high == pytest.approx(adaptive.threshold_high)
+        assert limited.threshold_low == pytest.approx(adaptive.threshold_low)
+        assert limited.percentages == adaptive.percentages
+        assert 3.5 < limited.step_above < 5.5
+
+    def test_the_midpoint_numbers_are_stable(self, tmp_path):
+        """Golden values for the new rule, for the same reason the adaptive
+        ones above have theirs."""
+        frame = analyse_frame(_synthetic_frame(tmp_path), point=1, ref_label="2L",
+                              threshold_mode="midpoint")
+
+        assert frame.percentages[0] == pytest.approx(self.GOLDEN["below"], abs=2e-6)
+        assert frame.percentages[1] == pytest.approx(self.GOLDEN["reference"], abs=2e-6)
+        assert frame.percentages[2] == pytest.approx(self.GOLDEN["above"], abs=2e-6)
+        assert frame.threshold_low == pytest.approx(self.GOLDEN["threshold_low"], abs=1e-4)
+        assert frame.threshold_high == pytest.approx(self.GOLDEN["threshold_high"], abs=1e-4)
+
+    def test_the_adaptive_goldens_did_not_move(self, tmp_path):
+        """Adding a third mode must leave the default byte-identical."""
+        frame = analyse_frame(_synthetic_frame(tmp_path), point=1, ref_label="2L")
+        assert frame.percentages[1] == pytest.approx(GOLDEN["reference"], abs=1e-6)
