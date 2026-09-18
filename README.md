@@ -1,10 +1,11 @@
-# NexAnalyzer v3.8.1
+# NexAnalyzer v5.0.0
 
 Nexstrom's measurement data analyzer. A desktop web app that turns raw measurement files into
 fitted results and shareable reports, driven by per-material presets rather than manual
 parameter tuning.
 
-**Modules available today:** Raman & photoluminescence spectra (peak fitting + sample reports).
+**Modules available today:** Raman & photoluminescence spectra (peak fitting + QC reports)
+and optical microscopy (layer-contrast segmentation).
 The platform is built so further techniques plug in alongside it — see
 [Architecture](#architecture).
 
@@ -66,16 +67,43 @@ streamlit run app.py
   with raw and intermediate layers available under View Options.
 - **Export**: PNG/HTML figures, per-file fit parameters, and a master CSV across all fitted files.
 
-### Sample reports
+### QC reports
 
-- **One-click PPTX** from a sample folder's 9-point OM + Raman + PL measurement grid: pick the
-  folder, pick a material, click Generate. Out comes a three-slide report — OM grid with
-  fit-summary tables, then a 3×3 grid of each Raman point's fitted spectrum, then the same for PL.
-- **On-screen preview** of the real generated slides, saved alongside the `.pptx` as
-  `_page1.png` / `_page2.png` / `_page3.png`.
+- **One run, seven figures and a workbook** from a sample folder's 9-point OM + Raman + PL
+  measurement grid: pick the folder, pick a material, click Generate. One folder scan, one
+  fitting pass, every artifact derived from it — so no two figures can describe different fits
+  of the same sample.
 
-> Report previews drive Microsoft PowerPoint via COM automation, so they require Windows with
-> Office installed. Without it you still get the `.pptx` — only the preview images are skipped.
+  | | Figure |
+  |---|---|
+  | 1 | **Summary** — OM grid, its per-class segmentation table, and the Raman and PL fit-summary tables |
+  | 2 | **OM** — layer segmentation across the grid positions |
+  | 3 | **OM diagnostic** — the same, plus the green-channel histograms showing where each threshold landed |
+  | 4 | **Raman** — the nine fitted Raman spectra |
+  | 5 | **Raman stats** — fitted FWHM, peak centres and diagnostic ratios across the positions, with the inherited spec lines drawn |
+  | 6 | **PL** — the nine fitted PL spectra |
+  | 7 | **PL stats** — the same panels for PL |
+
+- **One workbook** carries every number behind them: `Summary`, `Raman`, `PL`, `OM_Stats`,
+  `OM_Points`.
+- **Auto-detect**: anything without data is skipped rather than drawn empty, and an inventory
+  above the Run button says what was found before anything runs. A folder with no PL files and
+  a material with no PL block get different messages — they are fixed in different places.
+
+> **Changed in v5.0.0.** The Sample Report and QC Panel pages are merged into one **QC Report**
+> page, and the `.pptx` output is gone along with the PowerPoint COM rendering behind it. No
+> part of the app needs Office installed any more.
+
+### Plotting any spreadsheet
+
+- **Plot Explorer** takes any `.xlsx` sheet and drives `plotly.express.scatter` over it —
+  axes, colour, symbol, size, facets, error bars, marginals and trendlines. It knows nothing
+  about peaks or spectra, so a hand-kept process workbook plots as it stands.
+- **Built for real lab notebooks**: joins a two-row header into `H2O (torr)`, separates
+  repeated column names, drops blank filler rows, and offers per-column strategies for
+  numbers stored as prose (`1->4(0.2sccm)`, `12min30s`, `35.5-37.5`) — each previewed, with
+  the count of what it discards, before it is applied.
+- One sheet at a time, never several combined: one plot draws on one tool's runs.
 
 ---
 
@@ -83,15 +111,18 @@ streamlit run app.py
 
 ```
 app.py                 Composition root: page config, module session state, routing
-pages/                 One file per screen (Spectra, Sample Report, Material Presets)
+pages/                 One file per screen (Spectra, QC Report, Material Presets,
+                       Plot Explorer)
 core/                  Platform — knows nothing about peaks or spectra
   io/                  Native dialogs, figure rasterization, output filenames
-  report/              PPTX assembly, slide rasterization, report row contracts
+  report/              Composed report pages, staged progress, report row contracts
   viz/                 Page-width-aware figure rendering
   paths.py             Where app data lives
   version.py           Single source of truth for name + version
-modules/               One package per measurement technique
+modules/               Mostly one package per measurement technique
   spectra/             Raman & PL: models, processing, UI, figures
+  optical/             OM: layer-contrast segmentation and its figures
+  dataviz/             Plot Explorer: spreadsheet reading and px.scatter (no technique)
 data/                  materials.json (shared, committed) + local preferences
 tests/                 unit/ + integration/
 docs/                  Architecture and algorithm notes
@@ -134,7 +165,7 @@ Two-column (or multi-Y) `.txt` files, no header:
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q          # 136 tests
+python -m pytest -q          # 654 tests
 python -m ruff check .
 ```
 

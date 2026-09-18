@@ -1,5 +1,5 @@
 """
-Sidebar UI component for the Analysis page: mode selection, file upload,
+Sidebar UI component for the Spectra page: mode selection, file upload,
 and results export.
 
 This module provides the render_sidebar() function that displays, in order:

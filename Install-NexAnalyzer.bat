@@ -34,9 +34,11 @@ echo.
 :: Both of these are real failures rather than style preferences, so stop now
 :: instead of letting them surface halfway through a long dependency install.
 
-:: pywin32 unpacks files about 100 characters deep inside the environment. Much
-:: past 100 characters of base path, pip aborts partway through installing
-:: dependencies with "WinError 206: The filename or extension is too long".
+:: Some dependencies unpack files about 100 characters deep inside the
+:: environment. Much past 100 characters of base path, pip aborts partway
+:: through installing them with "WinError 206: The filename or extension is
+:: too long". (pywin32, the deepest offender, was dropped at v5.0.0 — the
+:: check stays because the margin was never large.)
 :: %VAR:~100% is empty unless the value is longer than 100 characters.
 if not "%NEXA_DIR:~100%"=="" goto :path_too_long
 

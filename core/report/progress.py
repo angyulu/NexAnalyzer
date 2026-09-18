@@ -6,12 +6,25 @@ user's real question during it is "is this working, or has it died?". A bar
 that reaches 100% and disappears while three quarters of the work is still
 to come answers that question wrongly, which is what this exists to fix.
 
-The weights below are **measured**, not guessed, on a real 9-point sample
-(``Example/HADG06``: 9 Raman + 9 PL 2000-point spectra, 9x 2240x1680 BMP
-optical images) totalling 24.5 s:
+The weights below are **carried over from two measured sets**, not freshly
+measured on the merged pipeline. The report half was measured on a real
+9-point sample (``Example/HADG06``: 9 Raman + 9 PL 2000-point spectra, 9x
+2240x1680 BMP optical images) totalling 24.5 s:
 
-    fit 5.28s (21.5%) | Raman figures 3.98s (16.2%) | PL figures 4.66s (19.0%)
-    optical images 5.37s (21.9%) | .pptx 2.09s (8.5%) | preview 3.17s (12.9%)
+    fit 5.28s | Raman fit columns 3.98s | PL fit columns 4.66s
+    optical images 5.37s | .pptx 2.09s | preview 3.17s
+
+The segmentation half comes from the QC Panel's own documented timings: about
+30 s to segment nine frames, and about 5 s for each of the two OM renders. The
+.pptx and PowerPoint-preview stages are gone at v5.0.0 and their time is
+replaced by the summary page and workbook, which together cost about a second.
+
+Combining the two gives roughly 64 s, dominated by segmentation at ~47%.
+**This is owed a re-measurement on the merged page** — the two sets came off
+different samples on different days, and only their ratio to each other is
+guesswork. What is not guesswork is the shape: segmentation is far and away
+the longest stage, and a bar that doesn't say so is the lie this module exists
+to prevent.
 
 Don't flatten them to equal shares. Equal weights would put the bar at 50%
 when 78% of the time is still ahead, which is the same lie in a different
@@ -47,15 +60,16 @@ class Stage:
     weight: float
 
 
-#: The full chain, in execution order, with measured weights. A caller keeps
-#: only the stages its run will actually perform.
+#: The full chain, in execution order, with weights. A caller keeps only the
+#: stages its run will actually perform.
 STAGES: Sequence[Stage] = (
-    Stage("fit", "Fitting spectra", 0.215),
-    Stage("raman_figures", "Rendering Raman figures", 0.162),
-    Stage("pl_figures", "Rendering PL figures", 0.190),
-    Stage("optical_images", "Loading optical images", 0.219),
-    Stage("pptx", "Assembling the report", 0.085),
-    Stage("preview", "Rendering preview in PowerPoint", 0.129),
+    Stage("optical_images", "Loading optical images", 0.083),
+    Stage("optical_segmentation", "Segmenting optical frames", 0.468),
+    Stage("om_figures", "Rendering OM figures", 0.155),
+    Stage("fit", "Fitting spectra", 0.082),
+    Stage("raman_figures", "Rendering Raman figures", 0.093),
+    Stage("pl_figures", "Rendering PL figures", 0.103),
+    Stage("compose", "Composing the report", 0.016),
 )
 
 
@@ -68,8 +82,8 @@ sample's share; a run fitting more spectra scales it up from here.
 
 
 def stages_for(
-    *, has_raman: bool, has_pl: bool, has_optical: bool, has_preview: bool = True,
-    fit_spectra: Optional[int] = None,
+    *, has_raman: bool, has_pl: bool, has_optical: bool,
+    has_segmentation: bool = True, fit_spectra: Optional[int] = None,
 ) -> List[Stage]:
     """The stages a run will actually perform, in order.
 
@@ -89,12 +103,16 @@ def stages_for(
     measured on.
     """
     keep = {
+        "optical_images": has_optical,
+        # A folder can have images without a segmentation to run — no material
+        # picked, or a preset with no optical block the operator declined. The
+        # summary page's grid still wants the frames loaded.
+        "optical_segmentation": has_optical and has_segmentation,
+        "om_figures": has_optical and has_segmentation,
         "fit": has_raman or has_pl,
         "raman_figures": has_raman,
         "pl_figures": has_pl,
-        "optical_images": has_optical,
-        "pptx": True,
-        "preview": has_preview,
+        "compose": True,
     }
     scale = 1.0
     if fit_spectra and fit_spectra > 0:
@@ -250,7 +268,7 @@ def build(
     has_raman: bool,
     has_pl: bool,
     has_optical: bool,
-    has_preview: bool = True,
+    has_segmentation: bool = True,
     fit_spectra: Optional[int] = None,
 ) -> Optional[ReportProgress]:
     """A `ReportProgress` for a run with these techniques, or None if there is
@@ -263,7 +281,7 @@ def build(
         has_raman=has_raman,
         has_pl=has_pl,
         has_optical=has_optical,
-        has_preview=has_preview,
+        has_segmentation=has_segmentation,
         fit_spectra=fit_spectra,
     )
     if not stages:

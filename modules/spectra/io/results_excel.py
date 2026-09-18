@@ -1,15 +1,24 @@
 """
-The Sample Report's numbers as a workbook: every point's fitted peaks, plus
-the summary the slides show.
+The QC Report's numbers as one workbook: every point's fitted peaks, every
+segmented frame, plus the summary the report's pages show.
 
-Three sheets, two audiences:
+Five sheets, two audiences:
 
-- ``Summary`` is the slide's tables — per-peak mean ± std for each technique,
-  the intensity ratios, and any point that failed to fit — for reading.
+- ``Summary`` is the summary page's tables — per-peak mean ± std for each
+  technique, the intensity ratios, and any point that failed to fit — for
+  reading.
 - ``Raman`` and ``PL`` are tidy tables, one row per fitted peak per point,
-  for pivoting and plotting. This is the detail the .pptx only ever shows
-  aggregated: the deck says the E2g+A1g sat at 250.3 ± 0.4, the sheet says
-  which point was the 0.4.
+  for pivoting and plotting. This is the detail the report only ever shows
+  aggregated: the summary page says the E2g+A1g sat at 250.3 ± 0.4, the sheet
+  says which point was the 0.4.
+- ``OM_Stats`` and ``OM_Points`` are the same pair for the optical
+  segmentation: three class rows, and the frame behind each of those averages.
+
+One workbook rather than a workbook plus four CSVs, which is what the two
+merged pages wrote between them until v5.0.0. Two of those CSVs were
+near-duplicates of sheets already here — the per-point fit table and the
+per-peak aggregate — so retiring them removed a way for one file to disagree
+with another about the same measurement.
 
 Every point that fitted is here, including the ones the summary averages over
 silently; every point that didn't is named in the excluded block rather than
@@ -18,8 +27,13 @@ as a complete record of a sample that was never measured that way.
 
 Intensity is the fitted curve's maximum, via
 ``peak_metrics.peak_intensity_and_stderr`` — never ``FittedPeak.area``. Same
-quantity under the same name as the on-screen table, both CSVs and the .pptx.
-See peak_metrics for why those are two different numbers.
+quantity under the same name as the on-screen table, the master CSV and the
+report's own tables. See peak_metrics for why those are two different numbers.
+
+The optical import is the second `spectra -> optical` edge in the codebase and
+is deliberate: a QC Report carries both techniques' numbers, and the
+alternative is openpyxl in the page. `modules.optical.io.frame_tables` owns
+the optical schema; this module only decides how Excel shows it.
 
 Cell values are written unrounded. The display formats below only decide how
 many decimals Excel *shows*, so a user who widens a column's format gets the
@@ -34,6 +48,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 
 from core.report.models import RAW_STAT_LABEL, PeakStat
+from modules.optical.io import frame_tables
 
 from ..processing.peak_metrics import peak_intensity_and_stderr, raw_peak_stats
 
@@ -137,6 +152,51 @@ _EXCLUDED_COLUMNS: Sequence[_Column] = (
     _Column("Point", "0", 7),
     _Column("Error", None, 60),
 )
+
+# How Excel shows each optical column. Keyed by the header names
+# `frame_tables` declares, so the schema has one owner and adding a column
+# there cannot silently produce an unformatted one here — it just picks up the
+# text default until someone gives it a format.
+_OPTICAL_FORMATS = {
+    "Point": ("0", 7),
+    "Frame": (None, 22),
+    "Frame_Type": (None, 12),
+    "Reference_Layer": (None, 16),
+    "Below_Coverage_pct": ("0.00", 20),
+    "Reference_Coverage_pct": ("0.00", 22),
+    "Above_Coverage_pct": ("0.00", 20),
+    "Below_Contrast_pct": ("0.00", 19),
+    "Above_Contrast_pct": ("0.00", 19),
+    "Below_Components": ("0", 18),
+    "Above_Components": ("0", 18),
+    "Green_Mode": ("0.0", 12),
+    "Sigma_Left": ("0.000", 12),
+    "Sigma_Right": ("0.000", 13),
+    "Sigma_Noise": ("0.000", 13),
+    "Threshold_Low": ("0.0", 14),
+    "Threshold_High": ("0.0", 15),
+    "Shoulder": ("0.0", 10),
+    "Threshold_Mode": (None, 15),
+    "Step_Below_pct": ("0.000", 15),
+    "Step_Above_pct": ("0.000", 15),
+    "Status_Below": (None, 15),
+    "Status_Above": (None, 15),
+    "Class": (None, 16),
+    "Position": (None, 11),
+    "N_Frames": ("0", 10),
+    "N_Noise_Limited": ("0", 17),
+    "Coverage_Mean_pct": ("0.00", 18),
+    "Coverage_Std_pct": ("0.000", 17),
+    "Contrast_Mean_pct": ("0.00", 18),
+    "Contrast_Std_pct": ("0.000", 17),
+}
+
+
+def _optical_columns(headers: Sequence[str]) -> Sequence[_Column]:
+    return tuple(
+        _Column(header, *_OPTICAL_FORMATS.get(header, (None, 14)))
+        for header in headers
+    )
 
 _HEADING_FONT = Font(bold=True)
 _TITLE_FONT = Font(bold=True, size=14)
@@ -258,6 +318,30 @@ def _add_data_sheet(wb: Workbook, technique: TechniqueResults, show_fwhm_v1: boo
     ws.auto_filter.ref = ws.dimensions
 
 
+def _add_optical_sheets(wb: Workbook, frames: Sequence) -> None:
+    """``OM_Stats`` and ``OM_Points``, or nothing when no frame segmented.
+
+    Two sheets rather than one, matching the spectra pair: the three-row class
+    table is what a reader wants, the per-frame table is what a plotter wants,
+    and interleaving them would serve neither.
+    """
+    if not frames:
+        return
+
+    for title, headers, rows in (
+        ("OM_Stats", frame_tables.CLASS_COLUMNS, frame_tables.frame_class_rows(frames)),
+        ("OM_Points", frame_tables.POINT_COLUMNS, frame_tables.frame_point_rows(frames)),
+    ):
+        if not rows:
+            continue
+        columns = _optical_columns(headers)
+        ws = wb.create_sheet(title=title)
+        _write_table(ws, columns, rows)
+        _set_widths(ws, columns)
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+
+
 def _add_summary_sheet(
     wb: Workbook,
     sample_name: str,
@@ -326,20 +410,26 @@ def build_sample_results_xlsx(
     sample_name: str,
     material_name: str,
     report_date: str,
-    techniques: Sequence[TechniqueResults],
+    techniques: Sequence[TechniqueResults] = (),
+    optical_frames: Sequence = (),
     show_fwhm_v1: bool = False,
 ) -> bytes:
     """
-    The sample's fit results as .xlsx bytes: a `Summary` sheet, then one
-    per-point sheet for each technique that produced fits.
+    The sample's results as .xlsx bytes: a `Summary` sheet, one per-point sheet
+    for each technique that produced fits, and the two optical sheets when the
+    segmentation ran.
 
-    The identity arguments mirror the .pptx builder's, so the two artifacts
-    written side by side name the same sample, material and date.
+    The identity arguments mirror the summary figure's, so the workbook and the
+    report pages written beside it name the same sample, material and date.
+
+    `optical_frames` is the `FrameResult` list the OM figures were drawn from.
+    Passed rather than re-segmented, so a sheet cannot describe a different
+    segmentation than the PNG saved next to it.
 
     `show_fwhm_v1` adds FWHM_v1/FWHM_v1_Stderr to each per-point sheet and
     FWHM_v1_Mean/FWHM_v1_Std to the Summary sheet — the pre-v3.4.0
-    Gaussian-only width, kept only for this opt-in comparison. Off by
-    default, matching the .pptx builder's same-named parameter.
+    Gaussian-only width, kept only for this opt-in comparison. Off by default,
+    since every other reporting surface shows only the correct width.
 
     Returns
     -------
@@ -356,6 +446,7 @@ def build_sample_results_xlsx(
     _add_summary_sheet(wb, sample_name, material_name, report_date, techniques, show_fwhm_v1)
     for technique in techniques:
         _add_data_sheet(wb, technique, show_fwhm_v1)
+    _add_optical_sheets(wb, optical_frames)
 
     buffer = BytesIO()
     wb.save(buffer)

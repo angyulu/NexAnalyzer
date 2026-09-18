@@ -1,5 +1,6 @@
 """
-Image 1 of the QC Panel: the optical-microscopy analysis figure.
+The optical-microscopy analysis figure: figures 2 and 3 of the QC Report
+(the clean copy and the histogram-diagnostic copy).
 
 Layout follows the WSe2 analysis grid this replaces — nine grid positions as
 Original / segmented-overlay pairs, three positions per row — with one addition:
@@ -115,6 +116,8 @@ def _histogram(ax, frame: FrameResult) -> None:
     # signal that one side carries a domain population rather than noise; the
     # narrower of the two is what sets the thresholds.
     flag = "\nshoulder" if frame.shoulder else ""
+    if frame.noise_limited:
+        flag += "\nnoise-limited"
     ax.text(
         0.03, 0.96,
         f"mode {frame.mode:.1f}\n"
@@ -208,8 +211,14 @@ def build_om_grid_figure(
             ax_seg.imshow(_dim(overlay, valid))
             ax_seg.axis("off")
             below, reference, above = frame.percentages
+            # A noise-limited side's coverage is a lower bound (the cut was
+            # held at the noise floor, so some of the population is still
+            # counted as film). Print it as one rather than as a measurement.
+            lo_mark = "\u2265" if frame.status_below == "noise-limited" else ""
+            hi_mark = "\u2265" if frame.status_above == "noise-limited" else ""
             ax_seg.set_title(
-                f"Analyzed: {below:.1f} % / {reference:.1f} % / {above:.1f} %",
+                f"Analyzed: {lo_mark}{below:.1f} % / {reference:.1f} % / "
+                f"{hi_mark}{above:.1f} %",
                 fontsize=_FS_COVERAGE, fontweight="bold",
             )
 
@@ -239,9 +248,15 @@ def build_om_grid_figure(
             f"{label} {mean:.1f} ± {std:.1f} %"
             for label, (mean, std) in zip(labels, summary)
         )
+        limited = sum(f.noise_limited for f in frames)
+        if limited:
+            coverage += f"   ·   {limited} noise-limited (\u2265 is a lower bound)"
+        mode_label = ("" if frames[0].threshold_mode == "adaptive"
+                      else f", {frames[0].threshold_mode} threshold")
         fig.suptitle(
             f"{sample_name} — OM{magnification_label} layer segmentation "
-            f"({len(frames)} positions, {frames[0].ref_label} reference)\n{coverage}",
+            f"({len(frames)} positions, {frames[0].ref_label} reference"
+            f"{mode_label})\n{coverage}",
             fontsize=_FS_SUPTITLE, fontweight="bold",
         )
 

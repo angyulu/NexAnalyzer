@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-NexAnalyzer — Nexstrom's measurement data analyzer. Streamlit app: raw spectra in,
-fitted results and .pptx reports out.
+NexAnalyzer — Nexstrom's measurement data analyzer. Streamlit app: raw spectra
+and microscope frames in, fitted results and QC report figures out.
 
 Architecture, data model and the reasoning behind them live in
 [docs/Summary.md](docs/Summary.md); version history in
@@ -10,7 +10,7 @@ Architecture, data model and the reasoning behind them live in
 ## Commands
 
 ```bash
-pytest                  # 494 tests; pythonpath and testpaths come from pyproject.toml
+pytest                  # 654 tests; pythonpath and testpaths come from pyproject.toml
 python -m ruff check .   # F + E9 only — deliberately narrow, so a hit is real breakage
 streamlit run app.py     # or start.bat, which also creates venv and pulls updates
 ```
@@ -19,7 +19,7 @@ streamlit run app.py     # or start.bat, which also creates venv and pulls updat
 
 A peak has a maximum and it has an area. These are different numbers, they differ
 by a factor of ~FWHM × 1.064, and confusing them has caused real reporting bugs
-here (v3.3.0 shipped a .pptx that disagreed with its own CSV).
+here (v3.3.0 shipped a report that disagreed with its own CSV).
 
 | Quantity | Our name | lmfit's name |
 | --- | --- | --- |
@@ -32,8 +32,8 @@ here (v3.3.0 shipped a .pptx that disagreed with its own CSV).
 - `FittedPeak.area` / `area_stderr` is the integral. It is named `area` precisely
   *because* lmfit calls it `amplitude`.
 - **Every reporting surface shows intensity** — the on-screen Fit Results table,
-  both CSVs, the Sample Report's tables, and the LA/E2g+A1g and B2g/E2g+A1g
-  ratios. They agree, and must keep agreeing.
+  both CSVs, the QC Report's summary tables and quality panels, and the
+  LA/E2g+A1g and C/LB ratios. They agree, and must keep agreeing.
 - The word "amplitude" appears only where lmfit's own parameter is addressed by
   name (`params.add(f"{prefix}amplitude", ...)`). Don't reintroduce it anywhere
   else. Guard tests in
@@ -46,10 +46,28 @@ The full reasoning is in the
 ## Other invariants
 
 - **`modules/*` may import `core`; `core` never imports `modules`.** See "The one
-  rule" in docs/Summary.md.
+  rule" in docs/Summary.md. `modules/` is *mostly* one package per measurement
+  technique, but not strictly: `modules/dataviz` (the Plot Explorer, v4.2.0) is
+  a self-contained feature that knows nothing about spectra. By the letter of
+  the rule it qualifies as `core`; it lives under `modules/` anyway because
+  `core` is the plumbing other packages import, and nothing imports this.
 - **FWHM means the Voigt FWHM.** Use `fitting.voigt_fwhm(sigma, gamma)`. Reporting
   `2.355 * sigma` — the Gaussian half, ignoring the Lorentzian — was a real bug
   fixed in v3.4.0. It under-reports every width.
+- **The diagnostic ratios live in one constant.** `peak_metrics.RAMAN_RATIO_PAIRS`
+  is `LA/E2g+A1g` and `C/LB`. Until v5.0.0 the figure and the report each held
+  their own literal with a comment in each saying they had to agree, which is
+  not a mechanism. Both import it now; don't write the pair out again.
+- **Spec lines are drawn and never evaluated, and there are only four.**
+  `peak_quality` carries Raman's `E2g+A1g` FWHM = 7, `B2g` centre = 308,
+  `LA/E2g+A1g` = 0.13, and PL's Exciton/Trion FWHM = 35. They are inherited
+  literals from the wafer-comparison scripts, not preset data. **PL has no
+  centre spec and no ratio spec** — the ancestor gates its only PL reference
+  line on the FWHM panel, and the preset's 770/800 nm are *fit-initialisation*
+  guesses. Promoting those to `spec=` would invent a tolerance nobody measured.
+  Adding a pass/fail verdict means first deciding what the rule is (pooled
+  median? any position's mean? a fraction of individual fits?); that decision is
+  not encoded anywhere yet.
 - **The preset owns position and width; the data owns intensity.** `fit_voigt_peaks()`
   auto-estimates the initial intensity from the spectrum at fit time, because
   intensity depends on measurement conditions while center/FWHM are material

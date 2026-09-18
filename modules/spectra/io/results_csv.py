@@ -1,30 +1,29 @@
 """
 Fit-results CSV export: one row per fitted peak.
 
-Four shapes, keyed to what the caller is holding:
+Two shapes, keyed to what the caller is holding:
 
 - `export_fit_params_csv()` — the current spectrum only (sidebar Quick Export).
 - `export_master_csv()` — every fitted file, plus provenance columns
   (auto-detected mode, X-range crop, convergence time) and, for PL, a leading
   "Raw" row per file. This is the batch/archival table.
-- `export_point_fits_csv()` — one row per fitted peak per grid position, from
-  bare `(point, FitResult)` pairs. The QC Panel's table: it keeps no
-  `SpectrumFile` past the run, and a grid position is the unit it reports in.
-- `export_peak_stats_csv()` — the aggregate the first three average to:
-  `PeakStat` rows, mean +/- std +/- n per peak label.
 
-All of them report Intensity — the fitted curve's maximum, via
+Both report Intensity — the fitted curve's maximum, via
 `peak_metrics.peak_intensity_and_stderr` — not `FittedPeak.area`. See that
 module for the two quantities and their names.
+
+There were two more until v5.0.0: `export_point_fits_csv` and
+`export_peak_stats_csv`, written beside the QC Panel's figures. The QC Report
+now writes one workbook instead of a scatter of CSVs, and those two tables
+were near-duplicates of sheets it already carried — the per-point table of its
+technique sheet, the per-peak aggregate of its Summary sheet. Two files
+claiming the same numbers is one more chance for them to disagree.
 """
 
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List
 
 import pandas as pd
 
-from core.report.models import PeakStat
-
-from ..models.peak import FitResult
 from ..processing.peak_metrics import peak_intensity_and_stderr, raw_peak_stats
 
 # Columns shared by both CSVs, in order.
@@ -140,90 +139,3 @@ def export_master_csv(files: Dict) -> str:
         *_PEAK_COLUMNS, "Convergence_Time_s",
     ]
     return pd.DataFrame(rows)[column_order].to_csv(index=False)
-
-
-def export_point_fits_csv(fits_by_point: Sequence[Tuple[int, FitResult]]) -> str:
-    """
-    One row per fitted peak per grid position, from `(point, FitResult)` pairs.
-
-    Parameters
-    ----------
-    fits_by_point : Sequence[Tuple[int, FitResult]]
-        The fits to tabulate, in the order they were produced. Pass the pairs
-        that survived `filter_fits_by_quality`, not the raw batch: this table
-        is meant to be the rows behind a stats table, and a reader who averages
-        a column here must land on the number that stats table reports.
-
-    Returns
-    -------
-    str
-        CSV content, one row per peak. A comment line if there are no fits.
-
-    Notes
-    -----
-    `Point` is not unique. One measurement point's file is commonly a map
-    holding 25 or 100 spectra, each fitted separately, so `Spectrum` numbers
-    them within their point in the order they were fitted — the same
-    within-point grouping the aggregation treats as one position's spread.
-    """
-    rows: List[dict] = []
-    seen: Dict[int, int] = {}
-
-    for point, fit_result in fits_by_point:
-        seen[point] = seen.get(point, 0) + 1
-        for peak in fit_result.fitted_peaks:
-            intensity, intensity_stderr = peak_intensity_and_stderr(peak)
-            rows.append({
-                "Point": point,
-                "Spectrum": seen[point],
-                "Peak_Label": peak.label,
-                "Center": peak.center,
-                "Center_Stderr": peak.center_stderr,
-                "Intensity": intensity,
-                "Intensity_Stderr": intensity_stderr,
-                "FWHM": peak.width_fwhm,
-                "FWHM_Stderr": peak.width_stderr,
-                "Shape": peak.shape,
-                "R_Squared": fit_result.r_squared,
-                "Chi_Squared": fit_result.chi_squared,
-            })
-
-    if not rows:
-        return "# No fit results to export\n"
-    return pd.DataFrame(rows).to_csv(index=False)
-
-
-def export_peak_stats_csv(stats: Sequence[PeakStat]) -> str:
-    """
-    Aggregated per-peak statistics as CSV: one row per peak label.
-
-    The same `PeakStat` list the figures and report tables are built from,
-    passed in rather than recomputed, so the CSV saved beside an image cannot
-    disagree with it.
-
-    `FWHM_v1` is deliberately absent. It is the pre-v3.4.0 Gaussian-only width
-    kept for opt-in comparison only (see `FittedPeak.width_fwhm_v1`), and a
-    column that quietly under-reports every width by 59-108% has no business
-    appearing in a file that outlives the screen it was read on.
-
-    Returns a comment line rather than an empty file when nothing aggregated.
-    """
-    if not stats:
-        return "# No peak statistics to export\n"
-
-    rows = [
-        {
-            "Peak_Label": stat.label,
-            "N": stat.n,
-            "Center_Mean": stat.center_mean,
-            "Center_Std": stat.center_std,
-            "Intensity_Mean": stat.intensity_mean,
-            "Intensity_Std": stat.intensity_std,
-            # None only for the empirical "Raw" row on a spectrum with no
-            # half-maximum crossing. Blank, like the report dashes that cell.
-            "FWHM_Mean": "" if stat.fwhm_mean is None else stat.fwhm_mean,
-            "FWHM_Std": "" if stat.fwhm_std is None else stat.fwhm_std,
-        }
-        for stat in stats
-    ]
-    return pd.DataFrame(rows).to_csv(index=False)

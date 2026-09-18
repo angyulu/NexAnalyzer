@@ -204,7 +204,7 @@ class FittedPeak:
     area : float
         The area under the peak, which is the quantity lmfit solves for and
         calls "amplitude". Deliberately *not* named amplitude here: the UI, the
-        CSV export and the Sample Report all report peak *intensity* — the
+        CSV export and the QC Report all report peak *intensity* — the
         curve's maximum, see peak_metrics.peak_intensity — and the two differ
         by roughly FWHM x 1.064.
     area_stderr : float
@@ -224,7 +224,7 @@ class FittedPeak:
         `2.355 * sigma` -- the Gaussian-only width the app reported before
         v3.4.0, which silently dropped gamma and understated every width by
         59-108%. Kept only so the on-screen table and, optionally, the
-        Sample Report can show it next to the correct value for comparison;
+        QC Report can show it next to the correct value for comparison;
         nothing else in the app should read this field. None for a
         `FittedPeak` built outside `fitting.fit_voigt_peaks` (there is no
         sigma/gamma to compute it from).

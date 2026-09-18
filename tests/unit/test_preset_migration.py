@@ -293,12 +293,23 @@ class TestTheShippedStoreIsAlreadyV2:
         """The highest-value assertion in the change: the migration that
         actually ran lost nothing.
 
-        Compared through the model so that field defaults normalise the same
-        way on both sides, and excluding `optical` -- WSe2's bilayer block was
-        seeded after the migration, since v1 held no optical settings to carry.
+        What is compared is the measurement content -- peak templates, their
+        centres and tolerances, and the processing settings. Two fields are
+        excluded because they were deliberately edited after the migration and
+        comparing them would assert the absence of changes that were made on
+        purpose:
+
+        - `optical`: v1 held no optical settings to carry, so WSe2's bilayer
+          block was seeded afterwards.
+        - `description`: at v5.0.0 the separate `WSe2-HA` entry was folded into
+          `WSe2` and the old `WSe2` dropped, so the committed entry is the HA
+          one renamed. Its peaks are identical -- that is exactly why the fold
+          was safe, and it is what the assertion below still proves -- but it
+          carries HA's description explaining its fixed-contrast optical block.
         """
         migrated, _ = migrate_legacy(V1_STORE)
         by_name = {e["material_name"]: e for e in migrated}
+        post_migration_edits = ("optical", "description")
 
         with open(DATA_DIR / "materials.json", encoding="utf-8") as f:
             committed = json.load(f)["materials"]
@@ -307,8 +318,9 @@ class TestTheShippedStoreIsAlreadyV2:
             name = entry["material_name"]
             if name not in by_name:
                 continue  # a material added since the migration
-            theirs = {k: v for k, v in entry.items() if k != "optical"}
-            assert (MaterialPreset.from_dict(by_name[name]).to_dict()
+            theirs = {k: v for k, v in entry.items() if k not in post_migration_edits}
+            mine = {k: v for k, v in by_name[name].items() if k not in post_migration_edits}
+            assert (MaterialPreset.from_dict(mine).to_dict()
                     == MaterialPreset.from_dict(theirs).to_dict()), name
 
 

@@ -15,7 +15,7 @@ A step-by-step guide for installing and running NexAnalyzer on **Windows** and *
 7. [Step 5: Create a Desktop Shortcut (Optional)](#step-5-create-a-desktop-shortcut-optional)
 8. [How Updates Work](#how-updates-work)
 9. [Quick Start: Auto-Workflow with Material Presets](#quick-start-auto-workflow-with-material-presets)
-10. [Sample Report: One-Click PPTX from a Sample Folder](#sample-report-one-click-pptx-from-a-sample-folder)
+10. [QC Report: Seven Figures and a Workbook from a Sample Folder](#qc-report-seven-figures-and-a-workbook-from-a-sample-folder)
 11. [File Format](#file-format)
 12. [Troubleshooting](#troubleshooting)
 
@@ -313,16 +313,22 @@ To change a material later, expand it in the list on the same page, edit its fie
 
 ---
 
-## Sample Report: One-Click PPTX from a Sample Folder
+## QC Report: Seven Figures and a Workbook from a Sample Folder
 
-The **Sample Report** page (top of the sidebar navigation) turns a sample folder's 9-point OM + Raman + PL measurement grid into a three-slide PowerPoint report, with no manual plotting.
+The **QC Report** page (second in the sidebar navigation) turns a sample folder's 9-point
+OM + Raman + PL measurement grid into seven figures and one spreadsheet, with no manual
+plotting.
+
+> **Changed in v5.0.0.** This page replaces the old **Sample Report** and **QC Panel** pages,
+> which read the same folder and each did half the job. There is no `.pptx` any more, and
+> nothing on this page needs Microsoft Office installed.
 
 ### 1. Name the folder after the wafer
 
 **The folder's own name becomes the wafer ID on the report.** It is used verbatim in the header
-of all three slides, and as the default filename (`<foldername>_Report.pptx`). There is no field
-in the app to type or correct it, and nothing validates it — so a folder called
-`New folder (2)` produces a report titled `New folder (2)`.
+of the figures, and as the default filename (`<foldername>_QC_Report.png`). There is no field in
+the app to type or correct it, and nothing validates it — so a folder called `New folder (2)`
+produces a report titled `New folder (2)`.
 
 Name the folder after the wafer, for example `VABA52`. To fix a wrong title, rename the folder
 and generate the report again.
@@ -330,34 +336,91 @@ and generate the report again.
 ### 2. Put the measurement files in it
 
 Your sample folder should contain, for each of the 9 grid points:
-- A Raman spectrum named like `RM_1.txt` … `RM_9.txt` (also accepts `Raman_`, `rm_`, `raman_`, and either `-` or `_` before the number, e.g. `RM-8.txt`)
+
+- A Raman spectrum named like `RM_1.txt` … `RM_9.txt` (also accepts `Raman_`, `rm_`, `raman_`,
+  and either `-` or `_` before the number, e.g. `RM-8.txt`)
 - A PL spectrum named like `PL_1.txt` … `PL_9.txt` (or `pl_`)
-- An OM image named like `100x_1.bmp` … `100x_9.bmp` (any magnification prefix works, e.g. `10x_`; `.bmp`/`.png`/`.jpg`/`.tif` all accepted)
+- An OM image named like `100x_1.bmp` … `100x_9.bmp` (any magnification prefix works, e.g.
+  `10x_`; `.bmp`/`.png`/`.jpg`/`.tif` all accepted)
 
-Any other file in the folder (old exports, project files, etc.) is simply listed as "ignored" — it doesn't need to be removed. A technique with no matching files (or no configured preset) is just left out of the report rather than causing an error.
+A file may hold one spectrum or many — a map file with one X column and 25 or 100 intensity
+columns is fitted column by column, and all of them are grouped under that grid point.
 
-### 3. Generate the report
+Any other file in the folder (old exports, project files, etc.) is simply listed as "ignored" —
+it doesn't need to be removed.
 
-> **First, make sure the material exists.** Add it on the **Material Presets** page, with peak
-> templates for both Raman *and* PL. A technique with no preset for the chosen material is left
-> out of the report silently rather than reported as an error — so a missing PL preset simply
-> means no PL slide, with nothing on screen explaining why.
+### 3. Set up the run
 
-1. Click **"Select Sample Folder"** and pick the folder
-2. If OM images exist at more than one magnification, pick which one to use in the **3x3 grid**
-3. Pick the **Material** (the same materials configured on the Material Presets page — one dropdown selects both the Raman and PL preset for that material). Your last choice is remembered the next time you open this page.
-4. Click **"🚀 Generate Report"** — every Raman/PL file is fit against the selected presets, with a progress bar
-5. The generated slides appear on-screen: an overview (OM grid + fit-summary tables), then a 3x3 grid of each point's individually fitted Raman spectrum, then the same for PL
+1. Click **"Select Sample Folder"** and pick the folder.
+2. If OM images exist at more than one magnification, pick which one to use in the **3x3 grid**.
+3. Pick the **Layer** being measured — `1L` or `2L`. The algorithm cannot infer this, and a
+   wrong choice mislabels every class by one layer *with no visible symptom in the figure*, as
+   well as selecting a different tuning block.
+4. Pick the **Material** — one dropdown selects the Raman preset, the PL preset and the optical
+   tuning for that material. Your last choice is remembered next time.
 
-### 4. Save
+### 4. Check the inventory, then generate
 
-Click **"💾 Save Report As..."** and choose a location — this writes, all sharing the name you chose:
+Above the Run button the page says what it found, for example:
 
-- the `.pptx` itself
-- an `.xlsx` of the numbers: a **Summary** sheet (each technique's mean ± std table, the intensity ratios, and any point that failed to fit) plus a **Raman** and a **PL** sheet holding one row per fitted peak per point — center, Intensity, FWHM and their stderrs, R², χ², and the file each row came from. This is the per-point detail the slides only show averaged.
-- three page images (`_page1.png`, `_page2.png`, `_page3.png`), matching the three slides
+```
+Found: 9 OM (100x) · 9 Raman · 0 PL
+  ↳ No PL files in this folder — the PL figures and sheet will be skipped.
+    Check the file naming if you expected some.
+```
 
-> **Note:** The on-screen/saved slide *images* require Microsoft PowerPoint to be installed (used to render the preview) — the `.pptx` file itself always saves regardless.
+**Read this line before clicking Run.** A folder whose PL files are named `PL1.txt` instead of
+`PL_1.txt` scans as a sample with no PL, and once the report is built that looks exactly like a
+sample that genuinely has none. The page distinguishes the two causes, because they are fixed in
+different places:
+
+| What it says | What to do |
+|---|---|
+| *No PL files in this folder* | Check the file naming in the folder |
+| *`<Material>` defines no PL peaks* | Add a PL block on the **Material Presets** page |
+
+Then click **"🚀 Generate QC Report"**. Segmenting nine frames is the slow part — around half a
+minute — and the progress bar is weighted so it reflects that rather than racing through and
+stopping.
+
+### 5. What you get
+
+| | Figure | Shows |
+|---|---|---|
+| 1 | **Summary** | The overview page: the 3x3 grid of raw OM frames with the per-class segmentation table beneath it, and the Raman and PL fit-summary tables beside it |
+| 2 | **OM** | Layer segmentation across the nine positions — original and overlay per frame |
+| 3 | **OM diagnostic** | The same, plus each frame's green-channel histogram with its mode and both thresholds marked |
+| 4 | **Raman** | The nine fitted Raman spectra, three per column, under one shared legend |
+| 5 | **Raman stats** | Fitted FWHM, peak centres and the diagnostic ratios across the positions, with the inherited spec lines drawn |
+| 6 | **PL** | The nine fitted PL spectra |
+| 7 | **PL stats** | The same panels for PL |
+
+On screen, the summary page and both OM figures are shown inline; the fitted spectra and the
+stats panels sit behind expanders — they are what you open when something looks wrong.
+
+> **The grey spec lines are drawn, never judged.** The report reports; it does not pass or fail
+> a wafer. Raman carries three (E₂g+A₁g FWHM = 7, B₂g centre = 308, LA/E₂g+A₁g = 0.13) and PL
+> carries one (Exciton and Trion FWHM = 35 nm). PL has no centre or ratio spec — those numbers
+> do not exist in the analysis this was ported from.
+
+### 6. Save
+
+Click **"💾 Save QC Report As..."** and choose a location. One dialog, one name, and everything
+lands beside it sharing that stem:
+
+- the seven figures as `_1_Summary.png` through `_7_PL_stats.png` — **numbered**, because
+  alphabetical sort would put the summary last and interleave the two techniques
+- one `.xlsx` holding every number behind them:
+
+| Sheet | Holds |
+|---|---|
+| `Summary` | Each technique's mean ± std table, the intensity ratios, and any point that failed to fit |
+| `Raman` / `PL` | One row per fitted peak per point — centre, intensity, FWHM and their stderrs, R², χ², and the file each row came from |
+| `OM_Stats` | Per-class coverage and contrast, with how many frames were noise-limited |
+| `OM_Points` | One row per frame: its coverages, contrasts, and the histogram landmarks the thresholds were placed from |
+
+Anything that had no data writes no file — a Raman-only sample produces five figures, not seven
+with two blank ones.
 
 ---
 

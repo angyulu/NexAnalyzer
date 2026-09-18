@@ -5,6 +5,350 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.0] - 2026-09-18
+
+### Changed
+
+- **The Sample Report and QC Panel pages are merged into one QC Report page**
+  (`pages/2_QC_Report.py`). They read the same sample folder, ran the same scan
+  and the same fit, and each produced half of what an operator wanted — so
+  running both meant picking the same folder twice and fitting the same spectra
+  twice, with two chances for the two halves to describe different fits of one
+  sample. One folder pick, one `run_sample_batch`, and every artifact derived
+  from that single result. Plot Explorer moves from page 5 to page 4; the nav
+  is four pages now, not five.
+
+- **Seven numbered figures and one workbook replace the three-slide deck.**
+  `_1_Summary`, `_2_OM`, `_3_OM_diagnostic`, `_4_Raman`, `_5_Raman_stats`,
+  `_6_PL`, `_7_PL_stats`, plus the `.xlsx`. The numeric prefix is load-bearing:
+  alphabetical sort puts "Summary" last and interleaves the two techniques, so
+  a colleague handed the folder would meet the figures in an order nobody
+  chose. The summary page keeps the old slide 1's content — title bar, the 3x3
+  grid of raw OM frames, the Raman and PL fit-summary tables — and gains the
+  per-class segmentation table beneath the grid, in the 1.7 inches the slide
+  left blank.
+
+- **The workbook carries every table.** `Summary`, `Raman`, `PL`, `OM_Stats`,
+  `OM_Points`. The four CSVs the two pages wrote between them are retired; two
+  of them were near-duplicates of sheets the workbook already had (the
+  per-point fit table and the per-peak aggregate), which was one more way for
+  two files to disagree about one measurement.
+
+- **`raman_quality.py` is now `peak_quality.py`, and serves both techniques.**
+  The drawing never knew anything about Raman — it reads `peak.label`,
+  `peak.center`, `peak.width_fwhm` and `peak_intensity(peak)`, all of which
+  exist identically on a PL fit. Everything technique-specific is now a
+  `QualityFigureSpec` value carrying the panel columns, the cleaning rule and
+  the marker statistic together, so a call site cannot pair Raman's panels with
+  PL's cleaning. The grid is computed from the columns rather than hardcoded:
+  the old `GridSpec(2, 3)` silently dropped a third panel in any column and
+  raised `IndexError` on a fourth column.
+
+- **Per-position markers: mean for Raman, median for PL.** Each technique's
+  ancestor uses its own, and the PL summary schema stores medians only. The
+  statistic is named in the figure's suptitle, because the difference is
+  invisible in the mark itself and silently moves every point on the figure.
+
+- **PL cleaning is PL's own rule, not Raman's.** Raman keeps the 1.5x IQR cut
+  within each position, matching `peak_metrics.aggregate_fit_results` so the
+  figure and the summary tables cannot show two numbers for one measurement. PL
+  takes the inherited rule instead: `FWHM > 5 nm`, `Center > 700 nm`, then the
+  widest 5% of each peak's fits dropped across the sample. Both run downstream
+  of the same R-squared gate.
+
+- **The diagnostic ratio pairs have one home.** `peak_metrics.RAMAN_RATIO_PAIRS`
+  — `LA/E2g+A1g` and `C/LB`. They were two independent literals, one in the
+  figure and one in the page, each with a comment saying they had to agree.
+
+- **Version 5.0.0, not 4.7.0.** A page is gone, the output formats changed, and
+  two dependencies were dropped. Muscle memory and old file expectations both
+  break.
+
+### Added
+
+- **PL quality panels** (`PL_PANEL_COLUMNS`), ported from the `WSe2_PL.py`
+  ancestor: FWHM and centre for Exciton and Trion, plus the Exciton/Trion
+  **intensity** ratio. (The ancestor's fit table calls that column "Amplitude",
+  but it holds peak height, which is what this codebase calls intensity — see
+  CLAUDE.md. Reading it as lmfit's `amplitude`, the integral, would give a
+  different number, since Exciton and Trion have materially different widths.)
+  The ratio column holds one panel where the others hold two, and that gap is
+  deliberate — the lineage defines exactly one PL ratio, and filling the slot
+  would mean inventing a second or moving an intensity panel into a column
+  titled "Diagnostic Ratios".
+
+- **One PL spec line: 35 nm FWHM**, drawn on both the Exciton and Trion panels,
+  from `WSe2_PL.py` where the sibling wafer-comparison script labels it
+  "FWHM = 35 (Spec)". There is deliberately **no PL centre spec and no PL ratio
+  spec**: the ancestor gates its only PL reference line on `if col == "FWHM"`,
+  and the 770/800 nm in the material preset are fit-initialisation guesses, not
+  tolerances anyone measured. The unity line the ancestor draws on the PL ratio
+  is grey dotted with no legend entry and is never called a spec, unlike every
+  line it does label "(Spec)" — so it is left out too.
+
+- **A pre-run inventory.** Above the Run button: `9 OM (100x) · 9 Raman · 0 PL`.
+  A folder whose PL files are named `PL1.txt` instead of `PL_1.txt` scans as a
+  sample with no PL and is indistinguishable from one that genuinely has none
+  once the report is built. Two absences get two different sentences, because
+  they are fixed in two different places: no files in the folder is a naming
+  problem, a material with no PL block is a preset problem.
+
+- **A quality-gate verdict per technique**, and no combined pass/fail. PL
+  carries one spec line and no centre or ratio spec, so an overall grade would
+  assert a judgment the data cannot support.
+
+- **`core.report.models.OpticalClassStat`** — the optical counterpart of
+  `PeakStat`, so the summary figure can print the segmentation's class table
+  next to the Raman and PL ones without `core` importing `modules.optical`.
+
+- **`WSe2-HA` is folded into `WSe2`; the old `WSe2` entry is gone.** The two
+  presets were byte-identical apart from their optical block — `WSe2-HA` added
+  `abs_threshold_below: 6.0` / `abs_threshold_above: 4.25`, switching the
+  segmentation from the adaptive `nsigma` rule to a fixed green contrast. There
+  is now one WSe2 preset and it carries that pair, so fixed contrast is the
+  default for WSe2 work rather than an alternative to it. **This changes
+  segmentation results for anyone who was selecting plain `WSe2`**: coverage
+  percentages move, because the cut moves. A material that wants the adaptive
+  rule back simply omits the pair. `data/materials.json` is committed and
+  shared, so this reaches every clone on the next pull.
+
+### Fixed
+
+- **The summary page's table columns could overlap.** Centred text in a
+  matplotlib axes is not clipped to anything, so a cell wider than its column
+  drew straight across its neighbour: a real WSe2 PL table printed
+  `41022.4 ± 3980.31.4 ± 2.0`, the Intensity value running through the FWHM
+  one. The PowerPoint table this replaced auto-shrank its own cell text.
+  `_fit_font_size` now measures every cell and shrinks the table's font until
+  all of them fit, with a 7pt floor — past that the value itself is the problem
+  and should be caught in review. Found by rendering a page and looking at it;
+  every test passed throughout, because they asserted PNG magic bytes.
+
+- **One unreadable optical frame no longer discards the whole report.**
+  `analyse_frame` was called unguarded, so a corrupt, truncated, locked or
+  cloud-only image raised through every later stage. The QC Panel had the same
+  hole, but it only cost that page's two figures; with one run producing
+  everything, it would have cost all seven and the workbook — including the
+  Raman and PL halves, which have nothing to do with the bad frame. A frame
+  that cannot be segmented now drops out with a warning and the rest of the
+  sample still reports.
+
+- **Changing the OM magnification now drops the other group's results.** The
+  selectbox wrote straight into state with no reset, so a folder holding both
+  `50x_1..9` and `100x_1..9` would keep showing — and saving — the 50x
+  segmentation under a summary page whose grid caption reads "OM (100x)".
+  Inherited from the QC Panel, where the same selectbox had the same gap.
+
+- **A run that loses every fit at the quality gate is no longer invisible to
+  the staleness check.** The check was keyed on the stats figure, which that
+  run does not produce — so the one case whose whole point is that the operator
+  goes and fixes the preset was the one case where coming back with a fixed
+  preset changed nothing on screen. The preset fingerprint is now stamped on
+  attempt rather than on success.
+
+- **The Material Presets page no longer directs users to two pages that do not
+  exist.** Its body text still named the Sample Report and the QC Panel, and
+  called the Spectra page "the Analysis page".
+
+### Removed
+
+- **`core/report/pptx.py` and `core/report/slides.py`**, and with them
+  `python-pptx` and `pywin32` from `requirements.txt`. Nothing in the app needs
+  Microsoft Office installed any more. `_hex_to_rgb` moved to
+  `core/report/summary_figure.py`: the summary page draws the same fit legend
+  the slide did, so the `#RRGGBB`-only rule in `modules/spectra/viz/palette.py`
+  still has teeth — matplotlib would accept a CSS name happily, and the strict
+  parser is the only thing that notices.
+
+- **`modules/optical/io/frame_csv.py`** — replaced by `frame_tables.py`, which
+  returns rows instead of CSV text.
+
+- **`export_point_fits_csv` and `export_peak_stats_csv`** from
+  `modules/spectra/io/results_csv.py`. The master and per-file CSVs stay.
+
+### Notes
+
+- **The progress weights are owed a re-measurement.** The report half was
+  measured on a real 9-point sample; the segmentation half comes from the QC
+  Panel's own documented timings (~30 s for nine frames, ~5 s per OM render).
+  The two came off different samples on different days, so only their ratio to
+  each other is guesswork. The shape is not: segmentation is far and away the
+  longest stage at ~47% of a ~64 s run, and a bar that doesn't say so sits
+  nearly still for half a minute.
+
+- **`USAGE.md` in the inherited analysis repo documents the PL FWHM floor as
+  20 nm.** That is the default for its "Raw" pseudo-peak; Exciton and Trion
+  explicitly override it to 5. The 5 is what this port uses.
+
+## [4.6.0] - 2026-09-15
+
+### Added
+
+- **`threshold_mode="midpoint"` for the OM segmentation.** A third rule for
+  placing the two cuts, beside the adaptive `nsigma` rule and v4.4.0's fixed
+  contrast pair, and the first that needs no number typed in. It measures the
+  plateau of whatever lies beyond the adaptive cut on each side -- the next
+  layer's brightness, in the sample's own frame -- and places the boundary
+  halfway between that and the film mode, which is the Bayes boundary between
+  two populations of equal noise. Measured, not asserted: the asymmetry
+  between the two sides (one layer step up, several down) falls out, and a
+  1L-reference sample or a different oxide gets its own step without a preset
+  edit. Selectable per material and layer in the preset editor
+  (`threshold mode`), stored as `OpticalParams.threshold_mode`; unset keeps
+  the old behaviour exactly, including "pair set means absolute".
+
+  One pass, not an iteration. Re-measuring the plateau at each tighter cut
+  was tried and rejected on HADH37: every tighter cut admits more of the
+  film's own tail, the plateau drifts toward the cut, and the rule walks the
+  threshold into the film's shoulder (Above 2L 2.2 % -> 7.4 % on a frame with
+  visibly few bright domains). Measured once beyond 4 sigma the step is the
+  domain interior and the truncation bias is negligible for anything
+  resolvable.
+
+- **Two honest non-answers, and they are printed.** A side holding under
+  0.1 % of the frame beyond the adaptive cut has no population (`empty`) and
+  keeps that cut. A side whose half-step is under 2.5 noise sigmas is a
+  boundary the film's own tail would cross (`noise-limited`): the adaptive cut
+  is kept and the coverage it yields is a *lower bound*, marked `>=` on the
+  figure panel, listed in the histogram box, counted in the title and in a
+  new `N_Noise_Limited` column of the stats CSV. The points CSV gains
+  `Threshold_Mode`, `Step_Below_pct`, `Step_Above_pct`, `Status_Below`,
+  `Status_Above`, so a coverage number can always be traced to the rule and
+  the measured step that produced it. This is what v4.4.0's "validity gate"
+  paragraph asked the reader to compute by hand.
+
+  Why 2.5: with `nsigma` 4, a population entirely hidden inside the cut
+  measures a truncated tail whose mean sits ~0.3-0.5 sigma past the cut, so
+  its half-step comes out at 2.15-2.25 sigma. The gate sits just above what
+  nothing-there produces, which is what makes it a detector of "there is a
+  plateau" rather than a tuning number.
+
+### Changed
+
+- On HADH37 (nine 50x frames, 2L reference) the three rules give Bilayer
+  93.4 +- 4.1 % (adaptive), 95.8 +- 4.0 % (absolute -6/+4.25) and the midpoint
+  cuts land at -4.5 to -5.5 % / +3.1 to +3.7 % from the measured steps. On P7,
+  the frame whose widened noise had pushed the adaptive cut to +5 %, Above 2L
+  goes 0.4 % -> 1.3 %: the population the adaptive rule hid. On HADG37, whose
+  "noise" is 16-41 % of the mode, every side reads `empty`, the adaptive cut
+  stands and Bilayer stays 99.96 % -- where the fixed pair reports 52 %.
+  No preset was switched: `WSe2` keeps `nsigma`, `WSe2-HA` keeps its pair.
+  Numbers move only where a preset opts in.
+
+### Notes
+
+- The adaptive rule's golden numbers in `tests/unit/test_om_contrast.py` are
+  unchanged; the midpoint rule gets its own. `OpticalParams` presets written
+  by v4.4.0 load and behave identically.
+- Known limit, shared with the rest of the module: two populations on one
+  side (1L and bare substrate under a 2L film) are not separated. The
+  plateau is their area-weighted mean and the cut lands at half of that,
+  which can split the nearer one; the histogram row shows it.
+
+## [4.5.0] - 2026-09-14
+
+### Added
+
+- **Plot Explorer page.** A fifth page that plots any `.xlsx` through
+  `plotly.express.scatter`. It is deliberately schema-blind -- it knows nothing
+  about peaks, spectra, material presets or the app's own `.xlsx` export -- so
+  the hand-kept process workbooks that hold run conditions are readable as they
+  stand, without being cleaned first. New package `modules/dataviz/`, which is
+  the first one under `modules/` that is not a measurement technique.
+
+  One sheet at a time, never several combined: one plot draws on one tool's
+  runs, and a scatter mixing two tools' chemistries onto one axis would imply a
+  comparison that isn't valid. The sheet picker shows each sheet's populated row
+  count, so a 99%-blank template sheet reads as "5 rows" instead of looking like
+  a broken plot.
+
+  Controls cover `x`, `y`, `color`, `symbol`, `size`, `size_max`, `opacity`,
+  `hover_name`, `hover_data`, `facet_row`, `facet_col`, `facet_col_wrap`,
+  `error_x`, `error_y`, `marginal_x`, `marginal_y`, `trendline`, `log_x`,
+  `log_y`, `range_x`, `range_y`, `template` and `title`, grouped into four
+  expanders above a full-width plot. `size` offers numeric columns only, since
+  a text column there is a Plotly exception rather than a bad-looking chart; a
+  facet over 30 distinct values or a discrete colour over 20 warns and plots
+  anyway, since 40 facets is occasionally what was wanted.
+
+- **Two header rows, joined into column names.** A `Header rows` setting (1 by
+  default). Set to 2, a sheet whose row 1 names the column and row 2 qualifies
+  it yields `H2O (torr)`, `FWHM (E2g)` rather than a first data row full of the
+  string `"torr"` and every numeric column typed as text. It is also what
+  separates three columns all called `H2O`; whatever still collides is suffixed
+  `#2` rather than pandas' `.1`, which reads like part of the name. Columns with
+  no header at all are dropped as spacers, and entirely blank rows are dropped
+  on load.
+
+- **Per-column numeric coercion, with a preview.** Real process columns hold
+  numbers and prose together -- `90(1000Torr)`, `1->4(0.2sccm)`, `12min30s`,
+  `35.5-37.5` -- and Plotly reads such a column as categorical, drawing a
+  plausible chart on a nonsense axis. Three strategies are offered per column:
+  strict, leading number, and range midpoint. Each shows what it turns the
+  non-numeric values into and how many become blank, before it is applied. None
+  is the default, because `1->4` says the flow was *ramped* and deciding it "is"
+  1 interprets an experiment rather than parsing a cell.
+
+- **Row filters.** Up to two columns narrowed by value set or numeric range,
+  because a logbook sheet holds maintenance entries and unrelated experiments
+  beside the runs being plotted, and `px.scatter` has no way to exclude a row.
+
+- **Remembered plot settings, keyed by sheet name.** `data/plot_explorer.json`
+  (gitignored, per-installation, never raises on a malformed file, following
+  `report_settings.json`). Keyed by sheet rather than globally because sheets in
+  one process workbook share very few column names -- one global config would
+  blank itself on every sheet switch. Not keyed by path: the same workbook
+  exists in several OneDrive folders, and keying by path would mean
+  reconfiguring for each copy. A remembered column the sheet no longer has comes
+  back unset rather than raising.
+
+- **PNG and HTML export** of the plot, via the existing `export_figure_png` /
+  `export_figure_html` and the native Save-As dialog.
+
+- **Every control below the sheet picker carries an explicit, sheet-scoped
+  widget key.** Streamlit derives a keyless widget's identity from a hash of its
+  label, options and index, so two sheets with identical column sets produce the
+  *same* widget -- `VAHA_SplitTable` and `VB_SplitTable` in the real process
+  workbook are byte-identical -- and one sheet's axis could carry onto the
+  other's data. Keying by sheet name makes switching sheets build new widgets
+  unconditionally. Note this is a defensive fix: `streamlit.testing.v1.AppTest`
+  re-runs the script in-process and does not model the browser's widget-identity
+  cache, so the regression tests in `test_plot_explorer_flow.py::TestSwitchingSheets`
+  guard the reset/reload logic but pass with or without the keys.
+
+- **The page-render smoke test no longer touches user data.** Rendering
+  `pages/5_Plot_Explorer.py` restores the last-used workbook, so
+  `tests/integration/test_pages_render.py` was reading the real
+  `data/plot_explorer.json`, opening whatever file it named -- a 17-sheet
+  workbook on OneDrive -- parsing every sheet, and writing the file back. An
+  autouse fixture now redirects the settings path to `tmp_path`. That one test
+  went from 6.6 s to 2.3 s, and the suite no longer depends on a machine-specific
+  file outside the repo or mutates preferences as a side effect.
+
+- `core.io.folder_picker.prompt_open_path()` -- a single-file open dialog,
+  alongside the existing folder picker. `prompt_folder_path` now shares its
+  subprocess plumbing; its behaviour is unchanged.
+
+- **statsmodels** is now a dependency (`requirements.txt`), required by
+  `trendline`. Only `ols` and `lowess` are offered: `rolling`, `expanding` and
+  `ewm` need a `trendline_options` window this page does not expose, and a
+  control that raises when used is worse than no control.
+
+### Changed
+
+- **The sidebar navigation is a flat list of five pages.** The single
+  `"Raman & PL"` group is gone. It stopped being true at v4.0.0, when the QC
+  Panel grew an OM image and Material Presets grew an optical block, and any
+  technique-based label goes the same way as techniques are added. No page moved
+  or was renamed; only the section heading above them disappeared.
+
+- `export_figure_html()` gained a `self_contained` parameter. False by default,
+  so the one existing caller is untouched; True embeds plotly.js (~3 MB larger)
+  so the file opens with no internet, which the Plot Explorer's export defaults
+  to. The function's docstring had claimed the output was self-contained since
+  it was written, while the code used a CDN -- the code was the honest half, and
+  the docstring now says so.
+
 ## [4.4.0] - 2026-09-15
 
 ### Added

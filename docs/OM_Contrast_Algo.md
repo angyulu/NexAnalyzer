@@ -151,5 +151,73 @@ valley between populations, which is most well-exposed frames; TSM260803 is the
 reference for that case and a fixed +4.25 % measurably degrades it (Above 2L
 3.60 % → 1.66 %, class contrast +5.44 % → +7.17 %). Reach for `abs_threshold`
 only where the film is unimodal and its own texture has widened both halves.
-The values are per material: `WSe2` keeps `nsigma`, `WSe2-HA` carries the
-(−6.0, +4.25) pair.
+The values are per material. As of v5.0.0 the committed `WSe2` preset carries
+the (−6.0, +4.25) pair: the separate `WSe2-HA` entry it came from was folded
+into `WSe2`, so fixed contrast is now the default for WSe2 work rather than an
+alternative to it. A material that wants the adaptive rule simply omits the
+pair.
+
+---
+
+## Divergence from this spec: midpoint thresholds (NexAnalyzer v4.6.0)
+
+`contrast.classify()` accepts a third `threshold_mode`, `"midpoint"`, beside
+the adaptive rule this spec describes and v4.4.0's `"absolute"`. Unset, the
+code behaves as before: an `abs_threshold` pair selects absolute, nothing
+selects adaptive. An explicit mode wins over the pair.
+
+**The rule.** On each side independently: take the pixels beyond the adaptive
+cut (`mode ± N·σ_noise`), despeckle them, and measure the mean green of their
+interior (eroded 1 px, as `interior_mean` does). That plateau, relative to the
+mode, is the layer step `ΔC` for that side, in the sample's own frame. The cut
+is placed at `mode ± ΔC/2` — the Bayes boundary between two populations of
+equal noise, and 1-D k-means with the reference class pinned to the mode. The
+step is *measured*, so a 1L reference, a different oxide or the asymmetry
+between one step up and several steps down need no per-material number.
+
+**One pass, deliberately.** Iterating (re-measure at the new cut, move again)
+was tried on HADH37 and rejected: each tighter cut admits more of the film's
+own tail, the "plateau" drifts toward the cut, and the fixed point sits inside
+the film's shoulder (Above 2L 2.2 % → 7.4 % on P1, a frame with visibly few
+bright domains). Measured once, beyond `N·σ`, the plateau is the domain interior;
+for a resolvable population the truncation bias is under 0.05 σ.
+
+**Two outcomes that are not a midpoint, and how they are shown.**
+
+| status | condition | cut used | coverage means |
+| --- | --- | --- | --- |
+| `empty` | < 0.1 % of the valid area beyond the adaptive cut | adaptive | ~0, correctly |
+| `noise-limited` | `ΔC/2 < 2.5 σ_noise` | adaptive | a **lower bound** |
+| `midpoint` | otherwise | `mode ± ΔC/2` | a measurement |
+
+A noise-limited side is printed with `≥` on the figure panel, named in the
+histogram box, counted in the figure title, and counted per class in the stats
+CSV's `N_Noise_Limited`; the points CSV carries `Threshold_Mode`, `Step_*_pct`
+and `Status_*` per frame. This is the "validity gate" paragraph above, made
+automatic.
+
+**Why 2.5 σ.** With `N = 4`, a population entirely inside the cut — or no
+population at all — leaves a truncated tail beyond it whose mean sits 0.3–0.5 σ
+past the cut, so its half-step measures 2.15–2.25 σ. The gate sits just above
+what nothing-there produces: it detects "there is a plateau beyond the cut"
+rather than tuning a sensitivity. At the gate itself, about 0.6 % of the film's
+Gaussian pixels would fall on the wrong side before despeckling — a ~20 % error
+on a 3 % class, the most that is worth printing as a number.
+
+**Worked numbers, HADH37 (50x, 2L reference, `N = 4`, `minpx = 3`).**
+
+| frame | σ_noise / mode | ΔC below | ΔC above | cuts (midpoint) | Above 2L, adaptive → midpoint |
+| --- | --- | --- | --- | --- | --- |
+| P1 | 0.93 % | 9.1 % | 6.3 % | −4.5 % / +3.15 % | 2.2 % → 3.6 % |
+| P7 | 1.25 % | 10.9 % | 7.5 % | −5.5 % / +3.74 % | 0.4 % → 1.3 % |
+
+P7 is the case §"absolute thresholds" describes: widened noise pushed the
+adaptive cut to +5.0 %, past most of a ~7 % step, and hid two-thirds of the
+population. HADG37 (100x, σ_noise 16–41 % of the mode) is the other end: every
+side reads `empty`, the adaptive cut stands, and Bilayer stays at 99.96 %
+where the fixed pair reports 52 %.
+
+**Known limit.** Two populations on one side (1L and bare substrate under a
+2L film) are not separated: the plateau is their area-weighted mean and the
+cut lands at half of that, which can split the nearer one. The histogram row
+shows it, as it does for the 3L/4L case in "Known limits" above.

@@ -7,7 +7,7 @@ Two quantities, two names, used consistently everywhere:
 - **intensity** — the fitted curve's maximum, via `peak_intensity_and_stderr`.
   This is what every reporting surface shows, because it's the number
   spectroscopists read off a plot: the on-screen Fit Results table, the
-  exported CSVs, the Sample Report's summary tables and its LA/E2g+A1g ratio
+  exported CSVs, the QC Report's summary tables and its LA/E2g+A1g ratio
   all agree on it.
 - **area** — the area under the peak, `FittedPeak.area`, which is intensity x
   FWHM x 1.064 for a Voigt. It is what lmfit solves for and what lmfit itself
@@ -15,8 +15,8 @@ Two quantities, two names, used consistently everywhere:
 
 The two diverge whenever peaks have unequal widths: WSe2's LA mode is ~6x
 broader than E2g+A1g, so their area ratio is ~4.3x their intensity ratio. The
-Sample Report used to report area under an "Amplitude" heading while the CSV
-used that same heading for intensity, and the two surfaces disagreed.
+report used to show area under an "Amplitude" heading while the CSV used that
+same heading for intensity, and the two surfaces disagreed.
 
 Don't reintroduce that. "Amplitude" names neither quantity anywhere in the
 codebase; a caller that wants the integrated quantity takes `FittedPeak.area`
@@ -294,6 +294,27 @@ def aggregate_raw_peak_stats(spectra) -> Optional[PeakStat]:
         fwhm_mean=fwhm_mean,
         fwhm_std=fwhm_std,
     )
+
+
+RAMAN_RATIO_PAIRS: Tuple[Tuple[str, str], ...] = (("LA", "E2g+A1g"), ("C", "LB"))
+"""The WSe2 bilayer quality indicators, as (numerator, denominator) labels.
+
+- ``LA / E2g+A1g`` — the defect ratio: disorder relative to the in-plane mode.
+- ``C / LB`` — the stacking ratio: the shear mode against the layer-breathing
+  mode. Both are interlayer vibrations, so their ratio speaks directly to how
+  the two layers sit on each other, which is what a bilayer wafer is judged on.
+
+One constant, because two surfaces read it: the QC Report's Raman summary table
+and the Raman quality figure's ratio panels. They were separate literals until
+v5.0.0 — one in the page, one in the figure module — with a comment in each
+saying they had to agree, which is not a mechanism. A figure and a table
+disagreeing about which ratios matter is the exact failure that comment feared.
+
+B2g / E2g+A1g was reported until v3.10.0 and was dropped in favour of the
+stacking ratio. Any pair whose labels aren't both present in a fit is dropped
+automatically (see `compute_peak_intensity_ratio`), so this list is safe for
+materials that don't define these peaks.
+"""
 
 
 def compute_peak_intensity_ratio(

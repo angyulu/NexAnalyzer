@@ -1,7 +1,7 @@
 """
 Trace styling shared by the on-screen plot and the exported figures.
 
-The Spectra page (`live_plot`) and the Sample Report's figures (`fit_plot`) draw
+The Spectra page (`live_plot`) and the QC Report's figures (`fit_plot`) draw
 the same three things — the data, the total fit, and the residuals — and used to
 each pick their own colors. They disagreed: on screen the fit was a black dashed
 line over blue points, while the .pptx drew it as a solid orange line over

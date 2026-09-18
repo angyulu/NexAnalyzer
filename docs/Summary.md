@@ -17,13 +17,19 @@ rendering); everything that knows what a peak is lives in `modules/spectra`. Wit
 imports are relative, across trees absolute. Adding a technique means adding a package under
 `modules/` and registering its pages in `app.py` — nothing in `core` changes.
 
+`modules/` is mostly one package per technique, but not strictly. `modules/dataviz` (the Plot
+Explorer, v4.2.0) knows nothing about peaks or spectra, so by this rule's stated criterion it
+qualifies as `core`. It lives under `modules/` anyway: `core` is the plumbing other packages
+import, and nothing imports `dataviz` — a self-contained feature with its own page, session
+state and file IO would make `core` a junk drawer.
+
 ---
 
 ## Technical Architecture
 
 ### Frontend
 - **Framework**: Streamlit (Python web framework for data apps), multi-page via `st.navigation()` (v2.11.0+)
-- **Pages**: grouped under a "Raman & PL" section — **Spectra** (`pages/1_Spectra.py`: sidebar + full-width plot, the entire spectrum workflow), **Sample Report** (`pages/2_Sample_Report.py`: generates a three-slide PPTX from a sample folder's 9-point OM + Raman + PL grid), and **Material Presets** (`pages/3_Material_Presets.py`: create/edit/delete materials).
+- **Pages**: a flat list of four, no section heading (the "Raman & PL" group was removed at v4.2.0; it had misdescribed the OM-carrying pages since v4.0.0) — **Spectra** (`pages/1_Spectra.py`: sidebar + full-width plot, the entire spectrum workflow), **QC Report** (`pages/2_QC_Report.py`: seven figures and one workbook from a sample folder's 9-point OM + Raman + PL grid), **Material Presets** (`pages/3_Material_Presets.py`: create/edit/delete materials), and **Plot Explorer** (`pages/4_Plot_Explorer.py`: any .xlsx sheet through plotly.express.scatter). Sample Report and QC Panel were merged into QC Report at v5.0.0.
 - **State Management**: Streamlit session state with automatic persistence
 - **Visualization**: Plotly (interactive multi-layer plots)
 
@@ -45,32 +51,41 @@ nexanalyzer/
 ├── app.py                          # Composition root: page config, module state, routing
 ├── pages/
 │   ├── 1_Spectra.py                # Spectra page: sidebar + full-width plot
-│   ├── 2_Sample_Report.py          # Sample Report page: folder -> three-slide PPTX
-│   └── 3_Material_Presets.py       # Material Presets page: create/edit/delete materials
+│   ├── 2_QC_Report.py              # QC Report page: folder -> 7 figures + 1 workbook
+│   ├── 3_Material_Presets.py       # Material Presets page: create/edit/delete materials
+│   └── 4_Plot_Explorer.py          # Plot Explorer page: any .xlsx sheet -> px.scatter
 ├── core/                           # Platform. Knows nothing about peaks or spectra.
 │   ├── paths.py                    # PROJECT_ROOT / DATA_DIR, anchored on this file
 │   ├── version.py                  # APP_NAME, __version__, REPO_URL (single source of truth)
 │   ├── io/
 │   │   ├── export.py               # Figure PNG/HTML rasterization, native Save-As dialog,
 │   │   │                           # output filename construction
-│   │   ├── folder_picker.py        # Native folder-picker dialog (isolated subprocess)
+│   │   ├── folder_picker.py        # Native folder- and file-picker dialogs
+│   │   │                           # (isolated subprocess)
 │   │   └── report_settings.py      # Persisted default-material setting
 │   ├── report/
-│   │   ├── models.py               # SampleScan, PeakStat — the row/scan contracts a module
-│   │   │                           # fills in for the report renderer
-│   │   ├── pptx.py                 # Three-slide .pptx assembly (OM grid + stats tables +
-│   │   │                           # per-point figure grids)
-│   │   └── slides.py               # Renders a .pptx's slides to PNG via PowerPoint COM,
-│   │                               # in an isolated subprocess
+│   │   ├── models.py               # SampleScan, PeakStat, OpticalClassStat — the row/scan
+│   │   │                           # contracts a module fills in for the report renderer
+│   │   ├── progress.py             # Weighted, staged progress for a long report build
+│   │   └── summary_figure.py       # The composed report pages: the overview (OM grid +
+│   │                               # class table + stats tables) and the per-technique
+│   │                               # fitted-spectra grid, as matplotlib PNGs
 │   └── viz/
 │       └── render.py               # Page-width-aware st.plotly_chart wrapper
-├── modules/                        # One package per measurement technique
+├── modules/                        # Mostly one package per measurement technique
+│   ├── dataviz/                    # Plot Explorer. Schema-blind: knows nothing about peaks
+│   │   ├── io/
+│   │   │   ├── excel_source.py     # Sheet -> DataFrame: joined header rows, duplicate-name
+│   │   │   │                       # suffixing, numeric coercion strategies, row filters
+│   │   │   └── config_store.py     # Remembered plot settings, keyed by sheet name
+│   │   ├── ui/state.py             # Isolated session-state namespace
+│   │   └── viz/scatter.py          # config dict -> px.scatter, with cardinality warnings
 │   ├── optical/                    # Optical microscopy: contrast-based layer classification
 │   │   ├── processing/contrast.py  # The vendored segmentation (see OM_Contrast_Algo.md),
 │   │   │                           # plus class_summary/contrast_summary across frames
-│   │   ├── io/frame_csv.py         # The segmentation's numbers as CSV: per-class stats and
+│   │   ├── io/frame_tables.py      # The segmentation's numbers as rows: per-class stats and
 │   │   │                           # the per-frame rows behind them
-│   │   ├── ui/qc_panel_state.py    # Isolated session-state namespace for the QC Panel
+│   │   ├── ui/qc_report_state.py   # Isolated session-state namespace for the QC Report
 │   │   └── viz/om_grid.py          # The OM grid figure, clean and histogram-diagnostic
 │   └── spectra/                    # Raman & PL
 │       ├── models/
@@ -91,26 +106,28 @@ nexanalyzer/
 │       ├── io/
 │       │   ├── preset_store.py     # JSON material-preset storage (data/materials.json),
 │       │   │                       # schema v2 + the v1 migration
-│       │   ├── results_csv.py      # Fit-results CSVs: per-file, master, per-grid-point,
-│       │   │                       # and the aggregated per-peak statistics
-│       │   └── results_excel.py    # Sample-results .xlsx: per-point sheets + summary
+│       │   ├── results_csv.py      # Fit-results CSVs: per-file and master
+│       │   └── results_excel.py    # The QC Report's one workbook: Summary, per-technique
+│       │                           # sheets, and the two optical sheets
 │       ├── ui/
 │       │   ├── sidebar.py          # Material dropdown, the only processing entry point
 │       │   │                       # (Run Auto-Workflow / Run All Files), Quick/Batch
 │       │   │                       # Export, Reset to Raw, file list, View Options
-│       │   ├── session_state.py    # Session state management
-│       │   └── sample_report_state.py  # Isolated session-state namespace for Sample Report
+│       │   └── session_state.py    # Session state management
 │       ├── viz/
 │       │   ├── live_plot.py        # Interactive multi-layer plot + file navigation
-│       │   └── fit_plot.py         # Static data+fit+components figures for export and the
-│       │                           # Sample Report's grids (`show_residuals=False`)
+│       │   ├── fit_plot.py         # Static data+fit+components figures for export and the
+│       │   │                       # QC Report's grids (`show_residuals=False`)
+│       │   └── peak_quality.py     # The per-technique quality panels (Raman and PL),
+│       │                           # driven by a QualityFigureSpec
 │       └── utils/
 │           ├── fit_staleness.py    # Preprocessing-hash fingerprinting (stale-fit detection)
 │           └── preset_staleness.py # Per-block preset fingerprinting, so a Raman edit
 │                                   # doesn't discard a 30-second OM figure
 ├── data/
 │   ├── materials.json              # Shared material preset store (committed)
-│   └── report_settings.json        # Per-installation preference (gitignored)
+│   ├── report_settings.json        # Per-installation preference (gitignored)
+│   └── plot_explorer.json          # Per-installation plot settings, by sheet (gitignored)
 ├── tests/
 │   ├── unit/                       # pytest suite for core/ and modules/
 │   └── integration/                # streamlit.testing.v1.AppTest-driven page tests
@@ -154,7 +171,28 @@ page could exist alongside the original single-page workflow, and View
 Options moved to the very bottom of the sidebar. See
 [CHANGELOG.md](../CHANGELOG.md) for the full list.
 
-**v2.12.0**: added the **Sample Report** page — the "future page" the
+**v5.0.0**: merged the **Sample Report** and **QC Panel** pages into one
+**QC Report** page (`pages/2_QC_Report.py`), and deleted the `.pptx` output
+with the PowerPoint COM renderer behind it. The two pages read the same folder,
+ran the same scan and the same fit, and each produced half of what an operator
+wanted, so running both meant picking the same folder twice and fitting the
+same spectra twice. One run now produces seven numbered PNGs and one workbook.
+`core/report/summary_figure.py` replaces `pptx.py`, drawing the overview page
+and the fitted-spectra grids in matplotlib on the same 13.333 x 7.5 inch
+geometry — the proportions were tuned against real samples and worth keeping;
+PowerPoint's table styling was a theme default that lived nowhere in this repo
+and was not. `raman_quality.py` became `peak_quality.py`, parameterized by a
+`QualityFigureSpec` so PL gets the same panels with its own columns, cleaning
+rule and marker statistic (PL's lineage uses a median where Raman's uses a
+mean, and the figure says which in its suptitle). PL carries exactly one spec
+line, the inherited 35 nm FWHM; there is deliberately no PL centre or ratio
+spec, because none exists in the analysis this was ported from. The four CSVs
+the two pages wrote between them are now sheets in the one workbook — two of
+them were near-duplicates of sheets it already carried. `python-pptx` and
+`pywin32` are gone from `requirements.txt`; nothing in the app needs Office
+installed any more. The paragraph below describes the page this replaced.
+
+**v2.12.0** (superseded by v5.0.0): added the **Sample Report** page — the "future page" the
 v2.11.0 nav-section grouping was explicitly left room for. Given a sample
 folder with a 9-point OM + Raman + PL grid, it fits every Raman/PL file
 against one material's presets (`modules/spectra/processing/sample_batch.py`, a thin
@@ -319,7 +357,7 @@ and passed as a fixed parameter.
 ## Known Issues & Limitations
 
 1. **No recursive folder scan**: users pick individual files (or multi-select within one dialog session); subtree walking is not supported.
-2. **Cloud deployment constraints**: the native tkinter file picker (and the Sample Report page's folder picker and PowerPoint COM automation) only work on local Windows Streamlit installations (not Streamlit Cloud / headless servers / macOS or Linux).
+2. **Cloud deployment constraints**: the native tkinter file picker (and the QC Report page's folder picker) only work on local Windows Streamlit installations (not Streamlit Cloud / headless servers / macOS or Linux). The PowerPoint COM dependency is gone as of v5.0.0.
 3. **No multi-stage peak fitting**: single-stage Levenberg-Marquardt optimization is still prone to local minima with many closely-spaced peaks — see [Fitting_Algo.md](Fitting_Algo.md) §6.5.
 4. ~~**Sample Report doesn't yet support multi-spectrum-per-point sample folders**~~ — **fixed in v3.10.0.** A sample folder's `Raman_N.txt`/`PL_N.txt` is often a map: one X column plus 25 or 100 intensity columns. These used to fail the two-column `parse_spectrum()` and be excluded gracefully rather than fit, so such a sample's report came out empty for that technique. `sample_batch` now uses `parse_spectrum_multi()` and fits every column, grouping them under their grid point. Outlier removal happens *within* a point (see `peak_metrics.aggregate_fit_results`), so within-point scatter is cleaned while position-to-position variation — the thing the report exists to show — is preserved.
 5. **WSe₂'s LA peak is cornered against its own preset bounds.** After v4.0.0
@@ -348,15 +386,18 @@ JSON preset storage, CSV/project export and import, and stale-fit detection.
 Run with `pytest` from the repo root (configured via
 `pyproject.toml`).
 
-`tests/integration/test_sample_report_flow.py` (v2.12.0+) drives the actual
-Sample Report page via `streamlit.testing.v1.AppTest` — folder scan through
-Generate Report through a built `.pptx` — closing part of the UI-workflow
-integration gap below for that one page.
+`tests/integration/test_qc_report_flow.py` (v5.0.0, merged from the Sample
+Report and QC Panel flow tests) drives the actual QC Report page via
+`streamlit.testing.v1.AppTest` — folder scan through Generate through seven
+figures and a workbook on disk — closing part of the UI-workflow integration
+gap below for that one page. It builds its state dict from the real
+`initialize_qc_report_state()` rather than hand-writing one, so a key added to
+the page cannot be missed by the fixture.
 
 **Not yet covered**:
 - End-to-end UI-workflow integration tests for the Analysis page (X-range → Despike → Baseline → Fit → Export)
 - A benchmark suite against real Raman/PL spectra with known ground truth
-- PowerPoint COM slide rendering (`core/report/slides.py`) — drives a real desktop app, same as the tkinter dialogs
+- The native tkinter folder and Save-As dialogs — they drive a real desktop app, and are stubbed at the seam in the flow test instead
 
 ---
 

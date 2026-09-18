@@ -1,7 +1,7 @@
 """
 Material Presets page: create, edit, and delete the material presets used
-by the Analysis page's Run Auto-Workflow / Run All Files buttons, by the
-Sample Report, and by the QC Panel.
+by the Spectra page's Run Auto-Workflow / Run All Files buttons, and by the
+QC Report.
 
 Presets are embedded in the app (data/materials.json) as of v2.11.0, replacing
 the earlier Excel-file workflow (presets/material_presets.xlsx). This page is
@@ -26,7 +26,7 @@ reports -- it silently serves one block's peak rows into the other.
 import pandas as pd
 import streamlit as st
 
-from modules.optical.processing.contrast import layer_word
+from modules.optical.processing.contrast import THRESHOLD_MODES, layer_word
 from modules.spectra.models.preset import (
     OPTICAL_LAYERS,
     MaterialPreset,
@@ -41,7 +41,17 @@ BASELINE_ALGORITHMS = ["Polynomial", "ALS", "None (Skip)"]
 MODES = ["Raman", "PL"]
 
 #: Optical field -> (label, help). The help text is the algorithm doc's own
-#: guidance, so the operator doesn't have to go and find it.
+#: guidance, so the operator doesn't have to go and find it. `threshold_mode`
+#: is not here: it is a choice, not a number, and gets a selectbox of its own.
+_THRESHOLD_MODE_HELP = (
+    "How the two cuts are placed. 'adaptive': mode ± nsigma × noise width, "
+    "the original rule. 'absolute': the fixed contrast pair below. "
+    "'midpoint': measure each side's population and cut halfway between it "
+    "and the film — no number to type, and a side whose step sits inside the "
+    "noise is reported as a lower bound (≥) instead of a measurement. "
+    "'default' keeps the old behaviour: absolute if the pair is set, "
+    "adaptive otherwise."
+)
 _OPTICAL_FIELDS = {
     "nsigma": (
         "nsigma",
@@ -218,8 +228,18 @@ def _render_optical_block(key_prefix: str, layer: str,
     moment anyone opened the expander.
     """
     values = {}
-    columns = st.columns(len(_OPTICAL_FIELDS))
-    for column, (name, (label, help_text)) in zip(columns, _OPTICAL_FIELDS.items()):
+    columns = st.columns(len(_OPTICAL_FIELDS) + 1)
+    with columns[0]:
+        options = ["default"] + list(THRESHOLD_MODES)
+        current_mode = (getattr(params, "threshold_mode", None) if params else None)
+        choice = st.selectbox(
+            "threshold mode", options,
+            index=options.index(current_mode) if current_mode in options else 0,
+            help=_THRESHOLD_MODE_HELP,
+            key=f"{key_prefix}_{layer}_threshold_mode",
+        )
+        values["threshold_mode"] = None if choice == "default" else choice
+    for column, (name, (label, help_text)) in zip(columns[1:], _OPTICAL_FIELDS.items()):
         current = getattr(params, name) if params else None
         with column:
             raw = st.text_input(
@@ -293,7 +313,7 @@ def _render_preset_form(presets: dict, key_prefix: str,
     st.markdown("**Optical (layer segmentation)**")
     st.caption(
         "Blank means the algorithm's own default. A layer with every field "
-        "blank stores no block at all, and the QC Panel says it is running "
+        "blank stores no block at all, and the QC Report says it is running "
         "defaults."
     )
     optical_columns = st.columns(len(OPTICAL_LAYERS))
@@ -377,8 +397,7 @@ def _render_preset_form(presets: dict, key_prefix: str,
 st.title("🧪 Material Presets")
 st.markdown(
     "Create and edit the material presets used by **Run Auto-Workflow** / "
-    "**Run All Files** on the Analysis page, by the Sample Report, and by the "
-    "QC Panel."
+    "**Run All Files** on the Spectra page, and by the QC Report."
 )
 
 store = load_store()

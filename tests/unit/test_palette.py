@@ -8,7 +8,7 @@ in the .pptx.
 
 import numpy as np
 
-from core.report.pptx import _hex_to_rgb
+from core.report.summary_figure import _hex_to_rgb
 from modules.spectra.viz import fit_plot, live_plot, palette
 
 
@@ -70,9 +70,13 @@ class TestBothPlottersShareOnePalette:
         assert palette.COMPONENT_DASH is None  # i.e. solid
         assert traces["Exciton"].opacity == palette.COMPONENT_OPACITY
 
-    def test_the_legend_swatches_survive_the_pptx_color_parser(self):
+    def test_the_legend_swatches_survive_the_report_color_parser(self):
         """`_hex_to_rgb` falls back to black for anything it can't read, so a
-        CSS name here would plot in color and draw a black swatch beside it."""
+        CSS name here would plot in color and draw a black swatch beside it.
+
+        matplotlib would accept a CSS name happily, which is precisely why this
+        test matters: the strict parser is the only thing that notices, and it
+        draws the summary page's legend."""
         for label, color in fit_plot.fit_legend_entries([_Fit()]):
             assert color.startswith("#") and len(color) == 7, (label, color)
             assert _hex_to_rgb(color) == _hex_to_rgb(color)  # parses without raising

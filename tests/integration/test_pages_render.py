@@ -11,14 +11,29 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from core.paths import PROJECT_ROOT
+from modules.dataviz.io import config_store
 
 PAGES = [
     "app.py",
     "pages/1_Spectra.py",
-    "pages/2_Sample_Report.py",
+    "pages/2_QC_Report.py",
     "pages/3_Material_Presets.py",
-    "pages/4_QC_Panel.py",
+    "pages/4_Plot_Explorer.py",
 ]
+
+
+@pytest.fixture(autouse=True)
+def isolated_plot_explorer_settings(tmp_path, monkeypatch):
+    """Keep the Plot Explorer's remembered settings out of the repo's data/.
+
+    Without this, rendering pages/4_Plot_Explorer.py reads the real
+    data/plot_explorer.json, restores whatever workbook the developer last had
+    open -- a file somewhere on their OneDrive -- parses all of its sheets, and
+    writes the file back. That makes a smoke test depend on a machine-specific
+    file outside the repo, take seconds instead of milliseconds, and mutate user
+    data as a side effect of running the suite.
+    """
+    monkeypatch.setattr(config_store, "get_config_path", lambda: tmp_path / "plot_explorer.json")
 
 
 @pytest.mark.parametrize("page", PAGES)
