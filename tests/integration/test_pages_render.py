@@ -15,9 +15,8 @@ from core.paths import PROJECT_ROOT
 PAGES = [
     "app.py",
     "pages/1_Spectra.py",
-    "pages/2_Sample_Report.py",
+    "pages/2_QC_Report.py",
     "pages/3_Material_Presets.py",
-    "pages/4_QC_Panel.py",
 ]
 
 

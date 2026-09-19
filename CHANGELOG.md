@@ -5,6 +5,91 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.0] - 2026-09-19
+
+### Changed
+
+- **The Sample Report and QC Panel pages are merged into one QC Report page**
+  (`pages/2_QC_Report.py`). They read the same sample folder, ran the same scan
+  and the same fit, and each produced half of what an operator wanted — so
+  running both meant picking the same folder twice and fitting the same spectra
+  twice, with two chances for the halves to describe different fits of one
+  sample. One folder pick, one `run_sample_batch`, and every artifact derived
+  from that single result.
+
+- **Seven numbered figures and one workbook replace the three-slide deck.**
+  `_1_Summary`, `_2_OM`, `_3_OM_diagnostic`, `_4_Raman`, `_5_Raman_stats`,
+  `_6_PL`, `_7_PL_stats`, plus the `.xlsx`. The numeric prefix is load-bearing:
+  alphabetical sort puts "Summary" last and interleaves the two techniques. The
+  summary page keeps the old slide 1's content and gains the per-class
+  segmentation table beneath the image grid.
+
+- **The workbook carries every table**: `Summary`, `Raman`, `PL`, `OM_Stats`,
+  `OM_Points`. The QC Panel's four CSVs are retired; two of them were
+  near-duplicates of sheets the workbook already had.
+
+- **`raman_quality.py` is now `peak_quality.py`, and serves both techniques.**
+  Everything technique-specific is a `QualityFigureSpec` carrying the panel
+  columns, the cleaning rule and the marker statistic together, so a call site
+  cannot pair Raman's panels with PL's cleaning. The grid is computed from the
+  columns rather than hardcoded: the old `GridSpec(2, 3)` silently dropped a
+  third panel in any column.
+
+- **Per-position markers: mean for Raman, median for PL**, each matching its
+  own lineage, named in the figure's suptitle because the difference is
+  invisible in the mark itself.
+
+- **PL cleaning is PL's own rule**: `FWHM > 5 nm`, `Center > 700 nm`, then the
+  widest 5% of each peak's fits dropped across the sample. Raman keeps the
+  1.5x IQR cut that matches `aggregate_fit_results`.
+
+- **`WSe2-HA` is folded into `WSe2`; the old `WSe2` entry is gone.** They were
+  identical apart from the optical block. The surviving entry carries the
+  -6.0/+4.25 pair, which means the adaptive derivation now applies to WSe2 work
+  by default — the old nsigma-only `WSe2` had no base pair for it to move.
+
+### Added
+
+- **PL quality panels** (`PL_PANEL_COLUMNS`), ported from the `WSe2_PL.py`
+  ancestor in `angyulu/wse2_optical_analysis`: FWHM and centre for Exciton and
+  Trion, plus the Exciton/Trion **intensity** ratio. (The ancestor's fit table
+  calls that column "Amplitude", but it holds peak height, which is what this
+  codebase calls intensity — see CLAUDE.md.) The ratio column holds one panel
+  where the others hold two, and that gap is deliberate: the lineage defines
+  exactly one PL ratio.
+
+- **One PL spec line: 35 nm FWHM**, on both the Exciton and Trion panels. There
+  is deliberately **no PL centre spec and no PL ratio spec**: the ancestor
+  gates its only PL reference line on `if col == "FWHM"`, and the 770/800 nm in
+  the material preset are fit-initialisation guesses, not tolerances anyone
+  measured.
+
+- **A pre-run inventory** above the Run button, distinguishing "no PL files in
+  this folder" (a naming problem) from "this material defines no PL peaks" (a
+  preset problem) — they are fixed in different places.
+
+- **A quality-gate verdict per technique**, and no combined pass/fail: PL
+  carries one spec line, so an overall grade would assert a judgment the data
+  cannot support.
+
+- **`core.report.models.OpticalClassStat`** — the optical counterpart of
+  `PeakStat`, so the summary figure can print the segmentation's class table
+  without `core` importing `modules.optical`.
+
+### Removed
+
+- **`core/report/pptx.py` and `core/report/slides.py`**, and with them
+  `python-pptx` and `pywin32` from `requirements.txt`. Nothing needs Microsoft
+  Office installed any more. `_hex_to_rgb` moved to
+  `core/report/summary_figure.py`, so the `#RRGGBB`-only rule in
+  `modules/spectra/viz/palette.py` still has teeth.
+
+- **The Plot Explorer**, which never reached this branch's history. It exists
+  on branch `qc-report-v5` if it is ever wanted back.
+
+- **`modules/optical/io/frame_csv.py`** — replaced by `frame_tables.py`, which
+  returns rows instead of CSV text.
+
 ## [4.6.1] - 2026-09-15
 
 ### Fixed

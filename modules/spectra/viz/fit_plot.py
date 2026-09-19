@@ -2,9 +2,9 @@
 Static fit figures for export and reports.
 
 Where live_plot.py renders the interactive, session-state-driven multi-layer
-plot on the Analysis page, this module builds standalone figures with no
+plot on the Spectra page, this module builds standalone figures with no
 session-state dependencies: the data + fit + components view used for PNG/HTML
-export, and the Sample Report's stacked per-column grids.
+export, and the QC Report's stacked per-column grids.
 
 Rendering these to the page goes through core.viz.render.render_plot().
 """
@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Data and total-fit colors, named because a legend drawn outside these figures
-# (the Sample Report draws one per slide) has to match the lines it describes.
+# (the QC Report draws one per grid page) has to match the lines it describes.
 from .palette import (  # noqa: F401  (re-exported for callers)
     COMPONENT_DASH,
     COMPONENT_OPACITY,
@@ -35,7 +35,7 @@ COMPACT_FONT_PX = 26
 COMPACT_TITLE_PX = 34
 COMPACT_PANEL_LABEL_PX = 30
 
-# Points per column in the Sample Report's 3x3 grid: 1/4/7, 2/5/8, 3/6/9.
+# Points per column in the QC Report's 3x3 grid: 1/4/7, 2/5/8, 3/6/9.
 GRID_ROWS = 3
 
 
@@ -262,7 +262,7 @@ def plot_composite(
             showlegend=False
         ), row=2, col=1)
 
-    # `compact` drops the axis titles entirely: the Sample Report labels the
+    # `compact` drops the axis titles entirely: the QC Report labels the
     # axes once for a whole grid, so repeating them per cell only shrinks the
     # spectra.
     if not compact:
@@ -306,7 +306,7 @@ def plot_fit_column(
     rows: int = GRID_ROWS,
 ) -> go.Figure:
     """
-    One column of the Sample Report grid: its points stacked on a shared X-axis.
+    One column of the QC Report grid: its points stacked on a shared X-axis.
 
     The three points of a column are one vertical line across the wafer, and
     drawing them against a single X-axis is what makes them read that way —
@@ -398,7 +398,7 @@ def _y_axis_title(normalized: bool) -> str:
 
 def y_axis_title(normalized: bool) -> str:
     """Public form of `_y_axis_title`, for a caller labelling the axis itself
-    (the Sample Report writes it on the slide, not into the figures)."""
+    (the QC Report writes it on the grid page, not into the figures)."""
     return _y_axis_title(normalized)
 
 

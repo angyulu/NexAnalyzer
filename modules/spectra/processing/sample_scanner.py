@@ -1,6 +1,6 @@
 """
 Filename-pattern discovery of a sample folder's Raman/PL spectra and OM
-images for the Sample Report feature.
+images for the QC Report feature.
 
 Convention: ``<prefix>[-_]<N>.<ext>``, where ``<N>`` is the grid point
 index. Raman prefix is "Raman" or "RM" (matching parser.detect_mode_from_

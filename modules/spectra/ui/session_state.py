@@ -19,7 +19,7 @@ def initialize_session_state():
     - files: dict (filename -> SpectrumFile mapping)
     - current_file: Optional[str] (selected filename)
     - plot_width_preset: str (v2.1+, FR-14: "Compact" | "Standard" | "Wide" | "Full")
-    - selected_preset: MaterialPreset or None (currently selected preset on the Analysis page)
+    - selected_preset: MaterialPreset or None (currently selected preset on the Spectra page)
     - show_raw / show_despiked / show_corrected / show_fit / show_components /
       show_residuals: bool (View Options plot-layer visibility)
 

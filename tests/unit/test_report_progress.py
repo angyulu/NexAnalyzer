@@ -29,13 +29,21 @@ def _progress(stages=None):
 
 class TestMeasuredWeights:
     def test_the_full_chain_sums_to_one(self):
-        """Measured shares of a 24.5 s real-sample run. If these stop summing
-        to 1 the bar either never finishes or finishes early."""
+        """Shares of a ~64 s real-sample run. If these stop summing to 1 the
+        bar either never finishes or finishes early."""
         assert sum(s.weight for s in STAGES) == pytest.approx(1.0)
 
     def test_no_stage_is_weightless_and_none_dominates_entirely(self):
         for stage in STAGES:
             assert 0.0 < stage.weight < 0.5, stage
+
+    def test_segmentation_is_the_longest_stage(self):
+        """~30 s of the ~64 s run. A bar that doesn't say so sits nearly still
+        for half a minute, which is the "has it died?" this module exists to
+        answer."""
+        longest = max(STAGES, key=lambda s: s.weight)
+
+        assert longest.key == "optical_segmentation"
 
     def test_the_weights_are_not_uniform(self):
         """A uniform bar would sit at 50% with 78% of the time still to run --
@@ -69,35 +77,41 @@ class TestStagesFor:
 
         assert "fit" not in keys
         assert "optical_images" in keys
-        assert "pptx" in keys
+        assert "compose" in keys
 
-    def test_a_sample_with_no_optical_images_drops_that_stage(self):
+    def test_a_sample_with_no_optical_images_drops_every_optical_stage(self):
         keys = [s.key for s in stages_for(has_raman=True, has_pl=True, has_optical=False)]
 
         assert "optical_images" not in keys
+        assert "optical_segmentation" not in keys
+        assert "om_figures" not in keys
 
-    def test_the_preview_stage_can_be_dropped(self):
+    def test_images_without_a_segmentation_still_get_loaded(self):
+        """A folder can have frames with nothing to segment them against — no
+        material picked. The summary page's grid still wants them."""
         keys = [s.key for s in stages_for(
-            has_raman=True, has_pl=True, has_optical=True, has_preview=False)]
+            has_raman=True, has_pl=True, has_optical=True, has_segmentation=False)]
 
-        assert "preview" not in keys
+        assert "optical_images" in keys
+        assert "optical_segmentation" not in keys
+        assert "om_figures" not in keys
 
     def test_stages_keep_execution_order(self):
         keys = [s.key for s in stages_for(has_raman=True, has_pl=True, has_optical=True)]
 
         assert keys == [s.key for s in STAGES]
 
-    def test_assembling_the_pptx_is_never_dropped(self):
+    def test_composing_the_report_is_never_dropped(self):
         """It is the one stage every run performs."""
         keys = [s.key for s in stages_for(has_raman=False, has_pl=False, has_optical=False)]
 
-        assert "pptx" in keys
+        assert "compose" in keys
 
-    def test_the_most_minimal_run_is_just_the_pptx(self):
+    def test_the_most_minimal_run_is_just_the_compose_stage(self):
         keys = [s.key for s in stages_for(
-            has_raman=False, has_pl=False, has_optical=False, has_preview=False)]
+            has_raman=False, has_pl=False, has_optical=False, has_segmentation=False)]
 
-        assert keys == ["pptx"]
+        assert keys == ["compose"]
 
 
 class TestSubsetsStillSpanTheWholeBar:
@@ -136,7 +150,7 @@ class TestFractionsAreSafeForStreamlit:
         """Streamlit raises StreamlitAPIException outside [0.0, 1.0]."""
         seen, progress = _progress()
 
-        progress.tick("preview", 99, 3)
+        progress.tick("compose", 99, 3)
 
         assert all(0.0 <= f <= 1.0 for f, _ in seen)
         assert seen[-1][0] == pytest.approx(1.0)
@@ -154,7 +168,9 @@ class TestFractionsAreSafeForStreamlit:
 
         progress.tick("fit", 0, 0)
 
-        assert seen[-1][0] == pytest.approx(progress._share["fit"])
+        assert seen[-1][0] == pytest.approx(
+            progress._offset["fit"] + progress._share["fit"]
+        )
 
     def test_every_emitted_fraction_is_a_float_in_range(self):
         seen, progress = _progress()
@@ -210,9 +226,9 @@ class TestMessages:
         not the thing just finished."""
         seen, progress = _progress()
 
-        progress.start("preview")
+        progress.start("optical_segmentation")
 
-        assert "Rendering preview in PowerPoint" in seen[-1][1]
+        assert "Segmenting optical frames" in seen[-1][1]
 
     def test_a_tick_carries_its_count(self):
         seen, progress = _progress()
@@ -232,9 +248,9 @@ class TestMessages:
     def test_detail_overrides_the_count(self):
         seen, progress = _progress()
 
-        progress.start("preview", detail="launching PowerPoint")
+        progress.start("compose", detail="summary page")
 
-        assert "launching PowerPoint" in seen[-1][1]
+        assert "summary page" in seen[-1][1]
 
     def test_finish_reports_completion(self):
         seen, progress = _progress()
@@ -281,10 +297,12 @@ class TestSubCallbackMatchesSampleBatch:
             callback("PL", i, 9)
             pl_fractions.append(seen[-1][0])
 
-        assert after_raman == pytest.approx(progress._share["fit"] / 2)
+        fit_start = progress._offset["fit"]
+        fit_end = fit_start + progress._share["fit"]
+        assert after_raman == pytest.approx(fit_start + progress._share["fit"] / 2)
         assert len(set(pl_fractions)) == 9, "PL points did not move the bar"
         assert pl_fractions == sorted(pl_fractions)
-        assert pl_fractions[-1] == pytest.approx(progress._share["fit"])
+        assert pl_fractions[-1] == pytest.approx(fit_end)
 
     def test_raman_alone_only_reaches_half_the_stage_when_pl_is_expected(self):
         """The denominator is the combined total, so finishing one technique
@@ -294,7 +312,7 @@ class TestSubCallbackMatchesSampleBatch:
 
         callback("Raman", 9, 9)
 
-        assert seen[-1][0] < progress._share["fit"]
+        assert seen[-1][0] < progress._offset["fit"] + progress._share["fit"]
 
     def test_without_totals_a_single_label_still_spans_the_stage(self):
         seen, progress = _progress()
@@ -302,7 +320,9 @@ class TestSubCallbackMatchesSampleBatch:
 
         callback("Raman", 9, 9)
 
-        assert seen[-1][0] == pytest.approx(progress._share["fit"])
+        assert seen[-1][0] == pytest.approx(
+            progress._offset["fit"] + progress._share["fit"]
+        )
 
     def test_a_stale_report_for_one_label_does_not_shrink_the_sum(self):
         seen, progress = _progress()
@@ -375,9 +395,9 @@ class TestBuild:
         seen, sink = _recorder()
         progress = build(sink, has_raman=True, has_pl=True, has_optical=True)
 
-        progress.start("fit")
+        progress.start("optical_images")
 
-        assert seen == [(0.0, "Fitting spectra...")]
+        assert seen == [(0.0, "Loading optical images...")]
 
 
 class TestSubCallbackAdaptiveTotals:
@@ -391,7 +411,9 @@ class TestSubCallbackAdaptiveTotals:
 
         callback("Raman", 225, 225)
 
-        assert seen[-1][0] == pytest.approx(progress._share["fit"])
+        assert seen[-1][0] == pytest.approx(
+            progress._offset["fit"] + progress._share["fit"]
+        )
 
     def test_overshooting_does_not_peg_the_bar_early(self):
         """Without the correction, Raman's 25th of 225 ticks reads 25/9 — well
@@ -406,7 +428,7 @@ class TestSubCallbackAdaptiveTotals:
 
         assert fractions == sorted(fractions)
         assert len(set(fractions)) == 4, "the bar stopped moving"
-        assert fractions[0] < progress._share["fit"] / 2
+        assert fractions[0] < progress._offset["fit"] + progress._share["fit"] / 2
 
     def test_a_label_that_has_not_reported_keeps_its_reserved_slice(self):
         seen, progress = _progress()
@@ -415,13 +437,13 @@ class TestSubCallbackAdaptiveTotals:
         callback("Raman", 225, 225)
 
         # 225 of (225 + 9): nearly the whole stage, but PL still owns its share.
-        assert seen[-1][0] < progress._share["fit"]
+        assert seen[-1][0] < progress._offset["fit"] + progress._share["fit"]
 
 
 class TestFitWeightScalesWithSpectrumCount:
     """The fit stage is the only one whose cost tracks spectra per point.
 
-    Rendering figures, loading images and assembling the deck cost the same
+    Segmenting frames, rendering figures and composing the report cost the same
     whether a grid point holds one spectrum or a hundred. Measured on
     TSM260803 (25 spectra per file) fitting took 77 % of the wall clock against
     a declared 21.5 %, so the bar crawled through the first fifth and then
@@ -429,8 +451,7 @@ class TestFitWeightScalesWithSpectrumCount:
     """
 
     def _fit_share(self, **kwargs):
-        stages = stages_for(has_raman=True, has_pl=True, has_optical=True,
-                            has_preview=True, **kwargs)
+        stages = stages_for(has_raman=True, has_pl=True, has_optical=True, **kwargs)
         total = sum(s.weight for s in stages)
         return next(s.weight for s in stages if s.key == "fit") / total
 
@@ -444,17 +465,22 @@ class TestFitWeightScalesWithSpectrumCount:
     def test_more_spectra_claim_more_of_the_bar(self):
         assert self._fit_share(fit_spectra=450) > self._fit_share(fit_spectra=18) * 3
 
-    def test_a_real_multi_spectrum_sample_lands_near_its_measured_share(self):
-        """TSM260803: 9 files x 25 spectra, Raman only, no preview in the
-        measurement run. Fitting measured at 0.77 of the total."""
+    def test_a_real_multi_spectrum_sample_claims_most_of_the_bar(self):
+        """TSM260803: 9 files x 25 spectra, Raman only. Fitting measured at
+        0.77 of the *old* report's total; on the merged page it shares the run
+        with ~40 s of segmentation and OM rendering, so its honest share is
+        lower. It must still be the largest stage — that is the property the
+        scaling exists to preserve."""
         stages = stages_for(has_raman=True, has_pl=False, has_optical=True,
-                            has_preview=True, fit_spectra=225)
+                            fit_spectra=225)
         total = sum(s.weight for s in stages)
-        fit = next(s.weight for s in stages if s.key == "fit") / total
+        weights = {s.key: s.weight for s in stages}
+        fit = weights["fit"] / total
 
-        assert 0.6 < fit < 0.85
+        assert 0.45 < fit < 0.7
+        assert weights["fit"] > weights["optical_segmentation"]
 
-    def test_zero_or_none_falls_back_to_the_measured_weights(self):
+    def test_zero_or_none_falls_back_to_the_unscaled_weights(self):
         assert self._fit_share(fit_spectra=0) == pytest.approx(self._fit_share())
         assert self._fit_share(fit_spectra=None) == pytest.approx(self._fit_share())
 
@@ -463,4 +489,6 @@ class TestFitWeightScalesWithSpectrumCount:
                             fit_spectra=450)
         others = {s.key: s.weight for s in stages if s.key != "fit"}
 
-        assert others["optical_images"] > others["pl_figures"] > others["raman_figures"]
+        assert others["optical_segmentation"] > others["om_figures"]
+        assert others["om_figures"] > others["pl_figures"] > others["raman_figures"]
+        assert others["raman_figures"] > others["optical_images"] > others["compose"]

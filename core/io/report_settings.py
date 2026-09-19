@@ -1,5 +1,5 @@
 """
-Persisted "default material" setting for the Sample Report page.
+Persisted "default material" setting for the QC Report page.
 
 A small JSON sidecar (separate from data/materials.json, whose schema/tests
 this deliberately doesn't touch) so the Material dropdown can remember the

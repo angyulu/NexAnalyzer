@@ -1,7 +1,7 @@
 """
 Material Presets page: create, edit, and delete the material presets used
-by the Analysis page's Run Auto-Workflow / Run All Files buttons, by the
-Sample Report, and by the QC Panel.
+by the Spectra page's Run Auto-Workflow / Run All Files buttons, and by the
+QC Report.
 
 Presets are embedded in the app (data/materials.json) as of v2.11.0, replacing
 the earlier Excel-file workflow (presets/material_presets.xlsx). This page is
@@ -311,7 +311,7 @@ def _render_preset_form(presets: dict, key_prefix: str,
     st.markdown("**Optical (layer segmentation)**")
     st.caption(
         "Blank means the algorithm's own default. A layer with every field "
-        "blank stores no block at all, and the QC Panel says it is running "
+        "blank stores no block at all, and the QC Report says it is running "
         "defaults."
     )
     optical_columns = st.columns(len(OPTICAL_LAYERS))
@@ -395,8 +395,7 @@ def _render_preset_form(presets: dict, key_prefix: str,
 st.title("🧪 Material Presets")
 st.markdown(
     "Create and edit the material presets used by **Run Auto-Workflow** / "
-    "**Run All Files** on the Analysis page, by the Sample Report, and by the "
-    "QC Panel."
+    "**Run All Files** on the Spectra page, and by the QC Report."
 )
 
 store = load_store()

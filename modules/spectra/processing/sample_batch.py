@@ -1,8 +1,8 @@
 """
-Per-sample batch-fit orchestration for the Sample Report feature: loads
+Per-sample batch-fit orchestration for the QC Report feature: loads
 and fits every discovered Raman/PL file against its technique's preset,
 reusing execute_auto_workflow() per file (same as "Run All Files" on the
-Analysis page, just headless and grouped by point index).
+Spectra page, just headless and grouped by point index).
 """
 
 from dataclasses import dataclass, field

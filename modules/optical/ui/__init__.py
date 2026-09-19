@@ -1,1 +1,1 @@
-"""Streamlit-facing helpers for the QC Panel page."""
+"""Streamlit-facing helpers for the QC Report page."""
