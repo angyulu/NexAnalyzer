@@ -21,6 +21,48 @@ def _clear_streamlit_caches():
     st.cache_data.clear()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_runcard_sidecar(tmp_path_factory, monkeypatch):
+    """Redirect the Runcard page's remembered-folder sidecar to a scratch dir.
+
+    The twin of _isolate_datalog_sidecar below, for the same reason and with
+    the same reach. Kept as two fixtures rather than one loop over both modules
+    so that a third page adding a sidecar has an obvious thing to copy, and so
+    a failure names which sidecar escaped.
+    """
+    import modules.runcard.io.config_store as config_store
+
+    scratch = tmp_path_factory.mktemp("sidecars")
+    monkeypatch.setattr(
+        config_store, "get_runcard_config_path", lambda: scratch / "runcard.json"
+    )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_datalog_sidecar(tmp_path_factory, monkeypatch):
+    """Redirect the Datalog page's remembered-folder sidecar to a scratch dir.
+
+    The page persists a "last used folder" the moment one is picked, so a test
+    that never mentions the sidecar still rewrites the developer's own
+    data/datalog.json. Worse, a test asserting "it reopens the last folder"
+    would pass on a value an earlier test left behind -- the same failure mode
+    _clear_streamlit_caches exists to prevent.
+
+    Autouse and suite-wide, because the write happens deep inside the page
+    rather than in the test, and nothing in the test names it. The two shared
+    sidecars need no patch: runcard_tags.json and thresholds.json are written
+    into the data root the caller passes, which is always tmp_path. That holds
+    only while every storage entry point takes root_folder as an argument -- if
+    one ever defaults to the remembered folder, it escapes this.
+    """
+    import modules.datalog.io.config_store as config_store
+
+    scratch = tmp_path_factory.mktemp("sidecars")
+    monkeypatch.setattr(
+        config_store, "get_datalog_config_path", lambda: scratch / "datalog.json"
+    )
+
+
 def _pseudo_voigt(x, center, intensity, fwhm, shape=0.5):
     """Cheap pseudo-Voigt profile for building synthetic test spectra.
 

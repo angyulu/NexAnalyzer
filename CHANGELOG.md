@@ -5,6 +5,68 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.0] - 2026-09-19
+
+### Added
+
+- **A Datalog page** (`pages/4_Datalog.py`), ported from datalog_monitor. Points
+  at a folder of the deposition tool's 1 Hz process logs and browses them: a
+  searchable run list, stacked shared-x charts of whichever PV/SV channels are
+  selected, out-of-tolerance violation segments with their duration and worst
+  deviation, and per-channel summary statistics. Compare mode aligns runs on the
+  heater reaching its final setpoint rather than on wall-clock start, because two
+  runs started ten minutes apart are not ten minutes apart in the process. Runs
+  can be tagged with the runcard that produced them, and renamed in bulk to
+  `<timestamp>~tag.csv`.
+
+- **A Runcard page** (`pages/5_Runcard.py`), likewise ported. Reads a recipe and
+  reconstructs the time profile it describes — temperature ramps, the synthesized
+  cooldown, auxiliary heaters, gas and pressure events as a gantt stack, and the
+  growth window derived from where the heater trace sits within 5 °C of its peak.
+  Nothing here reads a datalog: a runcard is the *intended* process, and this page
+  draws only what the recipe says.
+
+- **A "Process" section in the navigation**, holding those two. The flat list was
+  kept through v5.0.0 on the argument that a technique label goes stale as
+  techniques are added — the "Raman & PL" heading had already done so. "Process"
+  survives that argument by naming a **data source** rather than a technique:
+  these two pages read the tool's own logs and recipes, where the other three read
+  measurements taken off a sample afterwards, and no future technique can falsify
+  that.
+
+### Changed
+
+- **`use_container_width=True` is now `width="stretch"`** at all twenty call
+  sites. Streamlit deprecated the boolean in favour of `width=`, which takes
+  `"stretch"` or `"content"`; every site passed `True`, so the rendering is
+  unchanged. Done before the new pages landed so they were not written against a
+  deprecated flag and then migrated twice.
+
+- **`streamlit>=1.37.0`** replaces the `>=1.28.0` floor, which had drifted from
+  reality: 1.63 is what is installed and what the suite is written against, and
+  `st.fragment(run_every=)` and `st.dataframe(on_select=)` — both of which the
+  Datalog page needs — arrive at 1.37.
+
+- **`statsmodels` is dropped** from requirements. It was pulled in for the Plot
+  Explorer's OLS and LOWESS trendlines and nothing has imported it since that page
+  was removed at v5.0.0.
+
+### Notes
+
+- **Three on-disk formats are frozen, deliberately.** `runcard_tags.json`,
+  `thresholds.json` and the `<timestamp>~tag.csv` filename convention are read by
+  datalog_monitor, which stays in use alongside this app. Their shapes are a
+  contract, not an implementation detail, and neither application may change them
+  alone. The two pages' *own* preferences (`data/datalog.json`,
+  `data/runcard.json`) are separate, nexanalyzer-local, and gitignored.
+
+- **The Runcard profile chart is a Plotly rewrite**, not a port. The ancestor
+  hand-wrote SVG and rasterized it in the browser; this draws a `go.Figure`, so it
+  goes through `core.viz.render.render_plot` like every other chart, exports
+  through `core.io.export`, and gains hover. A consequence worth recording: the
+  rewrite means output cannot be diffed against the old app, so the parsers,
+  timeline and stats carry unit tests instead.
+
 ## [5.0.0] - 2026-09-19
 
 ### Changed

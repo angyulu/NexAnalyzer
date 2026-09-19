@@ -1,0 +1,694 @@
+"""
+The runcard profile chart: a reconstructed recipe drawn as one Plotly figure.
+
+Two stacked panels over one shared time axis. The top panel is the heater's
+reconstructed temperature with its synthesized cooldown tail, the preheaters as
+dashed lines, the growth window as a shaded band, and a marker wherever a
+reactive gas opened or closed. The bottom panel is a gantt: one row per gas
+line, then the throttle valve, the pressure controllers and the stage, each
+segment shaded by how far its setpoint sits toward that row's maximum. Under
+both, a summary block naming what was holding at the growth midpoint.
+
+Pure — no Streamlit, no file access. `core.viz.render.render_plot()` is what
+puts the figure on a page, and `core.io.export` is what turns it into a PNG.
+
+This replaces a hand-written SVG renderer, and three of its decisions are
+deliberately not carried over:
+
+- **Text that hover can carry is not drawn.** The ancestor printed the
+  temperature next to every gas marker and estimated, at 7 px per character,
+  whether a value would fit inside its bar — an estimate it had to make because
+  SVG cannot measure text. Plotly can. Every segment carries its value, its
+  unit and its span in the hover box whether or not it is wide enough to print
+  one, so a one-minute purge is now readable where it used to be a blank sliver.
+- **The fallback colour for an unrecognised gas is deterministic.** It was
+  `FALLBACK_COLORS[hash(name) % 2]`, and Python salts string hashes per
+  process, so the same recipe came out violet one morning and teal the next.
+  `zlib.crc32` is stable across runs and machines.
+- **The stage row is shaded like every other row.** The ancestor formatted spin
+  values into strings (`"10 rpm"`) before drawing, which made its own
+  `isinstance(val, float)` shading test fail, so the row always came out flat.
+  Units live on the row here, so the values stay numeric.
+
+The one label the ancestor got wrong is also dropped: it printed the RTV row's
+value as Torr, and that value is `params[1]` of `RTV Pressure Ctrl`, which
+ranges over {10, 60, 70, 90} while the measured tube pressure during the
+controlled segment of VBBE00 is ~7.9 Torr. It is neither the gauge range nor
+the achieved pressure. The number is reproduced exactly; the unit that
+misdescribed it is not printed.
+
+**The gantt row itself is labelled "RTV", where the ancestor drew "RTV P".**
+41 cards in the example corpus draw this row, so this is the one divergence
+visible when an old figure is held beside a new one, and it is deliberate:
+"RTV P" is short for RTV Pressure, and calling the number a pressure in the
+row label is the same mistake as printing it in Torr, one paragraph up. "RTV"
+is also what every other surface in this app already says about that channel —
+the folder table's column, the summary block's line, the channel id
+`fixed_channel_value_at_growth_mid` takes, and the Runcard page's own caption —
+so "RTV P" would buy agreement with the ancestor at the cost of a gantt row
+that disagrees with the table printed beside it.
+"""
+
+import math
+import zlib
+from typing import Dict, List, Optional, Sequence, Tuple
+
+import plotly.graph_objects as go
+
+from ..processing.growth_window import RuncardProfile, get_species
+from ..processing.stats import (
+    BAR_ROW_PX,
+    BarRow,
+    build_bar_rows,
+    canvas_height,
+    gantt_row_slots,
+    gas_events,
+    growth_mid_values,
+    profile_stats,
+)
+
+#: Gas species -> (bar fill, outline / marker colour). The fill is the pale end
+#: a bar is shaded toward; the outline is what a marker and a bar edge use. The
+#: hues are the ancestor's and are worth keeping: growers read these plots
+#: beside years of old ones, and H2Se has been pink on all of them.
+GAS_COLORS: Dict[str, Tuple[str, str]] = {
+    "Ar": ("#c8c8c8", "#999999"),
+    "O2": ("#c5e6c0", "#66aa66"),
+    "H2Se": ("#f5c4d0", "#cc6666"),
+    "H2S": ("#f5deb3", "#cc9900"),
+    "H2": ("#f5a0a0", "#cc5555"),
+    "N2": ("#b0c4de", "#666699"),
+}
+
+#: For a species this app has never seen. Two, so two unknown gases in one
+#: recipe are told apart; picked by a deterministic hash of the channel name,
+#: so the same recipe draws the same way every time.
+FALLBACK_GAS_COLORS: Tuple[Tuple[str, str], ...] = (
+    ("#d8b4fe", "#7c3aed"),
+    ("#99f6e4", "#0d9488"),
+)
+
+TEMP_COLOR = "#d4522a"
+P1_COLOR = "#4488cc"
+P2_COLOR = "#22886a"
+GROWTH_FILL = "rgba(255,182,193,0.18)"
+GROWTH_STROKE = "#d4849a"
+RTV_COLOR = "#2c2c54"
+PC1_COLOR = "#1a8a7a"
+PC2_COLOR = "#1a5a6a"
+SPIN_COLOR = "#6b7b90"
+
+#: A gas with no entry in `GAS_COLORS` still gets a marker, in grey rather than
+#: in its row's fallback colour — a marker that borrowed the fallback hue would
+#: claim a species identity the table does not actually have.
+MARKER_FALLBACK_COLOR = "#666666"
+
+_SUMMARY_BG = "#fff8f0"
+_SUMMARY_HEADER_COLOR = "#a0526a"
+_SUMMARY_BODY_COLOR = "#666666"
+
+FONT_FAMILY = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+
+#: The vertical budget, in pixels, top to bottom. It is fixed rather than
+#: proportional so that a bar row is 24 px on a two-row recipe and on a
+#: fourteen-row one; a proportional layout squeezes the gantt flat exactly when
+#: the recipe has enough channels to be worth reading.
+_MARGIN_TOP_PX = 90
+_TEMP_PANEL_PX = 190
+_PANEL_GAP_PX = 40
+_TIME_AXIS_PX = 50
+_MARGIN_BOTTOM_PX = 130
+_MARGIN_LEFT_PX = 90
+_MARGIN_RIGHT_PX = 110
+
+#: Gap between the time-axis title and the summary block below it. The block
+#: runs to at most six lines, so it and this gap have to fit inside
+#: `_MARGIN_BOTTOM_PX` — which is why that reserve is 130 px and not less.
+_SUMMARY_TOP_GAP_PX = 12
+
+#: Ticks every half hour, which is what a 130-minute recipe wants and what the
+#: ancestor drew. The axis is in minutes even though every stored quantity is
+#: in seconds: seconds on the axis meant a tick list and a label list that had
+#: to be built by hand, and every number an operator quotes about a run is in
+#: minutes anyway.
+_TIME_TICK_MIN = 30
+
+#: Gridlines at zero, at 300 °C, and at this run's own peak — and nothing else,
+#: not even at the top of the scale. Three lines, one of which moves per
+#: recipe, is what makes the peak readable off the axis without a ruler. They
+#: are deliberately not de-duplicated: a recipe peaking near 300 °C draws two
+#: labels on top of each other, which is honest about where its peak is.
+_FIXED_GRIDLINES_C = (0, 300)
+
+#: Headroom above the peak, and the floor the temperature scale never drops
+#: below. The floor is what makes two recipes comparable at a glance — an
+#: 850 °C run and a 900 °C run are drawn on the same scale — and the headroom
+#: is what keeps the growth caption off the trace.
+_TEMP_HEADROOM_C = 50
+_TEMP_SCALE_FLOOR_C = 900
+
+#: The narrowest a gantt segment is drawn, as a fraction of the whole recipe.
+#:
+#: Two commands on one channel with no `Wait` between them share a timestamp,
+#: so the earlier one's segment starts and ends at the same second — an
+#: instantaneous setpoint poke, which is common. A Plotly bar of zero width
+#: draws nothing at all, so the operator reads a gap at exactly the moment the
+#: recipe did something; the ancestor clamped every bar to one pixel and drew a
+#: tick there.
+#:
+#: The clamp is in **data units** rather than pixels because Plotly has no
+#: pixel-width bars and because a fraction of the recipe's own length is the
+#: only minimum that survives a resize: a figure is drawn at whatever width the
+#: browser gives it, and a fixed number of seconds is invisible on a
+#: 130-minute card and a fat block on a five-minute one. 0.4 % is ~4 px of a
+#: 1000 px plot area — a tick, not a bar — and it grows under zoom, so zooming
+#: into one turns it into a sliver that can be read rather than into nothing.
+#:
+#: It is applied to every segment, not only to the exactly-zero ones: a
+#: threshold that fired at 0 s and not at 0.1 s would leave the next-shortest
+#: pokes just as invisible, with no rule an operator could learn. Only segments
+#: already too narrow to read are widened, and `customdata` carries the true
+#: start and end, so the hover box reports the instant and not the tick.
+_MIN_BAR_SPAN_FRACTION = 0.004
+
+#: A gas-chemistry line longer than this is split in half onto a hanging
+#: continuation line. Characters, not pixels: the summary block is a
+#: fixed-position annotation and a line that overruns it is clipped by the
+#: figure edge rather than wrapped.
+_SUMMARY_WRAP_CHARS = 90
+
+
+def build_profile_figure(run_id: str, profile: RuncardProfile) -> go.Figure:
+    """The whole chart for one reconstructed recipe.
+
+    `run_id` is untrusted — it comes from a filename — and Plotly renders a
+    subset of HTML in titles, annotations and hover text, so it is escaped
+    before it reaches any of them. So is every channel name, for the same
+    reason.
+
+    The figure sizes itself from the number of gantt rows
+    (`stats.profile_stats`'s `canvas_h`), so a recipe that addresses fourteen
+    channels is taller than one that addresses four rather than drawing
+    fourteen rows at half height. A recipe with no gantt rows at all still gets
+    one row's worth of space, so the panel has somewhere to say it is empty.
+    """
+    stats = profile_stats(profile)
+    rows = build_bar_rows(profile.timeline)
+    timeline = profile.timeline
+    growth = profile.growth
+
+    # A zero-length recipe never reaches this function from the page —
+    # `list_runcards` rejects it — but this is a public builder, and a zero-wide
+    # x-axis is a Plotly error rather than an empty chart.
+    total_min = timeline.total_time / 60
+    x_max = total_min if total_min > 0 else 1.0
+
+    peak_temp = growth.peak_temp_c
+    temp_max = max(peak_temp + _TEMP_HEADROOM_C, _TEMP_SCALE_FLOOR_C)
+
+    # Both from `stats`, not from a local `max(len(rows), 1)`: the page reads
+    # the same height out of `profile_stats` and sizes the exported PNG with
+    # it, and the two used to disagree by one row on a recipe with no gantt.
+    row_count = gantt_row_slots(rows)
+    height = canvas_height(rows)
+    inner = height - _MARGIN_TOP_PX - _MARGIN_BOTTOM_PX
+    bars_px = BAR_ROW_PX * row_count
+
+    # Paper coordinates run bottom-up; the budget above is written top-down.
+    temp_domain = (1.0 - _TEMP_PANEL_PX / inner, 1.0)
+    bars_top_px = _TEMP_PANEL_PX + _PANEL_GAP_PX
+    bars_domain = (1.0 - (bars_top_px + bars_px) / inner, 1.0 - bars_top_px / inner)
+
+    fig = go.Figure()
+
+    _add_growth_band(fig, growth, temp_max)
+    _add_temperature_traces(fig, profile, stats)
+    _add_gas_markers(fig, profile)
+    _add_bar_rows(fig, rows, x_max)
+
+    fig.update_layout(
+        height=height,
+        font=dict(family=FONT_FAMILY, size=12),
+        margin=dict(
+            l=_MARGIN_LEFT_PX, r=_MARGIN_RIGHT_PX,
+            t=_MARGIN_TOP_PX, b=_MARGIN_BOTTOM_PX,
+        ),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        title=dict(
+            text=(
+                f"<b>{_escape(run_id)} — Recipe profile</b>"
+                f"<br><span style='font-size:13px;color:#888888'>{total_min:.0f} min total</span>"
+            ),
+            # Anchored to the **plot** area's top edge and grown upward into
+            # the margin. Anchored to the container instead, the two-line block
+            # hangs off the top of the figure and the first line's ascenders are
+            # clipped in every exported PNG.
+            x=0.0, xanchor="left", yref="paper", y=1.0, yanchor="bottom",
+            font=dict(size=20, color="#333333"),
+        ),
+        legend=dict(
+            # In the gap between the two panels, which nothing else uses. Above
+            # the temperature panel it would fight the growth caption, which is
+            # centred over its own band and cannot be moved out of the way;
+            # inside the panel it crosses the rising trace on any recipe that
+            # reaches temperature early.
+            orientation="h", x=0.0, xanchor="left", y=bars_domain[1], yanchor="bottom",
+            font=dict(size=11), bgcolor="rgba(0,0,0,0)",
+        ),
+        hovermode="closest",
+        xaxis=dict(
+            # Anchored to the gantt axis so the time axis is drawn once, under
+            # the bars, exactly where the ancestor put it.
+            anchor="y2",
+            domain=[0.0, 1.0],
+            range=[0.0, x_max],
+            tick0=0, dtick=_TIME_TICK_MIN,
+            ticks="outside", ticklen=5,
+            title=dict(text="Time (min)", font=dict(size=11, color="#888888")),
+            tickfont=dict(size=10, color="#999999"),
+            showgrid=False, zeroline=False,
+            linecolor="#cccccc", linewidth=1,
+        ),
+        yaxis=dict(
+            anchor="x",
+            domain=list(temp_domain),
+            range=[0.0, temp_max],
+            tickvals=_gridline_values(peak_temp),
+            title=dict(text="Temp (°C)", font=dict(size=11, color="#666666")),
+            tickfont=dict(size=10, color="#999999"),
+            gridcolor="#eeeeee", gridwidth=1,
+            zeroline=False, showline=False,
+        ),
+        yaxis2=dict(
+            anchor="x",
+            domain=list(bars_domain),
+            # Row labels in the right margin, where the ancestor put them, so
+            # the left margin belongs to the temperature scale alone.
+            side="right",
+            categoryorder="array",
+            categoryarray=[_escape(row.label) for row in reversed(rows)],
+            tickfont=dict(size=11, color="#555555"),
+            showgrid=False, zeroline=False, showline=False,
+        ),
+    )
+
+    if not rows:
+        fig.add_annotation(
+            xref="paper", yref="y2 domain", x=0.5, y=0.5,
+            text="No gas, pressure or stage commands in this recipe",
+            showarrow=False, font=dict(size=11, color="#999999"),
+        )
+
+    _add_summary_block(fig, profile, inner)
+    return fig
+
+
+# ------------------------------------------------------------------ layers
+def _add_growth_band(fig: go.Figure, growth, temp_max: float) -> None:
+    """The shaded window, its two dashed edges, and its caption.
+
+    Spans the **whole** plot height rather than the temperature panel alone, so
+    the band lands over the gantt too and it is visible at a glance which
+    segments were holding during growth. That is the one thing the ancestor's
+    fixed-height band could not show, and it is the question the gantt is there
+    to answer.
+
+    Drawn below every trace (`layer="below"`), so a 0.18-alpha wash never
+    lightens a bar or the temperature line on top of it.
+
+    Guarded on `start_s is not None`, not on truthiness: see `stats`.
+    """
+    if growth.start_s is None or growth.end_s is None:
+        return
+
+    start_min, end_min = growth.start_s / 60, growth.end_s / 60
+    fig.add_vrect(
+        x0=start_min, x1=end_min,
+        fillcolor=GROWTH_FILL, line_width=0, layer="below",
+    )
+    for edge in (start_min, end_min):
+        fig.add_vline(x=edge, line=dict(color=GROWTH_STROKE, width=1, dash="4px,3px"))
+
+    # Above the panel rather than inside it. The scale leaves 50 °C of headroom
+    # over the peak, which is about ten pixels — enough to keep a line off the
+    # trace and not enough to keep a caption off it.
+    fig.add_annotation(
+        x=(start_min + end_min) / 2, y=temp_max,
+        xref="x", yref="y", yanchor="bottom",
+        text=f"<i>Growth ({growth.duration_min:.0f} min @ {growth.peak_temp_c:.0f}°C)</i>",
+        showarrow=False, font=dict(size=12, color=GROWTH_STROKE),
+    )
+
+
+def _add_temperature_traces(fig: go.Figure, profile: RuncardProfile, stats: Dict[str, Optional[float]]) -> None:
+    """Main heater, then the two preheaters, into the top panel.
+
+    The cooldown tail is **not** a separate trace: it is the tail of
+    `temp_trace`, drawn in the same colour and weight, because it is the same
+    heater and splitting it would invite the reading that the app measured one
+    half and modelled the other. It modelled all of it.
+
+    The preheaters' final temperatures go in their **legend entries** rather
+    than in end-of-line labels. The ancestor drew those labels in the right
+    margin and had to offset P2's by 10 px whenever P1 was also present, to
+    stop them overlapping; a legend has no such collision and says the same
+    thing.
+    """
+    fig.add_trace(go.Scatter(
+        x=[t / 60 for t, _temp in profile.temp_trace],
+        y=[temp for _t, temp in profile.temp_trace],
+        mode="lines", name="Heater",
+        line=dict(color=TEMP_COLOR, width=2.5, shape="linear"),
+        hovertemplate="%{x:.1f} min · %{y:.0f} °C<extra>Heater</extra>",
+    ))
+
+    for trace, color, dash, label, final in (
+        (profile.p1_trace, P1_COLOR, "6px,4px", "P1", stats["p1_T"]),
+        (profile.p2_trace, P2_COLOR, "4px,6px", "P2", stats["p2_T"]),
+    ):
+        if not trace:
+            continue
+        name = f"{label} ({final:.0f} °C)" if final is not None else label
+        fig.add_trace(go.Scatter(
+            x=[t / 60 for t, _temp in trace],
+            y=[temp for _t, temp in trace],
+            mode="lines", name=name,
+            line=dict(color=color, width=1.5, dash=dash),
+            hovertemplate="%{x:.1f} min · %{y:.0f} °C<extra>" + _escape(label) + "</extra>",
+        ))
+
+
+def _add_gas_markers(fig: go.Figure, profile: RuncardProfile) -> None:
+    """A dot on the temperature line wherever a reactive gas opened or closed.
+
+    Markers inside the growth window are suppressed: that stretch is already
+    shaded and captioned, and the labels land on top of the caption. The guard
+    is `is not None` on the window edges rather than the ancestor's truthiness
+    test, which suppressed nothing at all for a window starting at t=0.
+
+    Labels alternate above and below the line, and the alternation advances
+    only on markers that are actually drawn — so a suppressed one does not flip
+    the parity and leave two consecutive labels stacked on the same side. The
+    temperature itself is left to the hover box; printing it beside every
+    marker is what made these plots unreadable wherever two valves moved in the
+    same minute.
+    """
+    events = gas_events(profile)
+    start_s, end_s = profile.growth.start_s, profile.growth.end_s
+    in_window = start_s is not None and end_s is not None
+
+    xs: List[float] = []
+    ys: List[float] = []
+    texts: List[str] = []
+    positions: List[str] = []
+    colors: List[str] = []
+    customdata: List[List[float]] = []
+    above = True
+
+    for event in events:
+        if in_window and start_s <= event.t_s <= end_s:
+            continue
+        xs.append(event.t_s / 60)
+        ys.append(event.temp_c)
+        texts.append(_escape(f"{event.species} {event.direction}"))
+        positions.append("top center" if above else "bottom center")
+        colors.append(GAS_COLORS.get(event.species, (None, MARKER_FALLBACK_COLOR))[1])
+        customdata.append([event.temp_c])
+        above = not above
+
+    if not xs:
+        return
+
+    fig.add_trace(go.Scatter(
+        x=xs, y=ys, mode="markers+text",
+        text=texts, textposition=positions,
+        textfont=dict(size=10, color=colors),
+        marker=dict(size=7, color=colors, opacity=0.7),
+        customdata=customdata,
+        hovertemplate="%{text}<br>%{x:.1f} min · %{customdata[0]:.0f} °C<extra></extra>",
+        showlegend=False, cliponaxis=False,
+    ))
+
+
+def _add_bar_rows(fig: go.Figure, rows: Sequence[BarRow], total_min: float) -> None:
+    """One horizontal bar trace per gantt row, shaded by setpoint.
+
+    One trace per row rather than one per segment: a 40-command recipe produces
+    ~45 segments, and 45 traces is 45 legend-suppression flags, 45 hover
+    templates and a figure that is slow to serialize for no gain.
+
+    `total_min` is the x-axis range, and it is here only to size the minimum
+    segment width off it — see `_MIN_BAR_SPAN_FRACTION` for why an
+    instantaneous setpoint change has to be drawn wider than it lasted.
+
+    The shade is a square-root-compressed ramp from a whitened version of the
+    row's colour at the floor to the full colour at that row's own maximum, so
+    within a row the darker bar is the higher setpoint. It is **per row**: a
+    gas line running 0–5 sccm and a controller running 0–400 Torr each use
+    their own full range, because the alternative is a gas row that is white
+    from end to end.
+    """
+    min_span = total_min * _MIN_BAR_SPAN_FRACTION
+
+    for row in rows:
+        if not row.segments:
+            # A channel the recipe addressed and left shut keeps its row. The
+            # category only exists on a Plotly axis if some trace references
+            # it, so an empty row needs an invisible zero-width bar or it
+            # disappears — and "commanded closed" would become indistinguishable
+            # from "never mentioned", which is exactly what `BarRow` keeps apart.
+            fig.add_trace(go.Bar(
+                y=[_escape(row.label)], x=[0.0], base=[0.0],
+                orientation="h", width=0.8, yaxis="y2",
+                marker=dict(color="rgba(0,0,0,0)"),
+                hoverinfo="skip", showlegend=False,
+            ))
+            continue
+
+        fill_base, stroke_base = _row_colors(row)
+        is_pressure = row.kind != "gas"
+        vmax = max(segment.value for segment in row.segments)
+
+        fills = [_shade(fill_base, s.value, vmax, is_pressure) for s in row.segments]
+        strokes = (
+            [stroke_base] * len(row.segments)
+            if is_pressure
+            else [_shade(stroke_base, s.value, vmax, is_pressure, blend=0.5) for s in row.segments]
+        )
+        unit = f" {row.unit}" if row.unit else ""
+
+        fig.add_trace(go.Bar(
+            y=[_escape(row.label)] * len(row.segments),
+            # Drawn width, floored; `customdata` below keeps the true span.
+            x=[max(s.end_s / 60 - s.start_s / 60, min_span) for s in row.segments],
+            base=[s.start_s / 60 for s in row.segments],
+            orientation="h", width=0.8, yaxis="y2",
+            marker=dict(
+                color=fills,
+                line=dict(color=strokes, width=0.0 if is_pressure else 0.5),
+            ),
+            opacity=0.9 if is_pressure else 0.85,
+            text=[_format_value(s.value) for s in row.segments],
+            textposition="inside", insidetextanchor="middle",
+            insidetextfont=dict(size=11, color="white" if is_pressure else "#444444"),
+            # Plotly hides text that will not fit; the ancestor had to estimate
+            # it at 7 px per character. Either way the hover box below always
+            # carries the number.
+            #
+            # The **true** start and end, deliberately not `base` and
+            # `base + x`: a segment narrower than `min_span` is drawn wider
+            # than it lasted, and the hover box is where the operator goes to
+            # find out that it was an instant.
+            customdata=[[s.start_s / 60, s.end_s / 60, s.value] for s in row.segments],
+            hovertemplate=(
+                f"<b>{_escape(row.label)}</b>: %{{customdata[2]:g}}{_escape(unit)}"
+                "<br>%{customdata[0]:.1f} – %{customdata[1]:.1f} min<extra></extra>"
+            ),
+            showlegend=False,
+        ))
+
+
+def _add_summary_block(fig: go.Figure, profile: RuncardProfile, inner_px: int) -> None:
+    """The recipe's own summary, in the bottom margin.
+
+    Only drawn when there is a growth window, because every line in it is a
+    value read at the growth midpoint and there is no midpoint without one. The
+    strip is reserved unconditionally in the height budget, so a recipe without
+    a window ends in whitespace rather than in a shorter figure that no longer
+    lines up beside its neighbours.
+    """
+    lines = summary_lines(profile)
+    if not lines:
+        return
+
+    text = "<br>".join(
+        f"<span style='color:{color}'>{'<b>' + body + '</b>' if bold else body}</span>"
+        for body, color, bold in lines
+    )
+    # Paper y=0 is already the bottom of the axis area, below the time axis and
+    # its title, so this offset only has to clear that title — the whole
+    # `_MARGIN_BOTTOM_PX` strip below it is reserved for this block.
+    fig.add_annotation(
+        xref="paper", yref="paper", x=0.0, y=-_SUMMARY_TOP_GAP_PX / inner_px,
+        xanchor="left", yanchor="top", align="left",
+        text=text, showarrow=False,
+        font=dict(size=11, color=_SUMMARY_BODY_COLOR),
+        bgcolor=_SUMMARY_BG, bordercolor=GROWTH_STROKE, borderwidth=1, borderpad=10,
+    )
+
+
+def summary_lines(profile: RuncardProfile) -> List[Tuple[str, str, bool]]:
+    """The summary block's `(text, colour, bold)` lines, or `[]` with no window.
+
+    Separate from the annotation that draws them so the same sentences can be
+    shown as text beside the chart, and so they can be asserted on without
+    parsing a figure.
+
+    The gas line is split onto a hanging continuation when the joined string
+    runs past `_SUMMARY_WRAP_CHARS`: a recipe addressing eight channels
+    overruns the figure's width, and the annotation has no wrapping of its own.
+    """
+    values = growth_mid_values(profile)
+    growth = profile.growth
+    if values.mid_s is None or growth.start_s is None or growth.end_s is None:
+        return []
+
+    lines: List[Tuple[str, str, bool]] = [(
+        f"Growth window · t={growth.start_s / 60:.0f}–{growth.end_s / 60:.0f} min "
+        f"· {growth.peak_temp_c:.0f}°C plateau",
+        _SUMMARY_HEADER_COLOR,
+        True,
+    )]
+
+    gas_parts = [f"{_escape(name)} {value:g} sccm" for name, value in values.mfc]
+    if len(" · ".join(gas_parts)) > _SUMMARY_WRAP_CHARS:
+        half = len(gas_parts) // 2
+        lines.append(("Gas chemistry: " + " · ".join(gas_parts[:half]), _SUMMARY_BODY_COLOR, False))
+        lines.append((" · ".join(gas_parts[half:]), _SUMMARY_BODY_COLOR, False))
+    else:
+        lines.append(("Gas chemistry: " + " · ".join(gas_parts), _SUMMARY_BODY_COLOR, False))
+
+    pressure_parts = [f"{_escape(name)} = {value:g} Torr" for name, value in values.pc]
+    if values.rtv is not None:
+        # No unit: the number is `params[1]` of `RTV Pressure Ctrl`, which is
+        # not a pressure. See the module docstring.
+        pressure_parts.append(f"RTV {values.rtv:g}")
+    if values.spin is not None:
+        pressure_parts.append(f"Spin {values.spin:g} rpm")
+    lines.append(("Pressure: " + " · ".join(pressure_parts), _SUMMARY_BODY_COLOR, False))
+
+    if values.p1 is not None:
+        lines.append((f"Heater 2 (P1): {values.p1:.0f}°C", P1_COLOR, False))
+    if values.p2 is not None:
+        lines.append((f"Heater 3 (P2): {values.p2:.0f}°C", P2_COLOR, False))
+
+    return lines
+
+
+# ------------------------------------------------------------------ colours
+def _row_colors(row: BarRow) -> Tuple[str, str]:
+    """(fill, outline) for one gantt row.
+
+    The two pressure controllers are told apart by a digit in their name rather
+    than by position, because `Accumulation PC*` commands can introduce a
+    channel that no `MFC/PC` row ever mentioned and the order they appear in is
+    the recipe's, not the hardware's.
+    """
+    if row.kind == "rtv":
+        return RTV_COLOR, RTV_COLOR
+    if row.kind == "spin":
+        return SPIN_COLOR, SPIN_COLOR
+    if row.kind == "pc":
+        color = PC1_COLOR if "1" in row.label else PC2_COLOR
+        return color, color
+    species = get_species(row.label)
+    if species in GAS_COLORS:
+        return GAS_COLORS[species]
+    return FALLBACK_GAS_COLORS[zlib.crc32(row.label.encode("utf-8")) % len(FALLBACK_GAS_COLORS)]
+
+
+def _shade(base: str, value: float, vmax: float, is_pressure: bool, blend: Optional[float] = None) -> str:
+    """`base`, whitened in proportion to how far `value` falls short of `vmax`.
+
+    Square-root-compressed, so the bottom of a row's range is still visibly
+    coloured: a linear ramp put a 0.1 sccm dopant flow on a row whose maximum is
+    30 sccm at 0.3 % of full colour, i.e. white.
+
+    The floor stops a small value disappearing entirely, and gas rows get a
+    lighter empty end than pressure rows because they are the rows an operator
+    is comparing across — a pale bar has to read as "open but low", not as "no
+    bar".
+    """
+    if vmax <= 0:
+        return base
+    floor = 0.35 if is_pressure else 0.25
+    fraction = max(math.sqrt(max(value, 0.0) / vmax), floor)
+    light_blend = blend if blend is not None else (0.45 if is_pressure else 0.6)
+    return _lerp_color(_make_light(base, light_blend), base, fraction)
+
+
+def _make_light(color: str, blend: float) -> str:
+    """`color` moved `blend` of the way to white."""
+    r, g, b = _hex_to_rgb(color)
+    return _rgb_to_hex((
+        r + (255 - r) * blend,
+        g + (255 - g) * blend,
+        b + (255 - b) * blend,
+    ))
+
+
+def _lerp_color(light: str, dark: str, fraction: float) -> str:
+    """`fraction` of the way from `light` to `dark`; 0 is lightest, 1 is `dark`."""
+    lr, lg, lb = _hex_to_rgb(light)
+    dr, dg, db = _hex_to_rgb(dark)
+    return _rgb_to_hex((
+        lr + (dr - lr) * fraction,
+        lg + (dg - lg) * fraction,
+        lb + (db - lb) * fraction,
+    ))
+
+
+def _hex_to_rgb(color: str) -> Tuple[int, int, int]:
+    """`"#rrggbb"` -> three ints."""
+    value = color.lstrip("#")
+    return int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
+
+
+def _rgb_to_hex(rgb: Tuple[float, float, float]) -> str:
+    """Three channel values back to `"#rrggbb"`, truncating as the ancestor did.
+
+    `int()` rather than `round()`: rounding shifts every derived shade by up to
+    one level, which is invisible on its own and turns every colour assertion
+    against the old renderer into a near-miss.
+    """
+    return "#{:02x}{:02x}{:02x}".format(*(max(0, min(255, int(channel))) for channel in rgb))
+
+
+# ------------------------------------------------------------------ helpers
+def _gridline_values(peak_temp: float) -> List[int]:
+    """Tick positions for the temperature axis: zero, 300 °C, and this peak."""
+    return [*_FIXED_GRIDLINES_C, int(peak_temp)]
+
+
+def _format_value(value: float) -> str:
+    """The number as a bar prints it: `20.0` -> `"20"`, `0.5` -> `"0.5"`.
+
+    Setpoints are written as whole numbers in the recipe far more often than
+    not, and `20.0 sccm` inside a 40-pixel bar spends a third of its width on a
+    zero nobody typed.
+    """
+    if float(value) == int(value):
+        return f"{int(value)}"
+    return f"{value:g}"
+
+
+def _escape(text: str) -> str:
+    """XML-escape text that came from a filename or a recipe.
+
+    Plotly renders a subset of HTML in titles, hover text and annotations, so a
+    channel name or a run id containing `<` is markup unless it is escaped
+    here. Only applied to strings the figure did not compose itself; numbers
+    formatted above are safe by construction.
+    """
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

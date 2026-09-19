@@ -61,6 +61,13 @@ tests/fixtures/*.txt
 # (unlike data/materials.json, which is shared and committed).
 data/report_settings.json
 
+# Per-installation "last used folder" for the Datalog and Runcard pages. These
+# are nexanalyzer's own preferences and are deliberately NOT the sidecars those
+# pages share with datalog_monitor -- runcard_tags.json and thresholds.json live
+# in the user's data folder, travel with the data, and are read by both apps.
+data/datalog.json
+data/runcard.json
+
 # Local Claude Code settings (per-developer, unlike .claude/commands/)
 .claude/settings.local.json
 

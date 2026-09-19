@@ -17,10 +17,17 @@ rendering); everything that knows what a peak is lives in `modules/spectra`. Wit
 imports are relative, across trees absolute. Adding a technique means adding a package under
 `modules/` and registering its pages in `app.py` — nothing in `core` changes.
 
-`modules/` is one package per measurement technique: `spectra` (Raman & PL) and `optical`
-(OM). A self-contained feature that knows nothing about peaks would sit awkwardly under either
-— the Plot Explorer was such a feature and lived under `modules/dataviz` for a while — but none
-is in the tree today.
+`modules/` is one package per **subject**, which for the first two was one per measurement
+technique: `spectra` (Raman & PL) and `optical` (OM). `datalog` and `runcard`, added at v5.1.0,
+are not techniques — they read the deposition tool's own logs and recipes rather than anything
+measured off a sample afterwards. They are separate packages rather than one `process` package
+because they share nothing: different parsers, different data structures, different folders, not
+one constant in common. A module here is a unit of independence, and those two are maximally
+independent.
+
+They are also the reason the navigation grew its "Process" section: that label names a *data
+source*, which no future technique can falsify, where the old "Raman & PL" heading named a
+technique and went stale the moment a page grew an OM image.
 
 ---
 
@@ -28,7 +35,7 @@ is in the tree today.
 
 ### Frontend
 - **Framework**: Streamlit (Python web framework for data apps), multi-page via `st.navigation()` (v2.11.0+)
-- **Pages**: a flat list of three, no section heading (the "Raman & PL" group was removed at v4.2.0; it had misdescribed the OM-carrying pages since v4.0.0) — **Spectra** (`pages/1_Spectra.py`: sidebar + full-width plot, the entire spectrum workflow), **QC Report** (`pages/2_QC_Report.py`: seven figures and one workbook from a sample folder's 9-point OM + Raman + PL grid), **Material Presets** (`pages/3_Material_Presets.py`: create/edit/delete materials). Sample Report and QC Panel were merged into QC Report at v5.0.0, and the Plot Explorer was dropped at the same time.
+- **Pages**: five, in two groups. Unlabelled — **Spectra** (`pages/1_Spectra.py`: sidebar + full-width plot, the entire spectrum workflow), **QC Report** (`pages/2_QC_Report.py`: seven figures and one workbook from a sample folder's 9-point OM + Raman + PL grid), **Material Presets** (`pages/3_Material_Presets.py`: create/edit/delete materials). Under **Process** — **Datalog** (`pages/4_Datalog.py`: a run folder's 1 Hz process logs as stacked PV/SV charts, with tolerance violations, summary stats, tagging and bulk rename), **Runcard** (`pages/5_Runcard.py`: a recipe's reconstructed time profile, growth window and gas chemistry). Sample Report and QC Panel were merged into QC Report at v5.0.0, and the Plot Explorer was dropped at the same time. The "Raman & PL" group was removed at v4.2.0 for naming a technique; "Process" names a data source instead, which is why it survives that argument.
 - **State Management**: Streamlit session state with automatic persistence
 - **Visualization**: Plotly (interactive multi-layer plots)
 
@@ -51,7 +58,10 @@ nexanalyzer/
 ├── pages/
 │   ├── 1_Spectra.py                # Spectra page: sidebar + full-width plot
 │   ├── 2_QC_Report.py              # QC Report page: folder -> 7 figures + 1 workbook
-│   └── 3_Material_Presets.py       # Material Presets page: create/edit/delete materials
+│   ├── 3_Material_Presets.py       # Material Presets page: create/edit/delete materials
+│   ├── 4_Datalog.py                # Datalog page: run browser, PV/SV charts, violations,
+│   │                               # tagging and bulk rename
+│   └── 5_Runcard.py                # Runcard page: one recipe's reconstructed profile
 ├── core/                           # Platform. Knows nothing about peaks or spectra.
 │   ├── paths.py                    # PROJECT_ROOT / DATA_DIR, anchored on this file
 │   ├── version.py                  # APP_NAME, __version__, REPO_URL (single source of truth)
@@ -70,7 +80,25 @@ nexanalyzer/
 │   │                               # fitted-spectra grid, as matplotlib PNGs
 │   └── viz/
 │       └── render.py               # Page-width-aware st.plotly_chart wrapper
-├── modules/                        # One package per measurement technique
+├── modules/                        # One package per subject (technique, or data source)
+│   ├── datalog/                    # The deposition tool's 1 Hz process logs
+│   │   ├── io/scanner.py           # Recursive run discovery, cheap metadata scan, cached
+│   │   │                           # parse, PV/SV pair detection
+│   │   ├── io/tag_store.py         # runcard_tags.json in the DATA folder — frozen format,
+│   │   │                           # shared with datalog_monitor
+│   │   ├── io/threshold_store.py   # thresholds.json, likewise frozen and shared
+│   │   ├── io/renamer.py           # <timestamp>~tag.csv sweeps, with tag re-keying and
+│   │   │                           # rollback (frozen filename format)
+│   │   ├── io/config_store.py      # data/datalog.json — nexanalyzer's own remembered folder
+│   │   ├── processing/analysis.py  # Summary stats, tolerance violations, plateau alignment
+│   │   ├── ui/datalog_state.py     # Isolated session-state namespace for the Datalog page
+│   │   └── viz/charts.py           # Stacked shared-x run figures, single and comparison
+│   ├── runcard/                    # The deposition tool's recipes
+│   │   ├── io/parser.py            # Runcard CSV -> RuncardCommand list, cached
+│   │   ├── processing/growth_window.py  # Command list -> timeline, traces, growth window
+│   │   ├── processing/stats.py     # The metrics a profile reports, and the gantt bar rows
+│   │   ├── ui/runcard_state.py     # Isolated session-state namespace for the Runcard page
+│   │   └── viz/profile.py          # The profile figure (Plotly; the ancestor drew SVG)
 │   ├── optical/                    # Optical microscopy: contrast-based layer classification
 │   │   ├── processing/contrast.py  # The vendored segmentation (see OM_Contrast_Algo.md),
 │   │   │                           # plus class_summary/contrast_summary across frames
@@ -120,6 +148,8 @@ nexanalyzer/
 ├── data/
 │   ├── materials.json              # Shared material preset store (committed)
 │   ├── report_settings.json        # Per-installation preference (gitignored)
+│   ├── datalog.json                # Datalog page's remembered folder (gitignored)
+│   ├── runcard.json                # Runcard page's remembered folder (gitignored)
 ├── tests/
 │   ├── unit/                       # pytest suite for core/ and modules/
 │   └── integration/                # streamlit.testing.v1.AppTest-driven page tests

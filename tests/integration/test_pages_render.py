@@ -17,6 +17,8 @@ PAGES = [
     "pages/1_Spectra.py",
     "pages/2_QC_Report.py",
     "pages/3_Material_Presets.py",
+    "pages/4_Datalog.py",
+    "pages/5_Runcard.py",
 ]
 
 
