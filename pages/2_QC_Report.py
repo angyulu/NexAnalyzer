@@ -500,7 +500,6 @@ if scan is not None:
                         scan,
                         raman_preset if will_fit_raman else None,
                         pl_preset if will_fit_pl else None,
-                        max_iterations=st.session_state.get("max_iterations", 2000),
                         progress_callback=progress.sub_callback(
                             "fit",
                             # Both techniques share the one fitting stage, and

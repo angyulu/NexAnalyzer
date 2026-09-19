@@ -166,6 +166,14 @@ def _render_technique_block(key_prefix: str, mode: str,
                 key=f"{key_prefix}_xmax"
             )
 
+    max_iterations = st.number_input(
+        "Max fit iterations", min_value=500, max_value=20000,
+        value=d.max_iterations if d else 2000, step=500,
+        help="Iteration budget for the Voigt fit. Higher = more attempts to "
+             "converge on a difficult spectrum, at the cost of time per fit.",
+        key=f"{key_prefix}_max_iterations"
+    )
+
     exclusion_ranges = st.text_input(
         "Exclusion ranges (optional)",
         value=d.exclusion_ranges if (d and d.exclusion_ranges) else "",
@@ -204,6 +212,7 @@ def _render_technique_block(key_prefix: str, mode: str,
         baseline_lambda=float(baseline_lambda) if baseline_lambda is not None else None,
         baseline_p=float(baseline_p) if baseline_p is not None else None,
         exclusion_ranges=exclusion_ranges.strip() or None,
+        max_iterations=int(max_iterations),
         peak_templates=_df_to_peaks(peaks_df),
     )
 

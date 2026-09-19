@@ -168,17 +168,10 @@ def render_sidebar():
             if current_spectrum is None:
                 st.caption("Load spectrum files below to enable Auto-Workflow")
 
-            # Max iterations slider — applies to Run Auto-Workflow and Run All Files
-            # (shared with the manual fit slider in the Peak Fitting control panel)
-            max_iter_sidebar = st.slider(
-                "Max iterations",
-                min_value=500, max_value=20000,
-                value=st.session_state.get("max_iterations", 2000),
-                step=500,
-                key="max_iter_sidebar_slider",
-                help="Higher = more attempts to converge for difficult fits"
-            )
-            st.session_state["max_iterations"] = max_iter_sidebar
+            # No max-iterations control here. As of v5.2.0 the fit iteration
+            # budget is a field of the technique block, edited on the Material
+            # Presets page alongside the baseline and peak settings it belongs
+            # with, so a preset states everything its fit does.
 
             # Run Auto-Workflow button (requires a loaded file)
             run_clicked = st.button(
@@ -189,9 +182,8 @@ def render_sidebar():
                 # Execute auto-workflow immediately (single-click behavior)
                 from ..processing.auto_workflow import execute_auto_workflow, format_workflow_summary, get_workflow_suggestions
 
-                max_iter = st.session_state.get("max_iterations", 2000)
                 with st.spinner("🚀 Executing automated workflow..."):
-                    result = execute_auto_workflow(current_spectrum, preset, max_iterations=max_iter)
+                    result = execute_auto_workflow(current_spectrum, preset)
 
                 if result["success"]:
                     # Show success message with summary
@@ -260,7 +252,6 @@ def render_sidebar():
                     failed_files = []
 
 
-                    max_iter = st.session_state.get("max_iterations", 2000)
                     if total == 0:
                         st.error(
                             "No loaded file states its technique in its "
@@ -280,7 +271,7 @@ def render_sidebar():
                             progress_bar.progress(
                                 idx / total, text=f"Fitting {idx + 1}/{total}: {filename}"
                             )
-                            result = execute_auto_workflow(spectrum, preset, max_iterations=max_iter)
+                            result = execute_auto_workflow(spectrum, preset)
                             if result["success"]:
                                 success_count += 1
                             else:

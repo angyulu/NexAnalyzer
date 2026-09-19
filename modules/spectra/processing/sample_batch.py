@@ -29,7 +29,6 @@ def _run_one_technique(
     files_by_point: Dict[int, str],
     mode: str,
     preset: Optional[MaterialPreset],
-    max_iterations: int,
     out_spectra: List[Tuple[int, SpectrumFile]],
     out_errors: List[Tuple[int, str]],
     progress_callback: Optional[ProgressCallback],
@@ -86,7 +85,7 @@ def _run_one_technique(
                     processed_data=spectrum_data,
                     processing_settings=ProcessingSettings(),
                 )
-                result = execute_auto_workflow(spectrum_file, preset, max_iterations=max_iterations)
+                result = execute_auto_workflow(spectrum_file, preset)
                 if result["success"]:
                     out_spectra.append((point, spectrum_file))
                 else:
@@ -103,7 +102,6 @@ def run_sample_batch(
     scan: SampleScan,
     raman_preset: Optional[MaterialPreset],
     pl_preset: Optional[MaterialPreset],
-    max_iterations: int = 2000,
     progress_callback: Optional[ProgressCallback] = None,
 ) -> SampleBatchResult:
     """
@@ -115,11 +113,11 @@ def run_sample_batch(
     result = SampleBatchResult()
 
     _run_one_technique(
-        scan.raman_files, "Raman", raman_preset, max_iterations,
+        scan.raman_files, "Raman", raman_preset,
         result.raman_spectra, result.raman_errors, progress_callback
     )
     _run_one_technique(
-        scan.pl_files, "PL", pl_preset, max_iterations,
+        scan.pl_files, "PL", pl_preset,
         result.pl_spectra, result.pl_errors, progress_callback
     )
 

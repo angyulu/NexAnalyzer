@@ -173,6 +173,15 @@ class TechniquePreset:
     # Peak templates
     peak_templates: List[PeakTemplate] = field(default_factory=list)
 
+    #: Fit iteration budget (lmfit's `max_nfev`). Per technique, not per
+    #: material: a PL doublet on a noisy background and a two-peak Raman
+    #: spectrum converge at very different speeds, and the block is where every
+    #: other fit setting already lives. Until v5.2.0 this was a sidebar slider
+    #: living in session state, which meant the number that produced a fit was
+    #: never written down anywhere -- not in the preset, not in the QC report,
+    #: not in the CSV -- so a run could not be reproduced from its preset alone.
+    max_iterations: int = 2000
+
     # Semicolon-separated ranges (e.g., "1200-1400; 2600-2800")
     exclusion_ranges: Optional[str] = None
 
@@ -189,6 +198,12 @@ class TechniquePreset:
         if not (3.0 <= self.despike_threshold <= 30.0):
             errors.append(
                 f"despike_threshold {self.despike_threshold} out of range [3.0, 30.0]"
+            )
+
+        # Fit iteration budget
+        if not (500 <= self.max_iterations <= 20000):
+            errors.append(
+                f"max_iterations {self.max_iterations} out of range [500, 20000]"
             )
 
         # Baseline algorithm
@@ -269,6 +284,7 @@ class TechniquePreset:
             "baseline_p": self.baseline_p,
             "peak_templates": [t.to_dict() for t in self.peak_templates],
             "exclusion_ranges": self.exclusion_ranges,
+            "max_iterations": self.max_iterations,
         }
 
     @classmethod

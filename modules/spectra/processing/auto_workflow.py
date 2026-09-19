@@ -29,7 +29,6 @@ class WorkflowExecutionError(Exception):
 def execute_auto_workflow(
     spectrum: SpectrumFile,
     preset: MaterialPreset,
-    max_iterations: int = 2000
 ) -> Dict[str, Any]:
     """
     Execute full automated workflow using preset.
@@ -41,7 +40,10 @@ def execute_auto_workflow(
     spectrum : SpectrumFile
         Current spectrum file to process
     preset : MaterialPreset
-        Preset configuration
+        Preset configuration. The block for `spectrum.mode` supplies every
+        processing setting, the fit iteration budget included — since v5.2.0
+        there is no caller-side override, so the preset alone determines what
+        the fit does.
 
     Returns
     -------
@@ -296,7 +298,7 @@ def execute_auto_workflow(
         try:
             fit_result = fit_voigt_peaks(
                 X, Y_corrected, peak_definitions,
-                mode=spectrum.mode, max_iterations=max_iterations
+                mode=spectrum.mode, max_iterations=block.max_iterations
             )
         except Exception as e:
             raise WorkflowExecutionError(

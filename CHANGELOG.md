@@ -5,6 +5,29 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.2.0] - 2026-09-19
+
+### Changed
+
+- **The fit iteration budget is a preset field, not a sidebar slider.**
+  `TechniquePreset.max_iterations` (default 2000, range [500, 20000]) is edited
+  on the Material Presets page next to the baseline and peak settings, and
+  `execute_auto_workflow` / `run_sample_batch` no longer take a
+  `max_iterations` argument — the block for the spectrum's own mode supplies
+  it. The number that produced a fit is now written down in `materials.json`
+  with everything else the fit used, so a result is reproducible from its
+  preset alone; previously it lived in session state and vanished with the
+  browser tab. It is per technique because a noisy PL doublet and a two-peak
+  Raman spectrum converge at very different speeds. Existing `materials.json`
+  entries need no edit: an absent key reads as the 2000 that was the old
+  default. Because block fingerprints hash `to_dict()`, changing it now
+  correctly invalidates a stale QC figure.
+
+- **The first navigation group is named "Analysis".** Spectra, QC Report and
+  Material Presets were unlabelled from v4.0.0; they are now headed by what
+  they have in common — they read measurements taken after a run, where
+  "Process" reads the tool's own logs and recipes.
+
 ## [5.1.1] - 2026-09-19
 
 ### Fixed

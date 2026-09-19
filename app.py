@@ -9,19 +9,17 @@ pages/.
 Adding a technique module: drop it under modules/, initialize its session
 state here, and register its pages below.
 
-The navigation carries one named section, "Process", and leaves the rest
-unlabelled. It used to carry a group called "Raman & PL", which stopped being
-true at v4.0.0 when the QC Panel grew an OM image and Material Presets grew an
-optical block; the lesson recorded then was that a *technique* label goes stale
-as techniques are added, and that with few pages no such label outperforms the
-page names.
+The navigation carries two sections, "Analysis" and "Process", both named for
+a **data source** rather than a technique. Spectra, QC Report and Material
+Presets read measurements taken after a run; Datalog and Runcard read the
+deposition tool's own logs and recipes. That split is a fact about where the
+files come from, so no future technique can falsify it.
 
-"Process" survives that argument because it names a **data source**, not a
-technique: Datalog and Runcard read the deposition tool's own logs and recipes,
-where the other three read measurements taken afterwards. That split is a fact
-about where the files come from, so no future technique can falsify it. The
-remaining three stay unlabelled rather than take a counterpart heading — they
-are simply "everything else", and naming that adds nothing.
+The first group used to be called "Raman & PL", which stopped being true at
+v4.0.0 when the QC Panel grew an OM image and Material Presets grew an optical
+block, and was unlabelled from then until v5.2.0. "Analysis" is the heading
+that argument allows: it says what the three pages do with a measurement, and
+stays true however many techniques they learn.
 """
 
 import streamlit as st
@@ -50,7 +48,7 @@ runcard_page = st.Page("pages/5_Runcard.py", title="Runcard", icon="📋")
 
 nav = st.navigation(
     {
-        "": [
+        "Analysis": [
             spectra_page,
             qc_report_page,
             material_presets_page,
