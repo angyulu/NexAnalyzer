@@ -5,6 +5,75 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.1] - 2026-09-19
+
+### Fixed
+
+- **The growth window is exactly the stretch at the peak, not everything within
+  5 °C of it.** v5.1.0 started the window as soon as the reconstructed trace
+  came within `GROWTH_BAND_C = 5.0` of the run's peak, which on a slow final
+  ramp counts minutes of climbing as growth. The band was carried across from an
+  older ancestor of the renderer this page was ported from; the current
+  reference records it as a defect that had already been fixed once and "must
+  not be reintroduced". Both edges are now equality tests against the peak.
+
+- **A commanded ramp-down ends growth, even with the heater still on.** The end
+  is now the earlier of heater-off and the first instant the trace steps off the
+  peak, so a deliberate step down to a lower temperature closes the window
+  instead of being counted as more growth.
+
+- **A window whose end precedes its start is reported as no window.** That is
+  what a recipe whose final ramp was still climbing when the heater went off
+  produces; it never held at its own peak.
+
+- **A run that never heats has no growth window.** Below a 100 °C floor the
+  "peak" is ambient, and the whole run was being reported as growth at room
+  temperature.
+
+- **`Pumping` is recognised, not just `Pumping Forward`.** The HAD* family
+  writes the bare spelling — 25 of the 39 example recipes — and every one of
+  their pump-downs was being dropped without a word. Neither spelling advances
+  the clock (their parameter is a target pressure, so the recipe cannot say how
+  long pumping takes), but both are now recorded in `Timeline.pump_events`.
+
+- **The cooldown time constant is 25 minutes, not 40.** τ = 2400 s came from the
+  older ancestor and stretched every synthesized cooldown tail by two thirds.
+
+- **A heater turned off at t=0 is off, not absent.** The window's cutoff was a
+  truthiness test, so `heater_off_t == 0.0` disabled it entirely.
+
+- **Gas markers inside the growth window are suppressed once, in one place.**
+  The rule lived in both `stats.gas_events` and `viz.profile`, and the two
+  disagreed about the edges — one allowed a tolerance either side and the other
+  did not.
+
+### Changed
+
+- **The RTV row is labelled "RTV P" and carries Torr.** v5.1.0 drew it as "RTV"
+  with no unit, reasoning that the number matched neither the gauge range nor
+  the measured pressure. The reference settles it: the second column of
+  `RTV Pressure Ctrl` is the gauge range and the third is the chamber-pressure
+  setpoint the recipe commands. A setpoint is allowed to differ from what the
+  chamber settles at.
+
+- **The gas palette is the current reference's.** Each species keeps its family
+  — H₂Se pink, O₂ green — so old plots still read, but the hues are the current
+  values, and both the ASCII and subscript spellings of every species now match.
+
+- **P1 and P2 draw as one trace when they track identically**, which is the
+  ordinary case. Two dashed lines at the same height rendered as one line with
+  two legend entries claiming it.
+
+- **`docs/reference/` holds vendored specifications**, starting with
+  `render_runcard.py`. Excluded from ruff so it stays byte-identical to what was
+  handed over, which is what makes it diffable. See its README.
+
+### Notes
+
+- Verified against the reference CLI on all 40 example recipes, both the VBBE
+  and HAD* families: total time, peak temperature and growth window agree on
+  every one.
+
 ## [5.1.0] - 2026-09-19
 
 ### Added
