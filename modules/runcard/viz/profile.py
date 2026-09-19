@@ -15,12 +15,15 @@ puts the figure on a page, and `core.io.export` is what turns it into a PNG.
 This replaces a hand-written SVG renderer, and three of its decisions are
 deliberately not carried over:
 
-- **Text that hover can carry is not drawn.** The ancestor printed the
-  temperature next to every gas marker and estimated, at 7 px per character,
-  whether a value would fit inside its bar — an estimate it had to make because
-  SVG cannot measure text. Plotly can. Every segment carries its value, its
-  unit and its span in the hover box whether or not it is wide enough to print
-  one, so a one-minute purge is now readable where it used to be a blank sliver.
+- **Hover adds to what is printed; it does not replace it.** This figure
+  briefly moved the marker temperatures, the bar units and the preheater hold
+  temperatures into hover alone, on the reasoning that Plotly can measure text
+  where SVG cannot and so need not print what it might have to clip. That was
+  wrong, and the way it was wrong is worth recording: a figure exported as a
+  PNG for a report, or held up beside one of the reference's, has no hover at
+  all, and every one of those numbers had simply vanished. They are printed
+  again. Hover still carries a segment's true span, which is the one thing no
+  label can show once a sliver has been widened to stay visible.
 - **The fallback colour for an unrecognised gas is deterministic.** It was
   `FALLBACK_COLORS[hash(name) % 2]`, and Python salts string hashes per
   process, so the same recipe came out violet one morning and teal the next.
@@ -103,6 +106,20 @@ P2_COLOR = "#7f77dd"
 #: identically — teal, so a single line is not mistaken for P1 alone.
 P1P2_COMBINED_COLOR = "#1d9e75"
 
+#: Where along the run each preheater's inline label is anchored, as a fraction
+#: of its trace. Two different fractions rather than one, because P1 and P2 are
+#: often within a few degrees of each other and two labels at the same x would
+#: overlap however they were positioned vertically. The first sits in the gap
+#: after the growth annotation; the second is further right, past it.
+_P1P2_LABEL_FRACTIONS = (0.66, 0.80)
+
+#: `meta` tags identifying the two `markers+text` traces apart. They are
+#: otherwise indistinguishable by shape, and a caller that wanted "the gas
+#: markers" had to reach for `fig.data[n]` by position — which silently became
+#: the wrong trace the moment a preheater label was added in front of it.
+_GAS_MARKER_META = "gas-markers"
+_PREHEAT_LABEL_META = "preheat-label"
+
 GROWTH_FILL = "rgba(251,234,240,0.55)"
 GROWTH_STROKE = "#d4537e"
 RTV_COLOR = "#534ab7"
@@ -138,12 +155,24 @@ _MARGIN_RIGHT_PX = 110
 #: `_MARGIN_BOTTOM_PX` — which is why that reserve is 130 px and not less.
 _SUMMARY_TOP_GAP_PX = 12
 
-#: Ticks every half hour, which is what a 130-minute recipe wants and what the
-#: ancestor drew. The axis is in minutes even though every stored quantity is
-#: in seconds: seconds on the axis meant a tick list and a label list that had
-#: to be built by hand, and every number an operator quotes about a run is in
-#: minutes anyway.
-_TIME_TICK_MIN = 30
+#: Time-axis tick spacing in minutes, by how long the recipe runs: the
+#: reference's own ladder. A fixed half-hour tick was used here for a while,
+#: which gives a 25-minute recipe exactly one interior gridline and a
+#: five-hour one a wall of them.
+#:
+#: The axis is in minutes even though every stored quantity is in seconds:
+#: seconds on the axis meant a tick list and a label list built by hand, and
+#: every number an operator quotes about a run is in minutes anyway.
+_TIME_TICK_LADDER = ((30, 5), (60, 10), (150, 20), (300, 30))
+_TIME_TICK_FALLBACK_MIN = 60
+
+
+def time_tick_step(total_min: float) -> int:
+    """Minutes between time-axis ticks for a recipe of `total_min`."""
+    for limit, step in _TIME_TICK_LADDER:
+        if total_min <= limit:
+            return step
+    return _TIME_TICK_FALLBACK_MIN
 
 #: Gridlines at zero, at 300 °C, and at this run's own peak — and nothing else,
 #: not even at the top of the scale. Three lines, one of which moves per
@@ -275,7 +304,7 @@ def build_profile_figure(run_id: str, profile: RuncardProfile) -> go.Figure:
             anchor="y2",
             domain=[0.0, 1.0],
             range=[0.0, x_max],
-            tick0=0, dtick=_TIME_TICK_MIN,
+            tick0=0, dtick=time_tick_step(x_max),
             ticks="outside", ticklen=5,
             title=dict(text="Time (min)", font=dict(size=11, color="#888888")),
             tickfont=dict(size=10, color="#999999"),
@@ -389,10 +418,30 @@ def _add_temperature_traces(fig: go.Figure, profile: RuncardProfile, stats: Dict
             (profile.p2_trace, P2_COLOR, "4px,6px", "P2", stats["p2_T"]),
         )
 
-    for trace, color, dash, label, final in entries:
+    for index, (trace, color, dash, label, final) in enumerate(entries):
         if not trace:
             continue
         name = f"{label} ({final:.0f} °C)" if final is not None else label
+
+        # The hold temperature is also printed **on the line**, not only in the
+        # legend. These traces are flat and close together, so a legend entry
+        # makes the reader carry a colour across the figure to find out which
+        # preheater is which and how hot it was; the reference labelled them
+        # inline for that reason. Two entries are anchored at different
+        # fractions of the run so their labels cannot collide.
+        anchor_frac = _P1P2_LABEL_FRACTIONS[index % len(_P1P2_LABEL_FRACTIONS)]
+        anchor_t = trace[-1][0] * anchor_frac
+        fig.add_trace(go.Scatter(
+            x=[anchor_t / 60], y=[_interp(trace, anchor_t)],
+            mode="markers+text",
+            text=[_escape(f"{label} · {final:.0f} °C" if final is not None else label)],
+            textposition="top center" if index == 0 else "bottom center",
+            textfont=dict(size=10, color=color),
+            marker=dict(size=6, color=color, line=dict(color="white", width=1)),
+            hoverinfo="skip", showlegend=False, cliponaxis=False,
+            meta=_PREHEAT_LABEL_META,
+        ))
+
         fig.add_trace(go.Scatter(
             x=[t / 60 for t, _temp in trace],
             y=[temp for _t, temp in trace],
@@ -471,7 +520,13 @@ def _add_gas_markers(fig: go.Figure, profile: RuncardProfile) -> None:
     for event in gas_events(profile):
         xs.append(event.t_s / 60)
         ys.append(event.temp_c)
-        texts.append(_escape(f"{event.species} {event.direction}"))
+        # The temperature is printed, not left to hover: "H2Se on" says when a
+        # valve moved, and "H2Se on · 800 °C" says what the recipe was doing
+        # when it did — which is the thing a grower reads the marker for, and
+        # is gone the moment the figure becomes a PNG. Crowding is handled by
+        # having fewer markers (carriers and in-window events are dropped in
+        # `stats.gas_events`) rather than by printing less on each one.
+        texts.append(_escape(f"{event.species} {event.direction} · {event.temp_c:.0f} °C"))
         positions.append("top center" if above else "bottom center")
         colors.append(GAS_COLORS.get(event.species, (None, MARKER_FALLBACK_COLOR))[1])
         customdata.append([event.temp_c])
@@ -488,7 +543,30 @@ def _add_gas_markers(fig: go.Figure, profile: RuncardProfile) -> None:
         customdata=customdata,
         hovertemplate="%{text}<br>%{x:.1f} min · %{customdata[0]:.0f} °C<extra></extra>",
         showlegend=False, cliponaxis=False,
+        meta=_GAS_MARKER_META,
     ))
+
+
+#: An RTV setpoint at or below this is the chamber being pumped down rather
+#: than held at a pressure, and the reference draws it as "vac". The gauges
+#: these recipes use do not control below about a Torr, so the number itself
+#: says nothing.
+_RTV_VACUUM_TORR = 1.0
+
+#: Row kinds whose bar labels carry their unit. The gas and PC rows are left
+#: bare: their row label already names the channel, every segment in a row
+#: shares one unit, and the width a repeated "sccm" costs is the width that
+#: makes a one-minute segment's number legible at all.
+_UNIT_LABELLED_KINDS = frozenset({"rtv", "spin"})
+
+
+def _bar_label(row: BarRow, value: float) -> str:
+    """The text printed inside one gantt segment."""
+    if row.kind == "rtv" and value <= _RTV_VACUUM_TORR:
+        return "vac"
+    if row.kind in _UNIT_LABELLED_KINDS and row.unit:
+        return f"{_format_value(value)} {row.unit}"
+    return _format_value(value)
 
 
 def _add_bar_rows(fig: go.Figure, rows: Sequence[BarRow], total_min: float) -> None:
@@ -549,12 +627,19 @@ def _add_bar_rows(fig: go.Figure, rows: Sequence[BarRow], total_min: float) -> N
                 line=dict(color=strokes, width=0.0 if is_pressure else 0.5),
             ),
             opacity=0.9 if is_pressure else 0.85,
-            text=[_format_value(s.value) for s in row.segments],
+            # Units are printed on the rows whose label does not already imply
+            # one — the throttle valve and the stage — and left off the gas and
+            # pressure-controller rows, which is what the reference does and
+            # what the historical figures show. Printing "0.1 sccm" on every
+            # gas segment costs the width that makes "0.1" legible on a
+            # one-minute sliver, and the row is named "MFC-1 Ar" already.
+            #
+            # An RTV setpoint below 1 Torr is the chamber being pumped rather
+            # than held, and reads as "vac" rather than as a number nobody
+            # controls to.
+            text=[_bar_label(row, s.value) for s in row.segments],
             textposition="inside", insidetextanchor="middle",
             insidetextfont=dict(size=11, color="white" if is_pressure else "#444444"),
-            # Plotly hides text that will not fit; the ancestor had to estimate
-            # it at 7 px per character. Either way the hover box below always
-            # carries the number.
             #
             # The **true** start and end, deliberately not `base` and
             # `base + x`: a segment narrower than `min_span` is drawn wider
@@ -631,9 +716,9 @@ def summary_lines(profile: RuncardProfile) -> List[Tuple[str, str, bool]]:
 
     pressure_parts = [f"{_escape(name)} = {value:g} Torr" for name, value in values.pc]
     if values.rtv is not None:
-        # No unit: the number is `params[1]` of `RTV Pressure Ctrl`, which is
-        # not a pressure. See the module docstring.
-        pressure_parts.append(f"RTV {values.rtv:g}")
+        # In Torr, like the other pressure rows: params[1] of RTV Pressure Ctrl
+        # is the commanded chamber-pressure setpoint. See the module docstring.
+        pressure_parts.append(f"RTV P {values.rtv:g} Torr")
     if values.spin is not None:
         pressure_parts.append(f"Spin {values.spin:g} rpm")
     lines.append(("Pressure: " + " · ".join(pressure_parts), _SUMMARY_BODY_COLOR, False))

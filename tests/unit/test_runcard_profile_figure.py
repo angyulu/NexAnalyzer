@@ -13,9 +13,11 @@ from modules.runcard.viz.profile import (
     P1_COLOR,
     P2_COLOR,
     PC1_COLOR,
+    _GAS_MARKER_META,
     _MIN_BAR_SPAN_FRACTION,
     build_profile_figure,
     summary_lines,
+    time_tick_step,
 )
 from tests.datalog_fixtures import RUNCARD_FULL, RUNCARD_SHORT
 
@@ -44,7 +46,12 @@ def _bar(fig, label):
 
 
 def _markers(fig):
-    return [t for t in fig.data if t.type == "scatter" and t.mode == "markers+text"]
+    """The gas-marker trace, by its `meta` tag rather than by position.
+
+    The preheater labels are also `markers+text` scatters, so matching on mode
+    alone picks up whichever comes first.
+    """
+    return [t for t in fig.data if t.meta == _GAS_MARKER_META]
 
 
 def _brightness(color):
@@ -63,22 +70,32 @@ class TestBuildProfileFigure:
         fig = build_profile_figure("VBBE00", profile)
 
         assert isinstance(fig, go.Figure)
-        assert [trace.type for trace in fig.data] == ["scatter"] * 4 + ["bar"] * 7
+        # Six scatters: the heater, then each preheater's line and the inline
+        # label marker that names its hold temperature, then the gas markers.
+        assert [trace.type for trace in fig.data] == ["scatter"] * 6 + ["bar"] * 7
         assert fig.data[0].name == "Heater"
         assert [trace.y[0] for trace in _bars(fig)] == [
             "MFC-1 Ar", "MFC-3 O2", "MFC-8 H2Se", "RTV P", "PC-1", "PC-2", "Spin",
         ]
 
-    def test_the_preheaters_carry_their_final_temperature_in_the_legend(self, tmp_path):
-        # The ancestor drew these as end-of-line labels in the right margin and
-        # had to offset P2's by 10 px whenever P1 was present, to stop the two
-        # overlapping. A legend has no such collision.
+    def test_the_preheaters_carry_their_final_temperature(self, tmp_path):
+        """In the legend *and* printed on the line itself.
+
+        Legend-only was not enough: these traces are flat and close together,
+        so the reader had to carry a colour across the figure to find out which
+        preheater was which -- and on a PNG in a report there is no hover to
+        fall back on. The reference labelled them inline for that reason.
+        """
         profile = _profile(tmp_path, RUNCARD_FULL)
 
         fig = build_profile_figure("VBBE00", profile)
+        names = [t.name for t in fig.data if t.name]
+        inline = [t.text[0] for t in fig.data if t.type == "scatter" and t.text and not t.name]
 
-        assert fig.data[1].name.startswith("P1 (40")
-        assert fig.data[2].name.startswith("P2 (50")
+        assert any(n.startswith("P1 (40") for n in names)
+        assert any(n.startswith("P2 (50") for n in names)
+        assert any(x.startswith("P1 ") for x in inline)
+        assert any(x.startswith("P2 ") for x in inline)
 
     def test_a_recipe_with_no_preheaters_draws_no_preheater_lines(self, tmp_path):
         profile = _profile(tmp_path, RUNCARD_SHORT)
@@ -126,7 +143,10 @@ class TestBuildProfileFigure:
 
         marker = _markers(fig)[0]
         assert marker.x == pytest.approx((10 / 60,))
-        assert marker.text == ("O2 on",)
+        # The temperature is printed beside the species, not left to hover: a
+        # PNG in a report has no hover, and "what was it doing when the valve
+        # moved" is what the marker is read for.
+        assert marker.text == ("O2 on · 25 °C",)
 
     def test_a_recipe_with_no_markers_draws_no_marker_trace(self, tmp_path):
         profile = _profile(tmp_path, RUNCARD_SHORT)
@@ -143,7 +163,10 @@ class TestBuildProfileFigure:
         fig = build_profile_figure("VBBE00", profile)
 
         assert fig.layout.xaxis.range == pytest.approx((0.0, 490 / 60))
-        assert fig.layout.xaxis.dtick == 30
+        # Tick spacing follows the run length rather than being fixed at half an
+        # hour, which gave a short recipe one interior gridline and a five-hour
+        # one a wall of them. This fixture is 8 minutes, so 5.
+        assert fig.layout.xaxis.dtick == 5
         assert fig.layout.xaxis.title.text == "Time (min)"
 
     def test_the_temperature_axis_is_gridded_at_zero_at_three_hundred_and_at_this_peak(self, tmp_path):
@@ -372,17 +395,17 @@ class TestSummaryLines:
         assert bodies[2].startswith("Pressure: PC-1 = 300 Torr")
         assert "Spin 10 rpm" in bodies[2]
 
-    def test_the_rtv_number_is_printed_without_the_unit_it_never_had(self, tmp_path):
-        # The ancestor printed it as Torr. It is params[1] of RTV Pressure
-        # Ctrl, which ranges over {10, 60, 70, 90} while the measured tube
-        # pressure during the controlled segment is ~7.9 Torr. The number is
-        # reproduced exactly; the unit that misdescribed it is not.
+    def test_the_rtv_number_is_printed_in_torr(self, tmp_path):
+        # params[1] of RTV Pressure Ctrl is the commanded chamber-pressure
+        # setpoint and params[0] the gauge range. This app briefly printed the
+        # number unlabelled, reasoning it matched neither the range nor the
+        # measured pressure; a setpoint may differ from what the chamber
+        # settles at.
         profile = _profile(tmp_path, RUNCARD_FULL)
 
         pressure_line = summary_lines(profile)[2][0]
 
-        assert "RTV 60" in pressure_line
-        assert "RTV 60 Torr" not in pressure_line
+        assert "RTV P 60 Torr" in pressure_line
 
     def test_the_preheater_lines_carry_their_own_colours(self, tmp_path):
         profile = _profile(tmp_path, RUNCARD_FULL)
@@ -466,3 +489,75 @@ class TestThePreheatersCombineWhenTheyTrackTogether:
 
         assert any(n.startswith("P1 ") for n in names)
         assert not any(n.startswith("P1/P2") for n in names)
+
+
+class TestEveryNumberIsPrintedNotOnlyHovered:
+    """A PNG in a report has no hover, and these figures are read as PNGs.
+
+    This chart briefly moved the marker temperatures, the bar units and the
+    preheater hold temperatures into hover alone, on the reasoning that Plotly
+    need not print what it might have to clip. Held beside the reference
+    renderer's output, every one of those numbers had simply gone. These hold
+    them printed.
+    """
+
+    def test_a_marker_prints_its_temperature(self, tmp_path):
+        profile = _profile(tmp_path, RUNCARD_FULL)
+
+        fig = build_profile_figure("VBBE00", profile)
+
+        assert all("°C" in text for text in _markers(fig)[0].text)
+
+    def test_the_stage_and_valve_rows_print_their_units(self, tmp_path):
+        # The rows whose label does not already imply a unit. Gas and PC rows
+        # stay bare: "MFC-1 Ar" names the channel, every segment in the row
+        # shares one unit, and a repeated "sccm" costs the width that makes a
+        # one-minute segment legible at all.
+        profile = _profile(tmp_path, RUNCARD_FULL)
+
+        fig = build_profile_figure("VBBE00", profile)
+
+        assert all(t.endswith(" rpm") for t in _bar(fig, "Spin").text)
+        assert all(t.endswith(" Torr") or t == "vac" for t in _bar(fig, "RTV P").text)
+        assert all(" sccm" not in t for t in _bar(fig, "MFC-1 Ar").text)
+
+    def test_a_pumped_rtv_setpoint_reads_as_vac(self, tmp_path):
+        # Below a Torr the chamber is being pumped rather than held, and the
+        # gauges these recipes use do not control there -- so the number says
+        # nothing that "vac" does not say better.
+        profile = _profile(
+            tmp_path,
+            "RTV Pressure Ctrl,100 Torr,0.5\nWait,Sec,10\n"
+            "Heater Ramp,900,10\nWait,Sec,10\nHeater Soak,0,--\nWait,Sec,60\n",
+        )
+
+        fig = build_profile_figure("VAC", profile)
+
+        assert list(_bar(fig, "RTV P").text) == ["vac"]
+
+    def test_the_idle_purge_flow_is_drawn_and_marked(self, tmp_path):
+        # H2Se idling at exactly 0.01 sccm is a line the recipe is addressing.
+        # A 0.05 floor deleted both its bar and its markers from every figure,
+        # so the channel looked untouched.
+        profile = _profile(
+            tmp_path,
+            "MFC/PC,MFC-8 H2Se,0.01\nWait,Sec,10\nHeater Ramp,900,10\n"
+            "Wait,Sec,10\nHeater Soak,0,--\nWait,Sec,600\n"
+            "MFC/PC,MFC-8 H2Se,0\nWait,Sec,10\n",
+        )
+
+        fig = build_profile_figure("PURGE", profile)
+
+        assert _bar(fig, "MFC-8 H2Se").text
+        assert any("H2Se" in t for t in _markers(fig)[0].text)
+
+
+class TestTheTimeAxisFollowsTheRunLength:
+    @pytest.mark.parametrize(
+        "total_min,expected",
+        [(8, 5), (30, 5), (45, 10), (60, 10), (133, 20), (150, 20), (200, 30), (400, 60)],
+    )
+    def test_the_tick_ladder(self, total_min, expected):
+        # The reference's own ladder. A fixed half-hour tick gave a 25-minute
+        # recipe one interior gridline and a five-hour one a wall of them.
+        assert time_tick_step(total_min) == expected

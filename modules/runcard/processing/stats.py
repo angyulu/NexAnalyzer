@@ -39,18 +39,33 @@ from .growth_window import (
 )
 
 #: An MFC segment is drawn when its setpoint is **strictly above** this.
-#: Deliberately not `growth_window._MFC_ON_FLOOR` (0.01, the idle purge flow):
-#: that floor answers "was this gas feeding the growth", this one answers "is
-#: there a bar worth drawing", and a 0.03 sccm trickle is a bar nobody can read
-#: at the width one minute gets. They are two questions and two numbers; a
-#: single shared constant would have to be wrong for one of them.
-MFC_BAR_FLOOR = 0.05
+#:
+#: **Zero**, matching the reference renderer: if the recipe commanded a flow,
+#: the plot shows it. This was 0.05 for a while, on the reasoning that a
+#: 0.03 sccm trickle is a bar nobody can read at the width one minute gets.
+#: What it actually did was delete the idle purge flow — H2Se held at exactly
+#: 0.01 sccm — from every figure, so a line the recipe was addressing looked
+#: untouched. An unreadably thin bar still says "something happened here" and
+#: carries its value in hover; an absent one says nothing.
+#:
+#: Still distinct from `growth_window._MFC_ON_FLOOR` (0.01), which answers the
+#: different question of whether a gas was *feeding the growth* — a purge flow
+#: is drawn but is not chemistry.
+MFC_BAR_FLOOR = 0.0
 
 #: A gas marker is emitted when a channel crosses this floor in either
-#: direction. Shares `MFC_BAR_FLOOR`'s value on purpose — a marker that appeared
-#: where no bar starts, or a bar that started with no marker, would read as a
-#: rendering fault rather than as the two thresholds it actually is.
-MARKER_FLOOR = MFC_BAR_FLOOR
+#: direction. **Zero**, matching the reference renderer: any commanded flow at
+#: all is a transition worth marking.
+#:
+#: Deliberately *not* `MFC_BAR_FLOOR`. It shared that value for a while, on the
+#: reasoning that a marker appearing where no bar starts reads as a rendering
+#: fault. The cost was worse: a recipe idling H2Se at 0.01 sccm — its purge
+#: flow — had that line's open and close dropped from the plot entirely, so two
+#: markers the historical figures show were simply missing. A marker without a
+#: visible bar says "the recipe addressed this line here", which is true and
+#: worth saying; the bar floor answers the different question of whether a
+#: sliver is wide enough to read.
+MARKER_FLOOR = 0.0
 
 #: Never marked on/off. Both are carriers: Ar is open for most of a run on
 #: several lines at once, and N2 likewise, so marking their transitions buries
