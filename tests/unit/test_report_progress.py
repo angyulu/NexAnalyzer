@@ -97,9 +97,26 @@ class TestStagesFor:
         assert "om_figures" not in keys
 
     def test_stages_keep_execution_order(self):
-        keys = [s.key for s in stages_for(has_raman=True, has_pl=True, has_optical=True)]
+        keys = [s.key for s in stages_for(has_raman=True, has_pl=True,
+                                          has_optical=True, has_adaptive=True)]
 
         assert keys == [s.key for s in STAGES]
+
+    def test_the_derivation_is_opt_in(self):
+        """It is a second full pass over every frame, and only a preset with an
+        abs pair can ask for it — an nsigma-only preset has no base to move."""
+        without = [s.key for s in stages_for(has_raman=True, has_pl=True, has_optical=True)]
+        with_it = [s.key for s in stages_for(has_raman=True, has_pl=True,
+                                             has_optical=True, has_adaptive=True)]
+
+        assert "optical_adaptive" not in without
+        assert "optical_adaptive" in with_it
+
+    def test_the_derivation_goes_before_the_segmentation_it_feeds(self):
+        keys = [s.key for s in stages_for(has_raman=False, has_pl=False,
+                                          has_optical=True, has_adaptive=True)]
+
+        assert keys.index("optical_adaptive") < keys.index("optical_segmentation")
 
     def test_composing_the_report_is_never_dropped(self):
         """It is the one stage every run performs."""
@@ -379,7 +396,8 @@ class TestMisuseIsLoud:
 class TestBuild:
     def test_returns_a_reporter_for_a_normal_run(self):
         _seen, sink = _recorder()
-        progress = build(sink, has_raman=True, has_pl=True, has_optical=True)
+        progress = build(sink, has_raman=True, has_pl=True, has_optical=True,
+                         has_adaptive=True)
 
         assert progress is not None
         assert progress.stage_keys == [s.key for s in STAGES]

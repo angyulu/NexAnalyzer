@@ -56,6 +56,14 @@ CLASS_COLUMNS: Tuple[str, ...] = (
     "Class", "Position", "N_Frames",
     "Coverage_Mean_pct", "Coverage_Std_pct",
     "Contrast_Mean_pct", "Contrast_Std_pct",
+    # Wafer-level, repeated on every class row. Adaptive derives a different
+    # pair per wafer, so a sheet that does not carry the pair cannot be told
+    # apart from one produced by a different cut. Repetition is the price of
+    # keeping this a flat table that stacks across samples.
+    "Threshold_Below_pct", "Threshold_Above_pct",
+    "Threshold_Base_Below_pct", "Threshold_Base_Above_pct",
+    "Threshold_Below_Source", "Threshold_Above_Source",
+    "Noise_Sigma_pct",
 )
 
 
@@ -90,18 +98,41 @@ def frame_class_stats(frames: Sequence[FrameResult]) -> List[OpticalClassStat]:
     ]
 
 
-def frame_class_rows(frames: Sequence[FrameResult]) -> List[list]:
+def threshold_columns(threshold) -> list:
+    """The seven wafer-level threshold cells, from an `AdaptivePair` or None.
+
+    None means the run used the preset pair as-is (no derivation), which is
+    recorded as the pair equalling its own base and a source of "preset" —
+    distinguishable from an adaptive run that derived its way back to the base,
+    which reports "default...".
+    """
+    if threshold is None:
+        return [None, None, None, None, "preset", "preset", None]
+    return [
+        threshold.pair[0], threshold.pair[1],
+        threshold.base[0], threshold.base[1],
+        threshold.below_source, threshold.above_source,
+        threshold.noise_sigma_pct,
+    ]
+
+
+def frame_class_rows(frames: Sequence[FrameResult], threshold=None) -> List[list]:
     """`frame_class_stats` as rows aligned to `CLASS_COLUMNS`.
 
     `Position` is carried here but not on `OpticalClassStat`: it exists to make
     two samples stackable in a spreadsheet, which is a table concern rather
     than something the summary figure draws.
+
+    `threshold` is the `AdaptivePair` the run derived, or None when the preset
+    pair was used unchanged.
     """
+    cells = threshold_columns(threshold)
     return [
         [
             entry.label, position, entry.n_frames,
             entry.coverage_mean, entry.coverage_std,
             entry.contrast_mean, entry.contrast_std,
+            *cells,
         ]
         for entry, position in zip(frame_class_stats(frames), POSITIONS)
     ]

@@ -189,6 +189,13 @@ _OPTICAL_FORMATS = {
     "Coverage_Std_pct": ("0.000", 17),
     "Contrast_Mean_pct": ("0.00", 18),
     "Contrast_Std_pct": ("0.000", 17),
+    "Threshold_Below_pct": ("0.000", 20),
+    "Threshold_Above_pct": ("0.000", 20),
+    "Threshold_Base_Below_pct": ("0.000", 24),
+    "Threshold_Base_Above_pct": ("0.000", 24),
+    "Threshold_Below_Source": (None, 22),
+    "Threshold_Above_Source": (None, 22),
+    "Noise_Sigma_pct": ("0.000", 16),
 }
 
 
@@ -318,7 +325,7 @@ def _add_data_sheet(wb: Workbook, technique: TechniqueResults, show_fwhm_v1: boo
     ws.auto_filter.ref = ws.dimensions
 
 
-def _add_optical_sheets(wb: Workbook, frames: Sequence) -> None:
+def _add_optical_sheets(wb: Workbook, frames: Sequence, threshold=None) -> None:
     """``OM_Stats`` and ``OM_Points``, or nothing when no frame segmented.
 
     Two sheets rather than one, matching the spectra pair: the three-row class
@@ -329,7 +336,8 @@ def _add_optical_sheets(wb: Workbook, frames: Sequence) -> None:
         return
 
     for title, headers, rows in (
-        ("OM_Stats", frame_tables.CLASS_COLUMNS, frame_tables.frame_class_rows(frames)),
+        ("OM_Stats", frame_tables.CLASS_COLUMNS,
+         frame_tables.frame_class_rows(frames, threshold)),
         ("OM_Points", frame_tables.POINT_COLUMNS, frame_tables.frame_point_rows(frames)),
     ):
         if not rows:
@@ -412,6 +420,7 @@ def build_sample_results_xlsx(
     report_date: str,
     techniques: Sequence[TechniqueResults] = (),
     optical_frames: Sequence = (),
+    optical_threshold=None,
     show_fwhm_v1: bool = False,
 ) -> bytes:
     """
@@ -424,7 +433,9 @@ def build_sample_results_xlsx(
 
     `optical_frames` is the `FrameResult` list the OM figures were drawn from.
     Passed rather than re-segmented, so a sheet cannot describe a different
-    segmentation than the PNG saved next to it.
+    segmentation than the PNG saved next to it. `optical_threshold` is the
+    `AdaptivePair` that produced them, or None when the preset pair ran
+    unchanged; it lands on every `OM_Stats` row.
 
     `show_fwhm_v1` adds FWHM_v1/FWHM_v1_Stderr to each per-point sheet and
     FWHM_v1_Mean/FWHM_v1_Std to the Summary sheet — the pre-v3.4.0
@@ -446,7 +457,7 @@ def build_sample_results_xlsx(
     _add_summary_sheet(wb, sample_name, material_name, report_date, techniques, show_fwhm_v1)
     for technique in techniques:
         _add_data_sheet(wb, technique, show_fwhm_v1)
-    _add_optical_sheets(wb, optical_frames)
+    _add_optical_sheets(wb, optical_frames, optical_threshold)
 
     buffer = BytesIO()
     wb.save(buffer)

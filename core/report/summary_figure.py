@@ -58,7 +58,12 @@ _GRID_CAPTION_TOP, _GRID_CAPTION_H = 5.52, 0.28
 # The OM table fills the 1.7 inches the slide left blank under the grid: three
 # class rows and a header at the same 0.30 in/row the stats tables use.
 _OM_TABLE_TOP = 5.85
-_OM_TABLE_H = 1.20
+_OM_TABLE_H = 1.05
+# One line under the class table saying which threshold pair produced it, and
+# a second for any noise flag. Adaptive derives a different pair per wafer, so
+# a saved page that does not name its pair cannot be reproduced from itself.
+_OM_NOTE_TOP = 7.00
+_OM_NOTE_LEADING = 0.17
 
 # ---- Summary page: stats tables (right half, stacked) ----
 _TABLE_LEFT = 6.70
@@ -105,6 +110,7 @@ FIT_COLUMN_ASPECT_RATIO = _FIT_COLUMN_W / _FIT_GRID_H
 _FS_TITLE = 24
 _FS_CAPTION = 12
 _FS_GRID_CAPTION = 11
+_FS_OM_NOTE = 9
 _FS_LEGEND = 12
 _FS_AXIS_LABEL = 12
 
@@ -113,6 +119,8 @@ _RULE_COLOR = "#404040"
 _BAND_COLOR = "#f2f2f2"
 _PLACEHOLDER_COLOR = "#000000"
 _MUTED_COLOR = "#999999"
+_MUTED_TEXT = "#555555"
+_FLAG_COLOR = "#b00020"
 
 _DASH = "—"  # an em dash, for a cell whose quantity does not exist
 
@@ -461,6 +469,28 @@ def _add_stats_table(fig, technique_label: str, stats: Optional[Sequence[PeakSta
                 _table_font(len(rows)), bold_from=bold_from)
 
 
+def _add_om_note(fig, note: Optional[str], flags: Sequence[str]) -> None:
+    """The threshold pair that produced the table above, and any noise flag.
+
+    Plain strings rather than a threshold object: the derivation lives in
+    `modules.optical`, and `core` cannot import it. The page formats, this
+    draws.
+
+    A flag means even the preset's own cut sits inside this wafer's noise, so
+    the percentages above are segmentation noise rather than a measurement.
+    That belongs on the saved page, not only on the screen the operator saw —
+    the PNG outlives the warning and otherwise gets read as a measurement.
+    """
+    y = _OM_NOTE_TOP
+    if note:
+        _text(fig, _CONTENT_LEFT, y, note, size=_FS_OM_NOTE, color=_MUTED_TEXT)
+        y += _OM_NOTE_LEADING
+    for flag in flags or ():
+        _text(fig, _CONTENT_LEFT, y, f"⚠ {flag} — percentages are segmentation noise",
+              size=_FS_OM_NOTE, bold=True, color=_FLAG_COLOR)
+        y += _OM_NOTE_LEADING
+
+
 def _add_om_table(fig, classes: Optional[Sequence[OpticalClassStat]]) -> None:
     """The segmentation's per-class coverage and contrast, under the OM grid.
 
@@ -533,6 +563,8 @@ def build_summary_figure(
     magnification_label: Optional[str] = None,
     om_image_bytes: Optional[Dict[int, bytes]] = None,
     om_classes: Optional[Sequence[OpticalClassStat]] = None,
+    om_threshold_note: Optional[str] = None,
+    om_threshold_flags: Sequence[str] = (),
     raman_stats: Optional[Sequence[PeakStat]] = None,
     pl_stats: Optional[Sequence[PeakStat]] = None,
     raman_ratios: Optional[Sequence[Tuple[str, Tuple[float, float, int]]]] = None,
@@ -546,6 +578,11 @@ def build_summary_figure(
     appended as bolded rows below the Raman fit summary, in the order given.
     Empty or None adds no rows.
 
+    `om_threshold_note` is one line naming the threshold pair that produced
+    `om_classes` — adaptive derives a different pair per wafer, so a page that
+    does not say which pair ran cannot be reproduced from itself.
+    `om_threshold_flags` are the derivation's warnings, drawn beneath it.
+
     `om_classes` is the segmentation summary drawn under the image grid;
     None omits the table, which is what an unanalysed or images-only folder
     gets. A technique with no stats gets a placeholder box rather than a
@@ -558,6 +595,7 @@ def build_summary_figure(
         _add_title_bar(fig, sample_name, material_name, report_date)
         _add_om_grid(fig, om_image_bytes or {}, magnification_label)
         _add_om_table(fig, om_classes)
+        _add_om_note(fig, om_threshold_note, om_threshold_flags)
 
         raman_height = _table_height(len(raman_stats or []) + len(raman_ratios or []))
         _add_stats_table(

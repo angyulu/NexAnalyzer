@@ -295,6 +295,86 @@ class TestPageFlow:
         assert at.session_state["qc_report"]["xlsx_bytes"] is None
 
 
+class TestAdaptiveThreshold:
+    """The page must actually derive the pair, not silently use the base.
+
+    This is the regression the whole rebase existed to avoid: on the 202609
+    batch the derivation moved the pair on 21 of 55 wafers, and on HADH57 the
+    difference between the derived and the fixed pair was 3.6 points of bilayer
+    coverage. A merged page that skipped `derive_pair` would have put every
+    wafer back on fixed contrast with nothing on screen to say so.
+
+    Silicon carries no abs pair, so these use WSe2 — the preset that has one.
+    """
+
+    def _wse2_app(self, tmp_path):
+        for point in range(1, 10):
+            _write_om_frame(tmp_path / f"50x_{point}.png", seed=100 + point)
+        at = AppTest.from_file(PAGE, default_timeout=300)
+        at.session_state["qc_report"] = _initial_state(
+            folder=str(tmp_path), scan=scan_sample_folder(str(tmp_path)),
+            magnification="50x", material="WSe2", reference_layer="2L",
+        )
+        at.run()
+        next(b for b in at.button if "Generate QC Report" in b.label).click().run()
+        return at
+
+    def test_the_run_derives_a_pair_and_keeps_it(self, tmp_path):
+        at = self._wse2_app(tmp_path)
+
+        assert not at.exception, [e.value for e in at.exception]
+        derived = at.session_state["qc_report"]["optical_threshold"]
+        assert derived is not None, "the page did not derive a pair"
+        assert derived.base == (6.0, 4.25), "the preset pair should be the base"
+
+    def test_the_derived_pair_is_what_actually_segmented(self, tmp_path):
+        """Not just computed and dropped: the frames must carry cuts placed by
+        the derived pair, not by the base."""
+        at = self._wse2_app(tmp_path)
+        state = at.session_state["qc_report"]
+        derived = state["optical_threshold"]
+        frame = state["frames"][0]
+
+        expected_low = frame.mode * (1.0 - derived.pair[0] / 100.0)
+        expected_high = frame.mode * (1.0 + derived.pair[1] / 100.0)
+        assert frame.threshold_low == pytest.approx(expected_low, rel=1e-6)
+        assert frame.threshold_high == pytest.approx(expected_high, rel=1e-6)
+
+    def test_the_pair_reaches_the_workbook(self, tmp_path):
+        at = self._wse2_app(tmp_path)
+        state = at.session_state["qc_report"]
+
+        wb = load_workbook(BytesIO(state["xlsx_bytes"]))
+        rows = list(wb["OM_Stats"].iter_rows(min_row=1, values_only=True))
+        header, first = rows[0], rows[1]
+
+        assert first[header.index("Threshold_Below_pct")] == pytest.approx(
+            state["optical_threshold"].pair[0])
+        assert first[header.index("Threshold_Base_Below_pct")] == pytest.approx(6.0)
+
+    def test_the_derivation_is_announced_on_screen(self, tmp_path):
+        at = self._wse2_app(tmp_path)
+
+        assert any("adaptive pair" in m.value for m in at.markdown),             "the run did not say which pair it derived"
+
+    def test_a_preset_without_a_pair_derives_nothing(self, tmp_path):
+        """Silicon is nsigma-only. The derivation needs a base pair to move, so
+        asking for it would be meaningless rather than merely slow."""
+        for point in range(1, 10):
+            _write_om_frame(tmp_path / f"50x_{point}.png", seed=100 + point)
+        at = AppTest.from_file(PAGE, default_timeout=300)
+        at.session_state["qc_report"] = _initial_state(
+            folder=str(tmp_path), scan=scan_sample_folder(str(tmp_path)),
+            magnification="50x", material="Silicon", reference_layer="2L",
+        )
+        at.run()
+        next(b for b in at.button if "Generate QC Report" in b.label).click().run()
+
+        assert not at.exception, [e.value for e in at.exception]
+        assert at.session_state["qc_report"]["optical_threshold"] is None
+        assert at.session_state["qc_report"]["om_png"] is not None
+
+
 class TestInventory:
     """Said before the run, because a naming typo and a genuine absence look
     identical once the report is built."""

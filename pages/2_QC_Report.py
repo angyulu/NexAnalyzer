@@ -35,7 +35,15 @@ runs. Two different absences get two different messages: a folder with no PL
 files is a naming problem, a material with no PL block is a preset problem,
 and they are fixed in different places.
 
-The segmentation's tunables — `nsigma`, `minpx`, the mask margin and the
+**The threshold pair is derived per wafer.** A preset carrying an
+`abs_threshold` pair gets that pair treated as a base the wafer's own pooled
+frames can move, unless it opts out with `adaptive_threshold: false`. The
+derivation runs once, before segmentation, because `analyse_frame` sees one
+frame at a time. Which pair ran is printed on screen, written under the summary
+page's OM table, and carried on every `OM_Stats` row — a page that does not
+name its pair cannot be reproduced from itself.
+
+The segmentation's other tunables — `nsigma`, `minpx`, the mask margin and the
 flat-field divisor — come from the material preset's optical block for the
 chosen layer, so a figure's numbers are reproducible from the sample folder
 plus the committed preset. Tune them on the Material Presets page, not per
@@ -61,6 +69,7 @@ from core.report.summary_figure import (
     build_summary_figure,
 )
 from modules.optical.io.frame_tables import frame_class_stats
+from modules.optical.processing.adaptive import derive_pair
 from modules.optical.processing.contrast import (
     REFERENCE_CHOICES,
     analyse_frame,
@@ -324,6 +333,14 @@ if scan is not None:
         will_fit_raman = bool(scan.raman_files and raman_preset)
         will_fit_pl = bool(scan.pl_files and pl_preset)
         has_segmentation = bool(om_paths) and selected is not None
+        # The derivation needs a base pair to move; an nsigma-only preset has
+        # none, so `adaptive_enabled` alone is not enough to ask for it.
+        will_derive_pair = bool(
+            has_segmentation
+            and optical is not None
+            and optical.adaptive_enabled
+            and optical.as_kwargs().get("abs_threshold") is not None
+        )
         has_content = bool(om_paths) or will_fit_raman or will_fit_pl
 
         if not has_content:
@@ -362,6 +379,7 @@ if scan is not None:
                         has_pl=will_fit_pl,
                         has_optical=bool(om_paths),
                         has_segmentation=has_segmentation,
+                        has_adaptive=will_derive_pair,
                         fit_spectra=sum(count_spectra(path) for path in fit_files),
                     )
 
@@ -389,6 +407,41 @@ if scan is not None:
 
                     # ---------------------------------------- Segmentation
                     if has_segmentation:
+                        # Only the fields the preset actually sets; everything
+                        # else keeps contrast.py's default.
+                        om_kwargs = optical.as_kwargs()
+
+                        # The pair comes from the wafer itself: pooled over
+                        # every frame, with the preset pair as the base only
+                        # strong evidence can move. Resolved here, once, because
+                        # analyse_frame sees one frame at a time.
+                        #
+                        # Default-on: any preset carrying an abs pair derives it
+                        # per wafer unless it says adaptive_threshold: false. On
+                        # the 202609 batch the derivation kept the base pair
+                        # byte-for-byte on 34 of 55 wafers and moved it on the
+                        # rest, so skipping it is not a no-op.
+                        if will_derive_pair:
+                            progress.start("optical_adaptive",
+                                           detail=f"pooling {len(om_paths)} frames")
+                            derived = derive_pair(
+                                [om_paths[p] for p in sorted(om_paths)],
+                                base=om_kwargs["abs_threshold"],
+                                margin=om_kwargs.get("margin"),
+                                ff_divisor=om_kwargs.get("ff_divisor"),
+                            )
+                            om_kwargs["abs_threshold"] = derived.pair
+                            state["optical_threshold"] = derived
+                            progress.complete("optical_adaptive")
+                            st.write(derived.describe())
+                            for flag in derived.flags:
+                                st.warning(
+                                    f"{flag}: even the base cut sits inside "
+                                    "this wafer's noise — its percentages are "
+                                    "segmentation noise; re-image rather than "
+                                    "retune."
+                                )
+
                         progress.start("optical_segmentation", detail=f"0/{len(om_paths)}")
                         frames = []
                         for done, point in enumerate(sorted(om_paths), start=1):
@@ -406,9 +459,7 @@ if scan is not None:
                                     om_paths[point], point=point,
                                     ref_label=state["reference_layer"],
                                     name=f"{state['magnification']}-{point}",
-                                    # Only the fields the preset actually sets;
-                                    # everything else keeps contrast.py's default.
-                                    **optical.as_kwargs(),
+                                    **om_kwargs,
                                 ))
                             except Exception as e:
                                 st.warning(f"Could not segment point {point}: {e}")
@@ -639,6 +690,16 @@ if scan is not None:
                         magnification_label=state["magnification"],
                         om_image_bytes=om_png_bytes,
                         om_classes=frame_class_stats(state["frames"] or []),
+                        om_threshold_note=(
+                            state["optical_threshold"].describe()
+                            if state["optical_threshold"] is not None
+                            else ("preset pair, no per-wafer derivation"
+                                  if state["frames"] else None)
+                        ),
+                        om_threshold_flags=(
+                            state["optical_threshold"].flags
+                            if state["optical_threshold"] is not None else ()
+                        ),
                         raman_stats=state["raman_stats"],
                         pl_stats=state["pl_stats"],
                         raman_ratios=state["raman_ratios"],
@@ -677,6 +738,7 @@ if scan is not None:
                             report_date=report_date,
                             techniques=techniques,
                             optical_frames=state["frames"] or (),
+                            optical_threshold=state["optical_threshold"],
                             show_fwhm_v1=show_fwhm_v1,
                         )
                     progress.complete("compose")

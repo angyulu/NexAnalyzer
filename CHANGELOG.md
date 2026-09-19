@@ -50,6 +50,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The QC Report derives the threshold pair per wafer, and records which one
+  ran.** The merged page now calls `adaptive.derive_pair` as a pre-pass over
+  the wafer's pooled frames before segmenting, as the QC Panel did — without
+  it the merge would have silently put every wafer back on the fixed base pair.
+  That is not cosmetic: on the 202609 batch the derivation moved the pair on
+  21 of 55 wafers, and on HADH57 the difference between the derived and the
+  fixed pair was 3.6 points of bilayer coverage.
+
+  The pair and its provenance are now saved, not just shown: `describe()` sits
+  under the summary page's OM table, and `OM_Stats` gains
+  `Threshold_Below_pct` / `Threshold_Above_pct`, `Threshold_Base_Below_pct` /
+  `Threshold_Base_Above_pct`, `Threshold_Below_Source` /
+  `Threshold_Above_Source` and `Noise_Sigma_pct`. A run that used the preset
+  pair unchanged records `preset` as its source, so it is distinguishable from
+  an adaptive run that derived its way back to the base. `progress.py` gains an
+  `optical_adaptive` stage, since pooling every frame is a second pass over
+  the same images.
+
+  The derivation's noise flags reach the summary page too, not only the screen:
+  a flag means even the preset's own cut sits inside this wafer's noise, and a
+  saved PNG outlives the warning that said so.
+
 - **PL quality panels** (`PL_PANEL_COLUMNS`), ported from the `WSe2_PL.py`
   ancestor in `angyulu/wse2_optical_analysis`: FWHM and centre for Exciton and
   Trion, plus the Exciton/Trion **intensity** ratio. (The ancestor's fit table
