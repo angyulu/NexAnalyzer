@@ -182,7 +182,7 @@ def _render_technique_block(key_prefix: str, mode: str,
     peaks_df = st.data_editor(
         _peaks_to_df(d.peak_templates) if d else pd.DataFrame(columns=PEAK_COLUMNS),
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         column_config={
             "peak_label": st.column_config.TextColumn("Label", required=True),
             "center": st.column_config.NumberColumn("Center", required=True),
@@ -343,13 +343,13 @@ def _render_preset_form(presets: dict, key_prefix: str,
     with button_col1:
         save_clicked = st.button(
             "💾 Save" if d else "➕ Create Material",
-            key=f"{key_prefix}_save", type="primary", use_container_width=True
+            key=f"{key_prefix}_save", type="primary", width="stretch"
         )
     with button_col2:
         delete_clicked = False
         if d:
             delete_clicked = st.button(
-                "🗑️ Delete", key=f"{key_prefix}_delete", use_container_width=True
+                "🗑️ Delete", key=f"{key_prefix}_delete", width="stretch"
             )
 
     if delete_clicked:

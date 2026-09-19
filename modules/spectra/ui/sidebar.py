@@ -182,7 +182,7 @@ def render_sidebar():
 
             # Run Auto-Workflow button (requires a loaded file)
             run_clicked = st.button(
-                "🚀 Run Auto-Workflow", type="primary", use_container_width=True,
+                "🚀 Run Auto-Workflow", type="primary", width="stretch",
                 disabled=current_spectrum is None
             )
             if run_clicked and current_spectrum is not None:
@@ -232,7 +232,7 @@ def render_sidebar():
 
             # Batch auto-workflow button (only if multiple files loaded)
             if len(files) > 1:
-                if st.button("🚀 Run All Files", type="secondary", use_container_width=True,
+                if st.button("🚀 Run All Files", type="secondary", width="stretch",
                              help="Run auto-workflow on all loaded files"):
                     from ..processing.auto_workflow import execute_auto_workflow
 
@@ -378,7 +378,7 @@ def render_sidebar():
                         data=png_bytes,
                         file_name=filename_png,
                         mime="image/png",
-                        use_container_width=True
+                        width="stretch"
                     )
                 except RuntimeError:
                     st.error("PNG export requires kaleido")
@@ -394,7 +394,7 @@ def render_sidebar():
                         data=html_string,
                         file_name=filename_html,
                         mime="text/html",
-                        use_container_width=True
+                        width="stretch"
                     )
                 except Exception as e:
                     st.error(f"HTML export failed: {e}")
@@ -409,7 +409,7 @@ def render_sidebar():
                     data=csv_quick,
                     file_name=filename_csv_quick,
                     mime="text/csv",
-                    use_container_width=True
+                    width="stretch"
                 )
 
         st.markdown("---")
@@ -437,7 +437,7 @@ def render_sidebar():
                         "💾 Save Master CSV to folder",
                         help="Open a Save-As dialog (pre-pointed at your raw-data folder) "
                              "and type a filename",
-                        use_container_width=True
+                        width="stretch"
                     )
 
                 with batch_col2:
@@ -485,7 +485,7 @@ def render_sidebar():
         st.session_state['last_picked_dir'] = ""
 
     # Browse spectrum files button (multi-select)
-    if st.button("Browse Spectrum Files", use_container_width=True):
+    if st.button("Browse Spectrum Files", width="stretch"):
         try:
             import subprocess
             import sys

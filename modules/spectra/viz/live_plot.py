@@ -630,5 +630,5 @@ def render_unified_plot():
             })
 
         df_results = pd.DataFrame(results_data)
-        st.dataframe(df_results, hide_index=True, use_container_width=True)
+        st.dataframe(df_results, hide_index=True, width="stretch")
         st.caption(f"✓ R² = {spectrum.fit_result.r_squared:.4f}, χ² = {spectrum.fit_result.chi_squared:.2e}")

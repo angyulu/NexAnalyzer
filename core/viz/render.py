@@ -21,9 +21,9 @@ _WIDTH_MAP = {
 def render_plot(fig: go.Figure, key: Optional[str] = None) -> None:
     """Render a Plotly figure respecting the plot_width_preset session setting.
 
-    Wraps the chart in a proportionally-sized ``st.columns`` container so the
-    Streamlit ``use_container_width=True`` flag fills the correct fraction of
-    the page rather than the full width.
+    Wraps the chart in a proportionally-sized ``st.columns`` container so
+    Streamlit's ``width="stretch"`` fills the correct fraction of the page
+    rather than the full width.
     """
     import streamlit as st
 
@@ -31,8 +31,8 @@ def render_plot(fig: go.Figure, key: Optional[str] = None) -> None:
     frac = _WIDTH_MAP.get(preset, 1.0)
 
     if frac >= 1.0:
-        st.plotly_chart(fig, use_container_width=True, key=key)
+        st.plotly_chart(fig, width="stretch", key=key)
     else:
         col_plot, _ = st.columns([frac, 1.0 - frac])
         with col_plot:
-            st.plotly_chart(fig, use_container_width=True, key=key)
+            st.plotly_chart(fig, width="stretch", key=key)

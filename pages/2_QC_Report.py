@@ -137,7 +137,7 @@ state = get_qc_report_state()
 st.subheader("1. Sample Folder")
 col_pick, col_path = st.columns([1, 3])
 with col_pick:
-    pick_clicked = st.button("Select Sample Folder", use_container_width=True)
+    pick_clicked = st.button("Select Sample Folder", width="stretch")
 with col_path:
     st.caption(state["folder"] or "No folder selected yet.")
 
@@ -349,7 +349,7 @@ if scan is not None:
                 "selected magnification, and no spectra this material can fit."
             )
 
-        if st.button("🚀 Generate QC Report", type="primary", use_container_width=True,
+        if st.button("🚀 Generate QC Report", type="primary", width="stretch",
                      disabled=not has_content):
             reset_results(state)
             try:
@@ -801,7 +801,7 @@ if _HAS_RESULTS:
     # size stacked would bury the summary under a page of scrolling. Tabs would
     # hide the OM grid well enough to miss a bad one by never clicking.
     if state.get("summary_png"):
-        st.image(state["summary_png"], caption="1 — Summary", use_container_width=True)
+        st.image(state["summary_png"], caption="1 — Summary", width="stretch")
 
     if state.get("om_png"):
         frames = state.get("frames") or []
@@ -809,7 +809,7 @@ if _HAS_RESULTS:
             cols = st.columns(3)
             for col, label, (mean, std) in zip(cols, frames[0].labels, class_summary(frames)):
                 col.metric(label, f"{mean:.1f} %", f"± {std:.1f} %", delta_color="off")
-        st.image(state["om_png"], caption="2 — OM analysis", use_container_width=True)
+        st.image(state["om_png"], caption="2 — OM analysis", width="stretch")
 
     if state.get("om_diagnostic_png"):
         # Collapsed: this copy is for deciding whether to trust the one above,
@@ -822,7 +822,7 @@ if _HAS_RESULTS:
                 "and as a single spike here. Internal review only — the clean copy "
                 "above is the one a report carries."
             )
-            st.image(state["om_diagnostic_png"], use_container_width=True)
+            st.image(state["om_diagnostic_png"], width="stretch")
 
     for number, caption, key in (
         (4, "Raman — fitted spectra", "raman_grid_png"),
@@ -832,7 +832,7 @@ if _HAS_RESULTS:
     ):
         if state.get(key):
             with st.expander(f"{number} — {caption}"):
-                st.image(state[key], use_container_width=True)
+                st.image(state[key], width="stretch")
 
     _render_gate_verdict("Raman", "raman_dropped", "raman_fitted", "raman_stats_png")
     _render_gate_verdict("PL", "pl_dropped", "pl_fitted", "pl_stats_png")
@@ -851,7 +851,7 @@ if _HAS_RESULTS:
         "every table lands in one `.xlsx` beside them: `Summary`, `Raman`, "
         "`PL`, `OM_Stats`, `OM_Points`."
     )
-    if st.button("💾 Save QC Report As...", use_container_width=True):
+    if st.button("💾 Save QC Report As...", width="stretch"):
         try:
             save_path = prompt_save_path(
                 default_dir=state["folder"],
