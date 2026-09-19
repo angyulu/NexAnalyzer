@@ -4,7 +4,10 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
-exclude = ["Example", "venv", ".specify"]
+# docs/reference holds vendored source that is a *specification*, not code this
+# project maintains: it is kept byte-identical to what was handed over so it can
+# be diffed against, and tidying its unused locals would destroy that property.
+exclude = ["Example", "venv", ".specify", "docs/reference"]
 
 [tool.ruff.lint]
 # F: pyflakes (unused imports, undefined names — the checks that catch real

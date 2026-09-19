@@ -110,6 +110,17 @@ The full reasoning is in the
   add a CHANGELOG entry in the same change as any user-visible behaviour change;
   note explicitly when numbers don't move (renames) versus when they do.
 
+- **The runcard recipe semantics have a vendored spec, and it wins.**
+  [docs/reference/render_runcard.py](docs/reference/render_runcard.py) is the
+  standalone CLI `modules/runcard/` is derived from — read it before changing
+  the clock, the growth window, or how a channel's setpoints become segments,
+  and run it beside the app to compare. It is excluded from ruff so it can stay
+  byte-identical; do not tidy it. **The growth window is exactly the stretch at
+  the peak**, ended by whichever comes first of heater-off and a commanded
+  ramp-down. It is *not* a "within 5 °C" band — that is a defect the reference
+  records as previously fixed, and which this app reintroduced at v5.1.0 by
+  porting an older ancestor. See [docs/reference/README.md](docs/reference/README.md).
+
 ## Doc trust levels
 
 - [docs/Summary.md](docs/Summary.md) — current.

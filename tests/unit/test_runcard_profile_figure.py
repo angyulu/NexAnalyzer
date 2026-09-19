@@ -66,7 +66,7 @@ class TestBuildProfileFigure:
         assert [trace.type for trace in fig.data] == ["scatter"] * 4 + ["bar"] * 7
         assert fig.data[0].name == "Heater"
         assert [trace.y[0] for trace in _bars(fig)] == [
-            "MFC-1 Ar", "MFC-3 O2", "MFC-8 H2Se", "RTV", "PC-1", "PC-2", "Spin",
+            "MFC-1 Ar", "MFC-3 O2", "MFC-8 H2Se", "RTV P", "PC-1", "PC-2", "Spin",
         ]
 
     def test_the_preheaters_carry_their_final_temperature_in_the_legend(self, tmp_path):
@@ -331,31 +331,25 @@ class TestDeliberateDivergences:
     tests are what keep the record from being deleted with the reasoning.
     """
 
-    def test_the_rtv_row_keeps_the_label_the_rest_of_the_app_uses(self, tmp_path):
-        # The ancestor drew "RTV P" and 41 cards in the example corpus have
-        # this row, so this is the divergence an operator sees when an old
-        # figure is held beside a new one.
+    def test_the_rtv_row_is_labelled_rtv_p(self, tmp_path):
+        # params[1] of RTV Pressure Ctrl is the commanded chamber-pressure
+        # setpoint and params[0] the gauge range, so the row is a pressure row
+        # and is named like one. This app briefly drew it as bare "RTV".
         profile = _profile(tmp_path, RUNCARD_FULL)
 
         fig = build_profile_figure("VBBE00", profile)
 
-        assert "RTV" in [trace.y[0] for trace in _bars(fig)]
-        assert "RTV P" not in [trace.y[0] for trace in _bars(fig)]
+        assert "RTV P" in [trace.y[0] for trace in _bars(fig)]
 
-    def test_the_rtv_label_divergence_is_recorded_and_not_silent(self):
-        # "RTV P" is short for RTV Pressure, and that number is params[1] of
-        # RTV Pressure Ctrl -- not a pressure, which is why the Torr unit was
-        # already dropped from it. Keeping the ancestor's label would put the
-        # word back in the label after removing it from the value, and would
-        # disagree with the "RTV" column of the table printed beside the chart.
-        # That judgement has to be findable from the file, not from a diff.
+    def test_the_rtv_reading_is_recorded_and_not_silent(self):
+        # The app held the opposite reading for a while -- that the number was
+        # neither the gauge range nor the achieved pressure, so calling it Torr
+        # was a guess. Whichever way it is decided, the reasoning has to be
+        # findable from the file rather than from a diff.
         doc = profile_module.__doc__
 
-        # The ancestor's spelling is named, so anyone holding an old PNG beside
-        # a new one can grep for it, and the corpus size that makes it worth
-        # explaining is kept with it.
         assert "RTV P" in doc
-        assert "41" in doc
+        assert "gauge range" in doc
 
     def test_the_dropped_torr_unit_is_recorded_beside_it(self):
         # The older half of the same note, asserted so that a rewrite of the
@@ -419,3 +413,56 @@ class TestSummaryLines:
         assert lines[1][0].startswith("Gas chemistry: MFC-1 Xe1 2 sccm")
         assert lines[2][0].startswith("MFC-5 Xe5 6 sccm")
         assert lines[3][0].startswith("Pressure:")
+
+
+class TestThePreheatersCombineWhenTheyTrackTogether:
+    """Both preheaters held at one temperature is the ordinary case here.
+
+    Two dashed traces at identical y render as a single line of uncertain
+    identity with two legend entries both claiming it, so the reference draws
+    one line labelled for the pair.
+    """
+
+    def test_identical_preheaters_draw_one_trace(self, tmp_path):
+        profile = _profile(
+            tmp_path,
+            "P1_Heater Ramp,40,60\nP2_Heater Ramp,40,60\n"
+            "Wait,Sec,10\nHeater Ramp,900,10\nWait,Sec,10\n"
+            "Heater Soak,0,--\nWait,Sec,60\n",
+        )
+
+        fig = build_profile_figure("PAIR", profile)
+        names = [t.name for t in fig.data if t.name]
+
+        assert any(n.startswith("P1/P2") for n in names)
+        assert not any(n.startswith("P1 ") or n.startswith("P2 ") for n in names)
+
+    def test_preheaters_that_differ_keep_their_own_traces(self, tmp_path):
+        profile = _profile(
+            tmp_path,
+            "P1_Heater Ramp,40,60\nP2_Heater Ramp,90,60\n"
+            "Wait,Sec,10\nHeater Ramp,900,10\nWait,Sec,10\n"
+            "Heater Soak,0,--\nWait,Sec,60\n",
+        )
+
+        fig = build_profile_figure("SPLIT", profile)
+        names = [t.name for t in fig.data if t.name]
+
+        assert not any(n.startswith("P1/P2") for n in names)
+        assert any(n.startswith("P1 ") for n in names)
+        assert any(n.startswith("P2 ") for n in names)
+
+    def test_only_one_preheater_is_not_reported_as_a_pair(self, tmp_path):
+        # `_tracks_identically` is False whenever either trace is empty, so a
+        # recipe addressing only P1 keeps P1's own colour and label.
+        profile = _profile(
+            tmp_path,
+            "P1_Heater Ramp,40,60\nWait,Sec,10\nHeater Ramp,900,10\n"
+            "Wait,Sec,10\nHeater Soak,0,--\nWait,Sec,60\n",
+        )
+
+        fig = build_profile_figure("ONE", profile)
+        names = [t.name for t in fig.data if t.name]
+
+        assert any(n.startswith("P1 ") for n in names)
+        assert not any(n.startswith("P1/P2") for n in names)

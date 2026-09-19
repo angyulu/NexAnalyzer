@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .growth_window import (
+    GrowthWindow,
     NamedEvent,
     RuncardProfile,
     Timeline,
@@ -55,7 +56,18 @@ MARKER_FLOOR = MFC_BAR_FLOOR
 #: several lines at once, and N2 likewise, so marking their transitions buries
 #: the reactive-gas markers — the ones a grower is reading the plot for — under
 #: labels for a valve that was always going to be open.
-SKIP_SPECIES = frozenset({"Ar", "N2"})
+SKIP_SPECIES = frozenset({"Ar", "N2", "N₂"})
+#: The subscript spelling is in the set because a recipe is a hand-typed CSV
+#: and "N₂" does occur; matching only the ASCII form would let one file's
+#: carrier transitions through while every other file suppressed them.
+
+GROWTH_EDGE_TOL_S = 30.0
+"""How far outside the growth window still counts as "at the edge".
+
+The reactive gases are commanded on within a second or two of the window
+opening and off within a second or two of it closing, but not at exactly the
+same instant — so an equality test would suppress the marker at one edge and
+not the other. Thirty seconds is the reference renderer's own tolerance."""
 
 #: Pixels one gantt row occupies: a 24 px bar plus a 6 px gap. Kept as one
 #: number because the figure's height and its bar region's height must both be
@@ -240,9 +252,12 @@ def build_bar_rows(timeline: Timeline) -> List[BarRow]:
     total = timeline.total_time
     rows = _named_rows(timeline.mfc_events, total, MFC_BAR_FLOOR, "gas", "sccm")
 
-    # "RTV", where the ancestor drew "RTV P". A deliberate divergence, recorded
-    # in `viz.profile`'s module docstring beside the Torr unit it also drops.
-    rtv = _simple_row(timeline.rtv_events, total, "RTV", "rtv", "")
+    # "RTV P" with a Torr unit, both restored. This row briefly read "RTV" and
+    # carried no unit, on the reasoning that the stored number was neither the
+    # gauge range nor the achieved pressure and so might not be a pressure at
+    # all. The reference renderer settles it: the third column *is* the
+    # chamber-pressure setpoint the recipe commands, in Torr.
+    rtv = _simple_row(timeline.rtv_events, total, "RTV P", "rtv", "Torr")
     if rtv is not None:
         rows.append(rtv)
 
@@ -285,23 +300,39 @@ def gas_events(profile: RuncardProfile) -> List[GasEvent]:
     """Every reactive-gas valve opening or closing, with its temperature.
 
     A channel's state starts at 0 and is updated by every command; a crossing
-    of `MARKER_FLOOR` in either direction emits one event. Two kinds of command
-    deliberately emit nothing:
+    of `MARKER_FLOOR` in either direction emits one event. Three kinds of
+    command deliberately emit nothing:
 
-    - anything on a channel whose species is in `SKIP_SPECIES`, and
+    - anything on a channel whose species is in `SKIP_SPECIES` — the carriers,
+      which switch too often to be chemistry;
     - **anything at t=0**, which sets the channel's initial state instead. A
       recipe opens its carrier lines in its first block, and marking those
       would put a stack of labels on top of each other at the left edge before
-      the run has started.
+      the run has started;
+    - **anything inside the growth window**, within `GROWTH_EDGE_TOL_S` of
+      either edge. The growth band is annotated with its own chemistry summary,
+      so a marker there says a second time what the band already says, and the
+      reactive gases all switch at once at the window edges — which is exactly
+      where labels pile up.
+
+    The state machine still *runs* through every skipped command, so a valve
+    that opens inside the window and closes outside it still reports the close.
+    Skipping means "emit no marker", never "ignore the command".
 
     Events come back in time order, which is the order the figure alternates
     label placement in.
     """
+    growth = profile.growth
     events: List[GasEvent] = []
     state: Dict[str, float] = {}
     for t, name, value in sorted(profile.timeline.mfc_events, key=lambda e: e[0]):
         species = get_species(name)
-        if species in SKIP_SPECIES or t == 0:
+        suppressed = (
+            species in SKIP_SPECIES
+            or t == 0
+            or _inside_growth(t, growth)
+        )
+        if suppressed:
             state[name] = value
             continue
         previous = state.get(name, 0.0)
@@ -311,6 +342,17 @@ def gas_events(profile: RuncardProfile) -> List[GasEvent]:
             events.append(GasEvent(t, species, "off", interp_temp(profile.temp_trace, t)))
         state[name] = value
     return events
+
+
+def _inside_growth(t: float, growth: GrowthWindow) -> bool:
+    """Whether `t` falls in the growth window, edges included within tolerance.
+
+    `False` whenever there is no window, so a recipe that never reached
+    temperature suppresses nothing and shows every transition it has.
+    """
+    if growth.start_s is None or growth.end_s is None:
+        return False
+    return growth.start_s - GROWTH_EDGE_TOL_S < t < growth.end_s + GROWTH_EDGE_TOL_S
 
 
 def growth_mid_values(profile: RuncardProfile) -> GrowthMidValues:

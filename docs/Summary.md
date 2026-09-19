@@ -93,7 +93,8 @@ nexanalyzer/
 │   │   ├── processing/analysis.py  # Summary stats, tolerance violations, plateau alignment
 │   │   ├── ui/datalog_state.py     # Isolated session-state namespace for the Datalog page
 │   │   └── viz/charts.py           # Stacked shared-x run figures, single and comparison
-│   ├── runcard/                    # The deposition tool's recipes
+│   ├── runcard/                    # The deposition tool's recipes. Recipe semantics
+│   │   │                           # are specified by docs/reference/render_runcard.py
 │   │   ├── io/parser.py            # Runcard CSV -> RuncardCommand list, cached
 │   │   ├── processing/growth_window.py  # Command list -> timeline, traces, growth window
 │   │   ├── processing/stats.py     # The metrics a profile reports, and the gantt bar rows
@@ -154,6 +155,8 @@ nexanalyzer/
 │   ├── unit/                       # pytest suite for core/ and modules/
 │   └── integration/                # streamlit.testing.v1.AppTest-driven page tests
 ├── docs/                           # This file + algorithm notes
+│   └── reference/                  # Vendored specifications: source kept byte-identical
+│                                   # so it can be diffed against. Excluded from ruff.
 ├── pyproject.toml                  # pytest configuration
 └── requirements.txt                # Python dependencies
 ```

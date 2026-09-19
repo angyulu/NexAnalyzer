@@ -3,7 +3,12 @@
 import pytest
 
 from modules.runcard.io.parser import parse_runcard
-from modules.runcard.processing.growth_window import build_profile
+from modules.runcard.processing.growth_window import (
+    GrowthWindow,
+    RuncardProfile,
+    Timeline,
+    build_profile,
+)
 from modules.runcard.processing.stats import (
     BAR_ROW_PX,
     CANVAS_BASE_PX,
@@ -67,7 +72,7 @@ class TestBuildBarRows:
         rows = build_bar_rows(profile.timeline)
 
         assert [row.label for row in rows] == [
-            "MFC-1 Ar", "MFC-3 O2", "MFC-8 H2Se", "RTV", "PC-1", "PC-2", "Spin",
+            "MFC-1 Ar", "MFC-3 O2", "MFC-8 H2Se", "RTV P", "PC-1", "PC-2", "Spin",
         ]
         assert [row.kind for row in rows] == ["gas", "gas", "gas", "rtv", "pc", "pc", "spin"]
 
@@ -110,53 +115,81 @@ class TestBuildBarRows:
         assert labels == ["MFC-1 Ar", "PC-1", "Spin"]
 
     def test_the_unit_travels_on_the_row(self, tmp_path):
-        # The RTV row carries no unit: its number is params[1] of RTV Pressure
-        # Ctrl, which is neither the gauge range nor the achieved pressure.
+        # The RTV row is in Torr like the other pressure rows: its number is
+        # params[1] of RTV Pressure Ctrl, the commanded chamber-pressure
+        # setpoint, where params[0] is the gauge range.
         profile = _profile(tmp_path, RUNCARD_FULL)
         rows = build_bar_rows(profile.timeline)
 
         assert _row(rows, "MFC-1 Ar").unit == "sccm"
         assert _row(rows, "PC-1").unit == "Torr"
         assert _row(rows, "Spin").unit == "rpm"
-        assert _row(rows, "RTV").unit == ""
+        assert _row(rows, "RTV P").unit == "Torr"
 
-    def test_the_valve_row_is_labelled_rtv_and_not_the_ancestors_rtv_p(self, tmp_path):
-        # A deliberate divergence, not a typo: "RTV P" is short for RTV
-        # Pressure, and this number is params[1] of RTV Pressure Ctrl, which is
-        # not a pressure -- the same reason the Torr unit was dropped from it.
-        # "RTV" is also what the folder table's column, the summary line and
-        # the channel id all say. The reasoning is recorded in viz.profile's
-        # module docstring; test_runcard_profile_figure asserts it is still
-        # written down there.
+    def test_the_valve_row_is_labelled_rtv_p_in_torr(self, tmp_path):
+        # params[1] of RTV Pressure Ctrl is the chamber-pressure setpoint the
+        # recipe commands, in Torr -- params[0] is the gauge range. This app
+        # briefly drew the row as "RTV" with no unit, on the reasoning that the
+        # number matched neither the range nor the measured pressure; a setpoint
+        # is simply allowed to differ from what the chamber settles at.
         profile = _profile(tmp_path, RUNCARD_FULL)
 
-        assert "RTV" in [row.label for row in build_bar_rows(profile.timeline)]
+        assert "RTV P" in [row.label for row in build_bar_rows(profile.timeline)]
 
 
 class TestGasEvents:
     def test_a_valve_crossing_the_floor_in_either_direction_is_marked(self, tmp_path):
+        # RUNCARD_FULL's reactive gas opens at 190 and closes at 310, which are
+        # this recipe's growth-window edges -- so both are suppressed and the
+        # one marker left is the O2 pulse before the run heats. See
+        # test_markers_inside_the_growth_window_are_suppressed.
         profile = _profile(tmp_path, RUNCARD_FULL)
 
         events = gas_events(profile)
 
-        assert [(e.t_s, e.species, e.direction) for e in events] == [
-            (10.0, "O2", "on"),
-            (190.0, "H2Se", "on"),
-            (310.0, "H2Se", "off"),
-        ]
+        assert [(e.t_s, e.species, e.direction) for e in events] == [(10.0, "O2", "on")]
 
-    def test_the_temperature_is_interpolated_along_the_ramp(self, tmp_path):
-        # A held lookup would place this marker at 25 degrees, on the plateau
-        # below the line it is annotating.
+    def test_markers_inside_the_growth_window_are_suppressed(self, tmp_path):
+        """The band is already shaded and captioned with its own chemistry.
+
+        A marker there repeats the caption, and the reactive gases all switch
+        within seconds of the window's edges -- which is exactly where labels
+        pile on top of each other.
+        """
+        profile = _profile(tmp_path, RUNCARD_FULL)
+
+        assert profile.growth.start_s == 190.0
+        assert all(
+            not (190.0 - 30 < e.t_s < 310.0 + 30) for e in gas_events(profile)
+        )
+
+    def test_the_state_machine_still_runs_through_a_suppressed_command(self, tmp_path):
+        # Suppressing means "emit no marker", never "ignore the command": a
+        # valve opened inside the window and closed well outside it still
+        # reports the close, which it could not do if the open had been skipped.
         profile = _profile(
             tmp_path,
-            "Wait,Sec,10\nHeater Ramp,900,20\nWait,Sec,10\nMFC/PC,MFC-8 H2Se,3\n"
-            "Wait,Sec,10\nHeater Soak,0,--\nWait,Sec,60\n",
+            "Wait,Sec,10\nHeater Ramp,900,10\nWait,Sec,10\nMFC/PC,MFC-8 H2Se,3\n"
+            "Heater Soak,0,--\nWait,Sec,600\nMFC/PC,MFC-8 H2Se,0\nWait,Sec,10\n",
         )
 
         events = gas_events(profile)
 
-        assert [(e.t_s, e.temp_c) for e in events] == [(20.0, 462.5)]
+        assert [(e.t_s, e.direction) for e in events] == [(620.0, "off")]
+
+    def test_the_temperature_is_interpolated_along_the_ramp(self, tmp_path):
+        # A held lookup would place this marker at 25 degrees, on the plateau
+        # below the line it is annotating. The valve moves at t=20, mid-ramp
+        # and well clear of the window at 120.
+        profile = _profile(
+            tmp_path,
+            "Wait,Sec,10\nHeater Ramp,900,110\nWait,Sec,10\nMFC/PC,MFC-8 H2Se,3\n"
+            "Wait,Sec,100\nHeater Soak,0,--\nWait,Sec,60\n",
+        )
+
+        events = gas_events(profile)
+
+        assert [(e.t_s, round(e.temp_c, 1)) for e in events] == [(20.0, 104.5)]
 
     def test_the_carrier_gases_are_never_marked(self, tmp_path):
         # Ar and N2 are open for most of a run on several lines at once, so
@@ -172,16 +205,17 @@ class TestGasEvents:
     def test_a_command_at_time_zero_sets_the_state_without_marking(self, tmp_path):
         # A recipe opens its carrier lines in its first block; marking those
         # stacks a pile of labels at the left edge before the run has started.
-        # The state still moves, so the later close is marked.
+        # The state still moves, so the later close is marked -- placed well
+        # after the window here so the close is not suppressed with it.
         profile = _profile(
             tmp_path,
             "MFC/PC,MFC-8 H2Se,3\nWait,Sec,10\nHeater Ramp,900,10\nWait,Sec,10\n"
-            "MFC/PC,MFC-8 H2Se,0\nHeater Soak,0,--\nWait,Sec,60\n",
+            "Heater Soak,0,--\nWait,Sec,600\nMFC/PC,MFC-8 H2Se,0\nWait,Sec,10\n",
         )
 
         events = gas_events(profile)
 
-        assert [(e.t_s, e.direction) for e in events] == [(20.0, "off")]
+        assert [(e.t_s, e.direction) for e in events] == [(620.0, "off")]
 
 
 class TestGrowthMidValues:
@@ -255,10 +289,25 @@ class TestProfileStats:
         assert stats["peak_T"] == 900.0
 
     def test_a_window_starting_at_time_zero_still_reports_its_edges(self):
-        # The guard the ancestor wrote as `if gw_start`: an empty recipe's
-        # window is a real one at t=0, and truthiness reported it as absent
-        # beside a band that was drawn anyway.
-        profile = build_profile([])
+        """The guard the ancestor wrote as `if gw_start` rather than `is not None`.
+
+        A window whose start is 0.0 is a real window, and truthiness reported
+        it as absent beside a band that was drawn anyway. The profile is built
+        by hand because no recipe can now produce one: every reconstructed
+        trace starts at room temperature, and the ambient floor means a peak
+        at t=0 is not a peak. The guard still has to be right.
+        """
+        timeline = Timeline(
+            total_time=60.0, heater_ramps=[], p1_ramps=[], p2_ramps=[],
+            mfc_events=[], pc_events=[], rtv_events=[], spin_events=[],
+            pump_events=[], heater_off_t=None,
+        )
+        profile = RuncardProfile(
+            timeline=timeline,
+            temp_trace=[(0.0, 900.0), (60.0, 900.0)],
+            p1_trace=[], p2_trace=[],
+            growth=GrowthWindow(start_s=0.0, end_s=0.0, peak_temp_c=900.0),
+        )
 
         stats = profile_stats(profile)
 

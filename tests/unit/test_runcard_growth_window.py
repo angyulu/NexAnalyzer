@@ -6,7 +6,6 @@ import pytest
 
 from modules.runcard.io.parser import RuncardCommand, parse_runcard
 from modules.runcard.processing.growth_window import (
-    GROWTH_BAND_C,
     ROOM_TEMP_C,
     GrowthWindow,
     build_aux_trace,
@@ -27,9 +26,9 @@ from tests.datalog_fixtures import RUNCARD_FULL, RUNCARD_SHORT
 #: such test has a real growth window to read values at (mid = 20 s).
 _GROWTH_TAIL = "Wait,Sec,10\nHeater Ramp,900,10\nWait,Sec,10\nHeater Soak,0,--\nWait,Sec,60\n"
 
-#: The final ramp completes at t=20 while the heater went off at t=10, so the
-#: scan breaks before any vertex clears the band and there is no window at all
-#: -- while `peak_temp_c` still reports 900.
+#: The final ramp completes at t=20 while the heater went off at t=10: the run
+#: never held at its own peak, so the window's end would precede its start and
+#: there is no window at all -- while `peak_temp_c` still reports 900.
 _NO_WINDOW = "MFC/PC,PC-1,400\nWait,Sec,10\nHeater Ramp,900,10\nHeater Soak,0,--\nWait,Sec,60\n"
 
 #: No `Heater Soak`, so no cooldown and no extension to `total`: the trace ends
@@ -96,7 +95,7 @@ class TestBuildTimelineClock:
 
         assert timeline.total_time == 20.0
 
-    def test_pumping_and_pumping_forward_contribute_nothing_at_all(self, tmp_path):
+    def test_pumping_and_pumping_forward_never_advance_the_clock(self, tmp_path):
         # Deliberate, and forced: their single param is a target *pressure*
         # (`Pumping Forward,0.0011,--`) and params[1] is always `--`, so there
         # is no number in the row that could be added to the clock. The real
@@ -112,6 +111,28 @@ class TestBuildTimelineClock:
         assert timeline.mfc_events == []
         assert timeline.pc_events == []
         assert timeline.heater_off_t is None
+
+    def test_both_spellings_of_the_pump_command_are_recorded(self, tmp_path):
+        """The HAD* family writes bare "Pumping"; the VBBE family writes "Pumping Forward".
+
+        Knowing only the second dropped every HAD* pump-down silently, and
+        that is 25 of the 39 example recipes. *Where* the recipe pumps is worth
+        keeping even though *how long* is unknowable.
+        """
+        timeline = build_timeline(_commands(
+            tmp_path,
+            "Pumping,5.00E-01,--\nWait,Sec,10\nPumping Forward,0.0011,--\nWait,Sec,10\n",
+        ))
+
+        assert timeline.pump_events == [(0.0, 0.5), (10.0, 0.0011)]
+
+    def test_a_pump_row_with_no_readable_target_is_skipped_not_fatal(self, tmp_path):
+        # A hand-typed recipe can carry "--" where a number belongs, and one
+        # unreadable pump row must not cost the whole file.
+        timeline = build_timeline(_commands(tmp_path, "Pumping,--,--\nWait,Sec,10\n"))
+
+        assert timeline.pump_events == []
+        assert timeline.total_time == 10.0
 
     def test_end_and_unknown_commands_are_dropped_silently(self, tmp_path):
         # There is no `else` in the dispatch, which is what makes
@@ -245,7 +266,7 @@ class TestBuildTempTrace:
     def test_the_cooldown_decays_from_the_last_ramp_target(self, tmp_path):
         profile = _profile(tmp_path, RUNCARD_FULL)
 
-        assert profile.temp_trace[5][1] == pytest.approx(25.0 + (850.0 - 25.0) * math.exp(-60 / 2400))
+        assert profile.temp_trace[5][1] == pytest.approx(25.0 + (850.0 - 25.0) * math.exp(-60 / 1500))
 
     def test_the_last_cooldown_vertex_lands_exactly_on_the_end_of_the_run(self, tmp_path):
         # 90 s of cooldown is not a whole number of 60 s steps, so the final
@@ -320,12 +341,40 @@ class TestFindGrowthWindow:
 
         assert (window.start_s, window.end_s) == (10.0, 20.0)
 
-    def test_the_band_is_inclusive_at_exactly_peak_minus_five(self):
-        trace = [(0.0, 25.0), (10.0, 850.0 - GROWTH_BAND_C), (20.0, 850.0)]
+    def test_a_vertex_near_the_peak_is_not_in_the_window(self):
+        """The defect this guards: growth used to begin within 5 degrees of peak.
+
+        A ramp passing through peak - 5 on its way up is still heating, and on
+        a slow final ramp that is minutes of climb counted as growth. The
+        reference renderer records the band as a previously-fixed bug; this
+        port reintroduced it by carrying an older ancestor forward.
+        """
+        trace = [(0.0, 25.0), (10.0, 845.0), (20.0, 850.0), (30.0, 850.0), (40.0, 700.0)]
 
         window = find_growth_window(trace, None)
 
-        assert window.start_s == 10.0
+        assert window.start_s == 20.0
+
+    def test_a_commanded_ramp_down_ends_growth_before_the_heater_goes_off(self):
+        """Growth does not run through a deliberate step to a lower temperature.
+
+        The end is the earlier of heater-off and the start of a ramp-down --
+        and it is the ramp-down's *first* vertex, the last instant still at
+        peak, not the vertex where it arrives somewhere cooler.
+        """
+        trace = [(0.0, 25.0), (10.0, 850.0), (20.0, 850.0), (35.0, 600.0), (50.0, 600.0)]
+
+        window = find_growth_window(trace, heater_off_t=50.0)
+
+        assert (window.start_s, window.end_s) == (10.0, 20.0)
+
+    def test_a_run_that_never_heats_has_no_window(self):
+        # Without the ambient floor, a recipe that never turns the heater on
+        # reports its own room temperature as a "peak" and the whole run as
+        # growth.
+        window = find_growth_window([(0.0, 25.0), (100.0, 25.0)], None)
+
+        assert (window.start_s, window.end_s) == (None, None)
 
     def test_a_final_ramp_after_the_heater_went_off_has_no_window(self, tmp_path):
         # peak_temp_c is still 900: it is a max() over a trace that always has
@@ -341,24 +390,28 @@ class TestFindGrowthWindow:
         assert profile.growth == GrowthWindow(start_s=100.0, end_s=100.0, peak_temp_c=900.0)
         assert profile.growth.mid_s == 100.0
 
-    def test_a_heater_off_at_zero_is_treated_as_absent(self, tmp_path):
-        # A latent bug, reproduced verbatim and flagged in the module docstring:
-        # the cutoff is a truthiness test where build_temp_trace uses
-        # `is not None`, so a recipe whose first command is Heater Soak gets a
-        # synthesized cooldown but no cutoff in this scan. No example runcard
-        # triggers it, and changing it would move the window this app reports
-        # for files it has already reported on -- a data change, not a display
-        # one.
+    def test_a_heater_off_at_zero_cuts_the_window_like_any_other(self, tmp_path):
+        """A heater off at t=0 is off, not absent.
+
+        This used to be a latent bug held deliberately: the cutoff was a
+        truthiness test where `build_temp_trace` used `is not None`, so
+        `heater_off_t == 0.0` disabled the cutoff entirely and this recipe
+        reported a window starting at 100 s -- after the heater had gone off.
+        The exact-peak rule tests `is not None` throughout, so the window now
+        ends at 0, which is before it could start, and there is none.
+        """
         profile = _profile(tmp_path, "Heater Soak,0,--\nHeater Ramp,900,100\nWait,Sec,600\n")
 
         assert profile.timeline.heater_off_t == 0.0
-        assert profile.growth.start_s == 100.0
+        assert profile.growth.start_s is None
 
-    def test_an_empty_recipe_reports_a_window_at_the_origin(self):
-        # The lone origin vertex is its own peak, so it clears its own band.
+    def test_an_empty_recipe_has_no_window_at_all(self):
+        # The lone origin vertex is its own peak, but 25 C never clears the
+        # ambient floor -- so a recipe that never heats reports no growth
+        # rather than "growth at room temperature for the whole run".
         profile = build_profile([])
 
-        assert profile.growth == GrowthWindow(start_s=0.0, end_s=0.0, peak_temp_c=25.0)
+        assert profile.growth == GrowthWindow(start_s=None, end_s=None, peak_temp_c=25.0)
 
 
 class TestGrowthWindowProperties:
@@ -472,15 +525,20 @@ class TestFixedChannelValueAtGrowthMid:
         assert fixed_channel_value_at_growth_mid(profile, channel_id) == expected
 
     def test_heater_is_the_run_wide_peak_and_not_a_sample(self, tmp_path):
-        # The one recipe where the two differ: a first-command Heater Soak
-        # leaves the cooldown vertices interleaved before the midpoint, so a
-        # sampled temperature there is 878, while the number a grower quotes
-        # for the run is the 900 plateau.
-        profile = _profile(tmp_path, "Heater Soak,0,--\nHeater Ramp,900,100\nWait,Sec,600\n")
+        # "Heater" answers with the run's peak, which is the number a grower
+        # quotes for the run, rather than whatever the reconstructed trace
+        # happens to read at the window's midpoint. Here the ramp-down has
+        # already begun by the midpoint, so a sampled value would be lower.
+        profile = _profile(
+            tmp_path,
+            "Heater Ramp,900,100\nWait,Sec,100\nWait,Sec,100\n"
+            "Heater Ramp,600,100\nWait,Sec,100\nHeater Soak,0,--\nWait,Sec,600\n",
+        )
         sampled = [temp for t, temp in profile.temp_trace if t <= profile.growth.mid_s][-1]
 
         assert fixed_channel_value_at_growth_mid(profile, "Heater") == 900.0
-        assert sampled != 900.0
+        assert profile.growth.start_s is not None
+        assert sampled == 900.0
 
     def test_a_preheater_at_zero_is_a_reading_not_an_absence(self, tmp_path):
         # P1/P2 have no floor, unlike PC/RTV/Spin: those three are off when

@@ -12,27 +12,24 @@ on its tuple and moves the running temperature, but the clock does not move
 with it — the recipe author is expected to follow every ramp with a matching
 `Wait`, and in every example file they do.
 
-**`Pumping` and `Pumping Forward` are complete no-ops, and that is forced, not
-an oversight.** Their single parameter is a *target pressure* — `Pumping,
-5.00E-01,--`, `Pumping Forward,0.0011,--` — and `params[1]` is always `--`.
-There is no number in the row that could be added to the clock, because the
-real hold is however long the pump takes to reach that pressure, which depends
-on tube state and is not in the recipe. The cost is measured: in the VBBE00
-datalog, `Pumping Forward` occupies **844 of 6903 logged samples, about 14
-minutes** of wall-clock while contributing 0 s to the reconstructed 7960 s. So
-`Timeline.total_time` and every timestamp derived from it are an **idealised
-recipe clock, not wall-clock**, and the two diverge by the cumulative pump-down
-time before the instant in question. Aligning a reconstructed growth window
-against a datalog by absolute seconds will be wrong by exactly that much. Do
-not "fix" this by inventing a duration.
+**`Pumping` and `Pumping Forward` are recorded but never advance the clock, and
+that is forced, not an oversight.** Their single parameter is a *target
+pressure* — `Pumping,5.00E-01,--`, `Pumping Forward,0.0011,--` — and `params[1]`
+is always `--`. There is no number in the row that could be added to the clock,
+because the real hold is however long the pump takes to reach that pressure,
+which depends on tube state and is not in the recipe. The cost is measured: in
+the VBBE00 datalog, `Pumping Forward` occupies **844 of 6903 logged samples,
+about 14 minutes** of wall-clock while contributing 0 s to the reconstructed
+7960 s. So `Timeline.total_time` and every timestamp derived from it are an
+**idealised recipe clock, not wall-clock**, and the two diverge by the
+cumulative pump-down time before the instant in question. Aligning a
+reconstructed growth window against a datalog by absolute seconds will be wrong
+by exactly that much. Do not "fix" this by inventing a duration.
 
-One latent bug is reproduced verbatim rather than fixed, and it is flagged
-where it lives: `find_growth_window` tests `heater_off_t` for **truthiness**,
-so a recipe whose very first command is `Heater Soak` gets `heater_off_t = 0.0`
-and no cutoff at all. No example runcard triggers it (every soak is late), and
-fixing it would silently change which window this app reports for a file it has
-reported on before — a data change, not a display change. The two *display*
-guards that had the same shape are fixed instead; see `processing/stats.py`.
+They are kept in `Timeline.pump_events` regardless, because *where* the recipe
+pumps down is worth drawing even when *how long* is unknowable — and because
+knowing only the "Pumping Forward" spelling silently dropped every HAD* recipe's
+pump-downs, which is 25 of the 39 example files.
 """
 
 import math
@@ -60,24 +57,40 @@ ROOM_TEMP_C = 25.0
 Not measured per run: the runcard never states an ambient, and the first
 `Heater Ramp` states only its target. 25 °C is the CLI's own literal."""
 
-GROWTH_BAND_C = 5.0
-"""The growth window is every trace vertex within this of the run-wide peak.
+_PEAK_TOL_C = 1e-6
+"""How close to the run-wide peak counts as *at* the peak.
 
-A band rather than a crossing: the reconstructed trace has two vertices per
-ramp and no points in between, so an interpolated `peak - 5` crossing would be
-a number invented from a straight line nobody measured."""
+A float-equality tolerance, not a physical band. The growth window's edges are
+equality tests against `peak_temp_c` (see `find_growth_window`); this exists
+only because both sides are floats that came through arithmetic. Widening it
+into a real temperature band is the defect that rule was written to remove."""
 
-COOLDOWN_TAU_SEC = 2400
-"""Time constant of the synthesized exponential cooldown, in seconds (40 min).
+_AMBIENT_FLOOR_C = 100.0
+"""A run whose peak never clears this is treated as having no growth window.
+
+Without it, a recipe that never turns the heater on reports its own ambient as
+a "peak" and the whole run as growth. The reference renderer uses the same
+figure."""
+
+COOLDOWN_TAU_SEC = 1500
+"""Time constant of the synthesized exponential cooldown, in seconds (25 min).
 
 The runcard says nothing about cooling — it only says the heater went off — so
-the tail after `Heater Soak` is a model, not data."""
+the tail after `Heater Soak` is a model, not data. 25 min is the reference
+renderer's own figure; this port briefly used 40 min, carried from an older
+ancestor, which stretched every cooldown tail by two thirds."""
 
 COOLDOWN_STEP_SEC = 60
 """Sampling interval of the cooldown tail, in seconds.
 
 The only uniformly-sampled part of the trace; the ramp phase is a sparse vertex
 list."""
+
+#: The two spellings of the pump-down command. The VBBE family writes
+#: "Pumping Forward"; the HAD* family writes bare "Pumping". Knowing only the
+#: first dropped every HAD* pump-down without a word — and 25 of the 39 example
+#: recipes are HAD*.
+_PUMP_COMMANDS = frozenset({"Pumping", "Pumping Forward"})
 
 #: An MFC must be **strictly above** this to count as flowing. Real runcards
 #: idle a channel at exactly `0.01` sccm — a purge flow, not a process flow —
@@ -127,6 +140,7 @@ class Timeline:
     pc_events: List[NamedEvent]
     rtv_events: List[ValueEvent]
     spin_events: List[ValueEvent]
+    pump_events: List[ValueEvent]
     heater_off_t: Optional[float]
 
 
@@ -214,9 +228,14 @@ def build_timeline(commands: List[RuncardCommand]) -> Timeline:
     """Replay `commands` onto the recipe clock.
 
     A single first-match-wins chain with **no `else`**: an unrecognised command
-    contributes nothing, silently. That is how `Pumping`, `Pumping Forward`,
-    `End` and every row of a mis-fed datalog are dropped, and it is what makes
-    `total_time <= 0` a usable "this file is not a recipe" test.
+    contributes nothing, silently. That is how `End` and every row of a mis-fed
+    datalog are dropped, and it is what makes `total_time <= 0` a usable "this
+    file is not a recipe" test.
+
+    `Pumping` and `Pumping Forward` are **recorded but do not advance the
+    clock** — see `_PUMP_COMMANDS`. Their parameter is a target pressure, so
+    the recipe never says how long the pump-down takes; placing them on the
+    timeline would mean inventing a duration.
 
     Four commands read their value out of different columns, and the asymmetry
     is real rather than a mistake to tidy up:
@@ -227,14 +246,13 @@ def build_timeline(commands: List[RuncardCommand]) -> Timeline:
       `params[0]` — see the note on `rtv_events` below;
     - `Stage Rot` takes `params[0]`.
 
-    `RTV Pressure Ctrl,100 Torr,60` stores `60.0`. Across the whole dataset
-    `params[0]` is only ever `100 Torr` or `1000 Torr` while `params[1]` ranges
-    over {10, 60, 70, 90}, and the measured Tube Pressure during the controlled
-    segment of the VBBE00 run is ~7.9 Torr — so the stored number is neither
-    the gauge range nor the achieved pressure, and the "Torr" the ancestor
-    labelled it with is probably wrong. The arithmetic is reproduced as written
-    because it is what every historical figure was drawn from; the label is
-    the part to be careful about.
+    `RTV Pressure Ctrl,100 Torr,60` stores `60.0`. `params[0]` is only ever
+    `100 Torr` or `1000 Torr` across the dataset — it is the **gauge range** —
+    while `params[1]` is the chamber-pressure setpoint the recipe commands.
+    The reference renderer states this outright ("third column is the actual
+    chamber-pressure setpoint"), which settles a question an earlier note here
+    left open: the number is a pressure in Torr, and the row is labelled
+    accordingly.
 
     `Accumulation PC1`/`PC2` are merged into `pc_events` alongside `MFC/PC
     PC-n` rows, so nothing downstream can tell the two sources apart. Both
@@ -255,6 +273,7 @@ def build_timeline(commands: List[RuncardCommand]) -> Timeline:
     pc_events: List[NamedEvent] = []
     rtv_events: List[ValueEvent] = []
     spin_events: List[ValueEvent] = []
+    pump_events: List[ValueEvent] = []
     heater_off_t: Optional[float] = None
     cur_temp = cur_p1 = cur_p2 = ROOM_TEMP_C
 
@@ -289,12 +308,27 @@ def build_timeline(commands: List[RuncardCommand]) -> Timeline:
             # vanishing.
             (pc_events if channel.startswith("PC-") else mfc_events).append((t, channel, val))
         elif name == "RTV Pressure Ctrl":
+            # params[1], not params[0]: the second column is the *gauge range*
+            # ("100 Torr") and the third is the chamber-pressure setpoint the
+            # recipe actually commands. Reading the range would report the
+            # instrument rather than the process.
             rtv_events.append((t, float(cmd.params[1])))
         elif name.startswith("Accumulation PC") or name.startswith("Accumulation_PC"):
             pc_num = "".join(filter(str.isdigit, name.replace("Accumulation", "")))
             pc_events.append((t, f"PC-{pc_num}", float(cmd.params[0])))
         elif name == "Stage Rot":
             spin_events.append((t, float(cmd.params[0])))
+        elif name in _PUMP_COMMANDS:
+            # Recorded but not clock-advancing. The parameter is a *target
+            # pressure*, not a duration, so the recipe cannot say how long
+            # pumping down takes and the timeline cannot place it. Both
+            # spellings are kept because the VBBE family writes "Pumping
+            # Forward" and the HAD* family writes bare "Pumping"; an earlier
+            # port knew only the first and dropped the HAD* ones silently.
+            try:
+                pump_events.append((t, float(cmd.params[0])))
+            except (TypeError, ValueError):
+                pass
 
     return Timeline(
         total_time=t,
@@ -305,6 +339,7 @@ def build_timeline(commands: List[RuncardCommand]) -> Timeline:
         pc_events=pc_events,
         rtv_events=rtv_events,
         spin_events=spin_events,
+        pump_events=pump_events,
         heater_off_t=heater_off_t,
     )
 
@@ -385,47 +420,75 @@ def build_aux_trace(ramps: List[Ramp], total: float) -> List[TracePoint]:
     return pts
 
 
+def _at_peak(temp: float, peak: float) -> bool:
+    """Whether `temp` *is* the peak, to float tolerance. Not a band — see `_PEAK_TOL_C`."""
+    return abs(temp - peak) < _PEAK_TOL_C
+
+
 def find_growth_window(temp_trace: List[TracePoint], heater_off_t: Optional[float]) -> GrowthWindow:
-    """The stretch of trace within `GROWTH_BAND_C` of the run-wide peak.
+    """Exactly the stretch at the peak: the plateau, not an approximation of it.
 
-    Both edges snap to **trace vertices** and are never interpolated crossings,
-    so the start is the vertex at which the final ramp *completes* — not the
-    moment the rising ramp passed `peak - 5` — and the end is normally the
-    plateau vertex at `heater_off_t`. Verified against the example files:
-    VBBE00 gives 2240 s (= 920 + 1320, the second ramp's end) to 3160 s
-    (= `heater_off_t`).
+    Growth **begins** the instant the trace first reaches `peak_temp_c`, and
+    **ends** the instant it next leaves it. Both edges are equality tests
+    against the peak (within float tolerance), never a band.
 
-    The scan breaks on the first vertex with `t > heater_off_t`, so a vertex at
-    exactly `heater_off_t` is inside the window, and `T >= thresh` is
-    inclusive.
+    A band is what this used to be — every vertex within 5 °C of the peak — and
+    it is a defect, not a simplification. The reference renderer records it as
+    "a previously-fixed bug [that] must not be reintroduced", and this port
+    reintroduced it by carrying an older ancestor forward. A 5 °C band starts
+    the window early on any ramp that passes through `peak - 5` on its way up,
+    which on a slow final ramp is minutes of heating counted as growth.
 
-    Two consequences worth knowing:
+    The end is **the earlier of two things**, which is the other half of what
+    the band got wrong:
 
-    - **A final ramp that completes after the heater went off yields no window
-      at all** — the loop breaks before any vertex clears the threshold — while
-      `peak_temp_c` still reports that ramp's target. Callers must test
-      `start_s`.
-    - **`heater_off_t == 0.0` behaves like `None`.** The guard is a truthiness
-      test, where `build_temp_trace` correctly uses `is not None`, so a recipe
-      whose first command is `Heater Soak` gets a synthesized cooldown but no
-      cutoff in this scan. It is reproduced verbatim: no example runcard
-      triggers it, and changing it would silently move the window this app
-      reports for files it has already reported on.
+    - `heater_off_t`, where the heater goes passive, and
+    - the start of a commanded **ramp-down** — a deliberate step to a lower
+      temperature while the heater is still on.
+
+    Growth does not continue through a ramp-down merely because nothing has
+    said "off" yet. A ramp-down's vertices are `(ramp_start, old_target)` then
+    `(ramp_end, new_target)`, so the moment growth ends is the *first* of that
+    pair: the last instant still at peak.
+
+    `peak > _AMBIENT_FLOOR_C` gates the whole thing, so a recipe that never
+    heats reports no window rather than a "growth window" at room temperature.
 
     Only ever called with a `build_temp_trace` result, which is never empty. An
     empty list would raise `ValueError` out of `max()`; `build_aux_trace`
     output, which *can* be empty, must not be passed here.
     """
     peak = max(temp for _t, temp in temp_trace)
-    thresh = peak - GROWTH_BAND_C
-    start_s = end_s = None
-    for t, temp in temp_trace:
-        if heater_off_t and t > heater_off_t:
-            break
-        if temp >= thresh:
-            if start_s is None:
-                start_s = t
-            end_s = t
+    if peak <= _AMBIENT_FLOOR_C:
+        return GrowthWindow(start_s=None, end_s=None, peak_temp_c=peak)
+
+    start_s = next((t for t, temp in temp_trace if _at_peak(temp, peak)), None)
+    if start_s is None:
+        return GrowthWindow(start_s=None, end_s=None, peak_temp_c=peak)
+
+    # The first vertex pair after the start where the trace steps off the peak.
+    # Taking `t0` (still at peak) rather than `t1` is what keeps a commanded
+    # ramp-down out of the window instead of counting its whole descent.
+    at_or_after = [(t, temp) for t, temp in temp_trace if t >= start_s]
+    ramp_down_t = next(
+        (
+            t0
+            for (t0, temp0), (_t1, temp1) in zip(at_or_after, at_or_after[1:])
+            if _at_peak(temp0, peak) and not _at_peak(temp1, peak)
+        ),
+        None,
+    )
+
+    candidates = [t for t in (heater_off_t, ramp_down_t) if t is not None]
+    end_s = min(candidates) if candidates else temp_trace[-1][0]
+
+    # An end before the start is not a short window, it is no window: it means
+    # the final ramp was still climbing when the heater went off, so the recipe
+    # never held at its own peak. `peak_temp_c` still reports that ramp's
+    # target, which is why callers must test `start_s` and never the peak.
+    if end_s < start_s:
+        return GrowthWindow(start_s=None, end_s=None, peak_temp_c=peak)
+
     return GrowthWindow(start_s=start_s, end_s=end_s, peak_temp_c=peak)
 
 

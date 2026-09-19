@@ -30,23 +30,15 @@ deliberately not carried over:
   `isinstance(val, float)` shading test fail, so the row always came out flat.
   Units live on the row here, so the values stay numeric.
 
-The one label the ancestor got wrong is also dropped: it printed the RTV row's
-value as Torr, and that value is `params[1]` of `RTV Pressure Ctrl`, which
-ranges over {10, 60, 70, 90} while the measured tube pressure during the
-controlled segment of VBBE00 is ~7.9 Torr. It is neither the gauge range nor
-the achieved pressure. The number is reproduced exactly; the unit that
-misdescribed it is not printed.
-
-**The gantt row itself is labelled "RTV", where the ancestor drew "RTV P".**
-41 cards in the example corpus draw this row, so this is the one divergence
-visible when an old figure is held beside a new one, and it is deliberate:
-"RTV P" is short for RTV Pressure, and calling the number a pressure in the
-row label is the same mistake as printing it in Torr, one paragraph up. "RTV"
-is also what every other surface in this app already says about that channel —
-the folder table's column, the summary block's line, the channel id
-`fixed_channel_value_at_growth_mid` takes, and the Runcard page's own caption —
-so "RTV P" would buy agreement with the ancestor at the cost of a gantt row
-that disagrees with the table printed beside it.
+**The RTV row is "RTV P", in Torr.** This app briefly drew it as "RTV" with no
+unit, reasoning that `params[1]` of `RTV Pressure Ctrl` ranges over
+{10, 60, 70, 90} while VBBE00's measured tube pressure during the controlled
+segment is ~7.9 Torr — so the number looked like neither the gauge range nor
+the achieved pressure, and labelling it a pressure looked like a guess. The
+reference renderer answers it directly: the second column is the gauge range
+and the third is *the chamber-pressure setpoint the recipe commands*. The
+recipe asks for 60 Torr; the chamber settles somewhere else. A setpoint and a
+measurement are allowed to differ, and this chart draws recipes.
 """
 
 import math
@@ -55,7 +47,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import plotly.graph_objects as go
 
-from ..processing.growth_window import RuncardProfile, get_species
+from ..processing.growth_window import RuncardProfile, TracePoint, get_species
 from ..processing.stats import (
     BAR_ROW_PX,
     BarRow,
@@ -68,35 +60,55 @@ from ..processing.stats import (
 )
 
 #: Gas species -> (bar fill, outline / marker colour). The fill is the pale end
-#: a bar is shaded toward; the outline is what a marker and a bar edge use. The
-#: hues are the ancestor's and are worth keeping: growers read these plots
-#: beside years of old ones, and H2Se has been pink on all of them.
+#: a bar is shaded toward; the outline is what a marker and a bar edge use.
+#:
+#: These are the *reference renderer's* hues, not the older ancestor's this app
+#: first shipped. Each species keeps its family — H2Se is still pink, O2 still
+#: green — so a grower reading these beside years of old plots still finds the
+#: gas where they expect it; the values themselves are the current ones.
+#:
+#: Both spellings of every subscripted species are listed. A runcard is a
+#: hand-typed CSV and "H₂Se" does occur; matching only the ASCII form would
+#: silently drop one file's gas into the fallback palette.
 GAS_COLORS: Dict[str, Tuple[str, str]] = {
-    "Ar": ("#c8c8c8", "#999999"),
-    "O2": ("#c5e6c0", "#66aa66"),
-    "H2Se": ("#f5c4d0", "#cc6666"),
-    "H2S": ("#f5deb3", "#cc9900"),
-    "H2": ("#f5a0a0", "#cc5555"),
-    "N2": ("#b0c4de", "#666699"),
+    "Ar": ("#d3d1c7", "#888780"),
+    "O2": ("#c0dd97", "#97c459"),
+    "O₂": ("#c0dd97", "#97c459"),
+    "H2": ("#f5c4b3", "#f0997b"),
+    "H₂": ("#f5c4b3", "#f0997b"),
+    "H2Se": ("#ed93b1", "#d4537e"),
+    "H₂Se": ("#ed93b1", "#d4537e"),
+    "H2S": ("#fac775", "#ef9f27"),
+    "H₂S": ("#fac775", "#ef9f27"),
+    "N2": ("#85b7eb", "#378add"),
+    "N₂": ("#85b7eb", "#378add"),
 }
 
-#: For a species this app has never seen. Two, so two unknown gases in one
-#: recipe are told apart; picked by a deterministic hash of the channel name,
-#: so the same recipe draws the same way every time.
+#: For a species this app has never seen. Four, matching the reference's
+#: fallback cycle, so up to four unknown gases in one recipe are told apart;
+#: picked by a deterministic hash of the channel name, so the same recipe draws
+#: the same way every time.
 FALLBACK_GAS_COLORS: Tuple[Tuple[str, str], ...] = (
-    ("#d8b4fe", "#7c3aed"),
-    ("#99f6e4", "#0d9488"),
+    ("#afa9ec", "#7f77dd"),
+    ("#5dcaa5", "#1d9e75"),
+    ("#fac775", "#ef9f27"),
+    ("#85b7eb", "#378add"),
 )
 
-TEMP_COLOR = "#d4522a"
-P1_COLOR = "#4488cc"
-P2_COLOR = "#22886a"
-GROWTH_FILL = "rgba(255,182,193,0.18)"
-GROWTH_STROKE = "#d4849a"
-RTV_COLOR = "#2c2c54"
-PC1_COLOR = "#1a8a7a"
-PC2_COLOR = "#1a5a6a"
-SPIN_COLOR = "#6b7b90"
+TEMP_COLOR = "#d85a30"
+P1_COLOR = "#378add"
+P2_COLOR = "#7f77dd"
+
+#: The colour a combined P1/P2 trace takes when the two preheaters track
+#: identically — teal, so a single line is not mistaken for P1 alone.
+P1P2_COMBINED_COLOR = "#1d9e75"
+
+GROWTH_FILL = "rgba(251,234,240,0.55)"
+GROWTH_STROKE = "#d4537e"
+RTV_COLOR = "#534ab7"
+PC1_COLOR = "#1d9e75"
+PC2_COLOR = "#7f77dd"
+SPIN_COLOR = "#8b96a5"
 
 #: A gas with no entry in `GAS_COLORS` still gets a marker, in grey rather than
 #: in its row's fallback colour — a marker that borrowed the fallback hue would
@@ -363,10 +375,21 @@ def _add_temperature_traces(fig: go.Figure, profile: RuncardProfile, stats: Dict
         hovertemplate="%{x:.1f} min · %{y:.0f} °C<extra>Heater</extra>",
     ))
 
-    for trace, color, dash, label, final in (
-        (profile.p1_trace, P1_COLOR, "6px,4px", "P1", stats["p1_T"]),
-        (profile.p2_trace, P2_COLOR, "4px,6px", "P2", stats["p2_T"]),
-    ):
+    if _tracks_identically(profile.p1_trace, profile.p2_trace):
+        # One line, not two drawn on top of each other. Both preheaters held at
+        # one temperature is the ordinary case for these recipes, and two
+        # dashed traces at identical y render as a single line of uncertain
+        # identity with two legend entries claiming it.
+        entries = (
+            (profile.p1_trace, P1P2_COMBINED_COLOR, "6px,4px", "P1/P2", stats["p1_T"]),
+        )
+    else:
+        entries = (
+            (profile.p1_trace, P1_COLOR, "6px,4px", "P1", stats["p1_T"]),
+            (profile.p2_trace, P2_COLOR, "4px,6px", "P2", stats["p2_T"]),
+        )
+
+    for trace, color, dash, label, final in entries:
         if not trace:
             continue
         name = f"{label} ({final:.0f} °C)" if final is not None else label
@@ -379,25 +402,64 @@ def _add_temperature_traces(fig: go.Figure, profile: RuncardProfile, stats: Dict
         ))
 
 
+def _tracks_identically(p1: Sequence[TracePoint], p2: Sequence[TracePoint]) -> bool:
+    """Whether the two preheater traces are the same line to the nearest 0.1 °C.
+
+    Both non-empty and equal-valued at twenty evenly spaced samples, which is
+    the reference's own test. Sampling rather than comparing vertex lists,
+    because two recipes can reach the same hold by different numbers of ramps
+    and still draw one line.
+
+    `False` whenever either is empty, so a recipe with only P1 keeps P1's own
+    colour and label rather than being reported as a combined pair.
+    """
+    if not p1 or not p2:
+        return False
+    span = max(p1[-1][0], p2[-1][0])
+    if span <= 0:
+        return False
+    return all(
+        round(_interp(p1, (i / 20) * span), 1) == round(_interp(p2, (i / 20) * span), 1)
+        for i in range(21)
+    )
+
+
+def _interp(trace: Sequence[TracePoint], t: float) -> float:
+    """Temperature at `t` along `trace`, clamped at both ends.
+
+    A local copy of `stats.interp_temp`'s arithmetic rather than an import:
+    this one answers "are these the same line", where that one places a marker
+    on a line, and tying the two together would mean a change made for one
+    silently moving the other.
+    """
+    if not trace:
+        return 0.0
+    if t <= trace[0][0]:
+        return trace[0][1]
+    if t >= trace[-1][0]:
+        return trace[-1][1]
+    for (t0, temp0), (t1, temp1) in zip(trace, trace[1:]):
+        if t0 <= t <= t1:
+            if t1 == t0:
+                return temp0
+            return temp0 + (temp1 - temp0) * (t - t0) / (t1 - t0)
+    return trace[-1][1]
+
+
 def _add_gas_markers(fig: go.Figure, profile: RuncardProfile) -> None:
     """A dot on the temperature line wherever a reactive gas opened or closed.
 
-    Markers inside the growth window are suppressed: that stretch is already
-    shaded and captioned, and the labels land on top of the caption. The guard
-    is `is not None` on the window edges rather than the ancestor's truthiness
-    test, which suppressed nothing at all for a window starting at t=0.
+    Which events exist at all is `stats.gas_events`'s decision, not this
+    function's: it already drops the carriers, the t=0 setup block, and
+    anything inside the growth window. This used to re-filter the window here
+    as well, which meant one rule in two places — and the two disagreed about
+    the edges, because `gas_events` allows a tolerance either side and this did
+    not. Everything handed back is drawn.
 
-    Labels alternate above and below the line, and the alternation advances
-    only on markers that are actually drawn — so a suppressed one does not flip
-    the parity and leave two consecutive labels stacked on the same side. The
-    temperature itself is left to the hover box; printing it beside every
-    marker is what made these plots unreadable wherever two valves moved in the
-    same minute.
+    Labels alternate above and below the line. The temperature itself is left
+    to the hover box; printing it beside every marker is what made these plots
+    unreadable wherever two valves moved in the same minute.
     """
-    events = gas_events(profile)
-    start_s, end_s = profile.growth.start_s, profile.growth.end_s
-    in_window = start_s is not None and end_s is not None
-
     xs: List[float] = []
     ys: List[float] = []
     texts: List[str] = []
@@ -406,9 +468,7 @@ def _add_gas_markers(fig: go.Figure, profile: RuncardProfile) -> None:
     customdata: List[List[float]] = []
     above = True
 
-    for event in events:
-        if in_window and start_s <= event.t_s <= end_s:
-            continue
+    for event in gas_events(profile):
         xs.append(event.t_s / 60)
         ys.append(event.temp_c)
         texts.append(_escape(f"{event.species} {event.direction}"))
