@@ -8,6 +8,7 @@ from modules.runcard.io import parser
 from modules.runcard.io.parser import (
     RuncardCommand,
     derive_run_id,
+    file_mtime,
     list_runcards,
     load_runcard,
     parse_runcard,
@@ -261,3 +262,26 @@ class TestDeriveRunId:
         path = _write_runcard(tmp_path, RUNCARD_FULL, "0810_VBBE00_runcard.csv")
 
         assert derive_run_id(path) == "VBBE00"
+
+
+class TestFileMtime:
+    """The only date a recipe carries.
+
+    A runcard's own clock starts at zero and the CSV records nothing about when
+    it was written, so "which of these is the latest" can only be asked of the
+    filesystem. The same number is `load_runcard`'s cache key, which is why it
+    is one public function rather than two private ones that could drift.
+    """
+
+    def test_it_reports_the_files_modification_time(self, tmp_path):
+        path = tmp_path / "VBBE00.csv"
+        path.write_text(RUNCARD_FULL, encoding="utf-8", newline="")
+        os.utime(path, (1_000_000_000, 1_000_000_000))
+
+        assert file_mtime(str(path)) == pytest.approx(1_000_000_000)
+
+    def test_a_file_that_cannot_be_statted_is_minus_one(self, tmp_path):
+        # Not an exception and not 0: the Runcard table renders this as an
+        # empty cell and sorts it last, where a 0 would read as 1970 and sort
+        # among real dates.
+        assert file_mtime(str(tmp_path / "does-not-exist.csv")) == -1.0

@@ -4,9 +4,10 @@ Runcard: a folder of recipe CSVs in, a comparable table and a profile chart out.
 Point it at an archive folder and it reads every `.csv` beneath it, keeps the
 ones that read as real recipes, and gives:
 
-  1  a table  one row per recipe — total time, peak temperature, growth
-               window, and the setpoint each gas, controller, valve and the
-               stage was holding at the growth midpoint
+  1  a table  one row per recipe — when the file was last written, total
+               time, peak temperature, growth window, and the setpoint each
+               gas, controller, valve and the stage was holding at the growth
+               midpoint. Listed newest file first.
   2  a chart  the ticked recipe replayed: the heater's reconstructed
                temperature with its cooldown tail, the preheaters, the growth
                window shaded, gas valves marked where they moved, and a gantt
@@ -38,6 +39,7 @@ a different row redraws from state.
 """
 
 import os
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -47,7 +49,7 @@ from core.io.export import export_figure_html, export_figure_png, prompt_save_pa
 from core.io.folder_picker import prompt_folder_path
 from core.viz.render import render_plot
 from modules.runcard.io.config_store import load_runcard_folder, save_runcard_folder
-from modules.runcard.io.parser import derive_run_id, list_runcards, load_runcard
+from modules.runcard.io.parser import derive_run_id, file_mtime, list_runcards, load_runcard
 from modules.runcard.processing.growth_window import (
     RuncardProfile,
     build_profile,
@@ -119,9 +121,17 @@ def _summary_row(path: str, profile: RuncardProfile, species: list[str]) -> dict
     """
     stats = profile_stats(profile)
     has_window = stats["gw_start_min"] is not None
+    # The only wall-clock on the page. Every other time column here is minutes
+    # into the run, because a recipe's clock starts at zero and the file says
+    # nothing about when it was written — so "which of these is the latest" can
+    # only be answered by the filesystem. Local time, which is the clock the
+    # person asking is reading. `-1.0` is `file_mtime`'s "could not stat", and
+    # must stay empty rather than render as 1970.
+    mtime = file_mtime(path)
     row = {
         "path": path,
         "Run": derive_run_id(path),
+        "Modified": datetime.fromtimestamp(mtime) if mtime >= 0 else None,
         "Total (min)": stats["total_min"],
         "Peak T (°C)": stats["peak_T"],
         "Growth (min)": stats["gw_dur"] if has_window else None,
@@ -199,6 +209,16 @@ def _scan_folder(state: dict) -> None:
                     rows.append(_summary_row(path, profiles[path], species))
                 except Exception as e:
                     errors.append((os.path.basename(path), str(e)))
+            # Newest first, so the latest recipes are the ones on screen
+            # without a click: a folder of fifty is nearly always opened with a
+            # question about the last few runs. Clicking any header — `Modified`
+            # included — still re-sorts, and the table's row selection is by
+            # position in *this* order, so a UI sort does not disturb it.
+            # Files with no readable mtime sort last rather than to 1970.
+            rows.sort(
+                key=lambda r: (r["Modified"] is not None, r["Modified"] or datetime.min),
+                reverse=True,
+            )
             state["rows"] = rows
             state["errors"] = errors
 
@@ -354,6 +374,7 @@ if state["folder"] and state["rows"] is not None:
             # `state["selected"]` instead does not work.
             key=runcard_table_key(state["folder"]),
             column_config={
+                "Modified": st.column_config.DatetimeColumn(format="YYYY-MM-DD HH:mm"),
                 "Total (min)": st.column_config.NumberColumn(format="%.0f"),
                 "Peak T (°C)": st.column_config.NumberColumn(format="%.0f"),
                 "Growth (min)": st.column_config.NumberColumn(format="%.1f"),

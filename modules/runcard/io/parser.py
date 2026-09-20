@@ -127,7 +127,7 @@ def load_runcard(path: Union[str, Path]) -> List[RuncardCommand]:
         # renders "Running _parse_at_mtime(...)" once per file, in the middle of
         # the page's own progress bar.
         _CACHED_PARSE = st.cache_data(show_spinner=False, max_entries=512)(_parse_at_mtime)
-    return _CACHED_PARSE(str(path), _file_mtime(path))
+    return _CACHED_PARSE(str(path), file_mtime(path))
 
 
 def _parse_at_mtime(path: str, mtime: float) -> List[RuncardCommand]:
@@ -141,8 +141,14 @@ def _parse_at_mtime(path: str, mtime: float) -> List[RuncardCommand]:
     return parse_runcard(path)
 
 
-def _file_mtime(path: Union[str, Path]) -> float:
-    """Modification time, or -1.0 for a file that cannot be stat'ed."""
+def file_mtime(path: Union[str, Path]) -> float:
+    """Modification time, or -1.0 for a file that cannot be stat'ed.
+
+    Public because it is two answers, not one: it moves `load_runcard`'s cache
+    key, and it is also the only date these recipes carry — the clock inside
+    them starts at zero, so "when was this written" can only be asked of the
+    file. The Runcard page shows it as a column.
+    """
     try:
         return os.path.getmtime(path)
     except OSError:

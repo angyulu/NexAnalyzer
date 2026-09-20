@@ -11,6 +11,9 @@ logic behind them is unit-tested in test_runcard_state.py.
 page's `from x import y` lines re-execute on every run and pick the patch up.
 """
 
+import os
+from datetime import datetime
+
 import pytest
 from streamlit.testing.v1 import AppTest
 
@@ -153,3 +156,46 @@ class TestTheProfileSectionIsSkippedWhenNothingCanBeCharted:
         at = self._page_with_a_stale_selection(tmp_path)
 
         assert any("read as a recipe" in w.value for w in at.warning)
+
+
+class TestTheTableIsOrderedNewestFirst:
+    """A folder of fifty recipes is nearly always opened about the last few.
+
+    A recipe's clock starts at zero and the file records no date inside itself,
+    so the filesystem's mtime is the only thing that can answer "which did I
+    write last". Sorting on it means the answer is on screen without a click.
+    """
+
+    def _folder_with(self, tmp_path, names_and_times):
+        folder = tmp_path / "cards"
+        folder.mkdir()
+        for name, when in names_and_times:
+            path = folder / f"{name}.csv"
+            path.write_text(RUNCARD_FULL, encoding="utf-8", newline="")
+            os.utime(path, (when, when))
+        return str(folder)
+
+    def test_the_newest_recipe_is_the_first_row(self, tmp_path, monkeypatch):
+        folder = self._folder_with(tmp_path, [
+            ("OLDEST", 1_000_000_000),
+            ("NEWEST", 1_400_000_000),
+            ("MIDDLE", 1_200_000_000),
+        ])
+
+        at = AppTest.from_file(_PAGE, default_timeout=60).run()
+        at = _pick(at, monkeypatch, folder)
+
+        assert not at.exception, [e.value for e in at.exception]
+        assert [row["Run"] for row in at.session_state["runcard"]["rows"]] == [
+            "NEWEST", "MIDDLE", "OLDEST",
+        ]
+
+    def test_every_row_carries_its_modified_date(self, tmp_path, monkeypatch):
+        folder = self._folder_with(tmp_path, [("A", 1_000_000_000)])
+
+        at = AppTest.from_file(_PAGE, default_timeout=60).run()
+        at = _pick(at, monkeypatch, folder)
+
+        row = at.session_state["runcard"]["rows"][0]
+        assert row["Modified"] is not None
+        assert row["Modified"].year == datetime.fromtimestamp(1_000_000_000).year
