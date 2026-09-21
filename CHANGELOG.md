@@ -5,6 +5,67 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.4.0] - 2026-09-21
+
+### Fixed
+
+- **Running the auto-workflow twice ran it on its own output, so an edited
+  preset was applied to the residual of the old one.** Stage 2 reads
+  `processed_data`, and nothing reset it, so a second run despiked an
+  already-despiked array and ALS-baselined an already-baselined one. Reported
+  as "we changed the MoS2 preset and the spectra didn't follow". Three
+  symptoms, one cause, all fixed by `execute_auto_workflow` calling
+  `reset_to_raw()` before stage 1:
+  - **X-range could only ever narrow.** Stage 1 overwrote `raw_data` with the
+    crop and then cropped *that* next time, so widening 370-420 to 340-450 left
+    the data at 370-420 — reporting success, with no warning. The full trace was
+    never lost (`original_data` holds it), but only the sidebar's Reset to Raw
+    restored it.
+  - **Switching the baseline to "None (Skip)" changed nothing.** Skipping
+    declines to subtract a *new* baseline; it cannot un-subtract the previous
+    run's, which stayed.
+  - **Even an unedited preset drifted.** Three runs of the committed MoS2 block
+    moved the A1g area 1388 -> 1344 -> 1314, about -5%.
+
+  A re-run now equals a fresh load of the file, bit for bit. Operators who
+  learned to press Reset to Raw first no longer need to, and pressing it is
+  still harmless. The reset runs *after* the technique-block check, so picking
+  a material that has no block for the loaded file's technique still fails
+  without discarding the fit already on screen.
+
+- **MoS2 could never appear in the QC Report's Raman quality figure.**
+  `PANEL_COLUMNS` names WSe2's peaks (`E2g+A1g`, `2LA`, `B2g`, and the `LA`/`C`
+  ratios); MoS2 fits `E2g` and `A1g` as separate peaks, which match none of
+  them, so all six panels read "no E2g+A1g fits" however good the fits were —
+  on every run, so no preset edit could change it. `QualityFigureSpec.columns_for`
+  now falls back to FWHM and centre columns built from the peaks the sample
+  actually fitted. The test is "would this render empty", not "is this WSe2": a
+  material sharing even one inherited peak keeps the inherited columns, spec
+  lines and ratio column included, and the WSe2 and PL figures are byte-identical
+  to v5.3.0. Fallback panels carry **no spec lines and no ratio column** — the
+  four spec values in this lineage are inherited literals tied to WSe2's peaks,
+  and there is no measured tolerance for another material's.
+
+### Added
+
+- **The Spectra page says when the fit on screen predates the preset beside
+  it.** The QC Report has compared preset fingerprints since v5.0.0; the
+  Spectra page compared nothing, so editing a preset and returning left a stale
+  fit displayed with no indication. It now records the technique-block
+  fingerprint each file was fitted with and warns above the Run button when the
+  selected preset no longer matches, naming the other material when the
+  selection itself changed. A warning, not an automatic refit: fitting is the
+  operator's action, and the previous fit stays exportable until they take it.
+  `fit_stale` already existed but covered despike and baseline only, and
+  nothing rendered it.
+
+### Changed
+
+- **`fit_voigt_peaks` no longer branches on `shape < 0.5`.** Both arms of the
+  if/else were byte-identical — the split is linear in `shape` across the whole
+  range — so the branch only suggested the halves were treated differently. No
+  numbers move.
+
 ## [5.3.0] - 2026-09-19
 
 ### Added

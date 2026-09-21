@@ -79,6 +79,31 @@ def execute_auto_workflow(
                 f"page, or pick a material that has one."
             )
 
+        # Start from the measurement, every time. Stage 2 reads
+        # `processed_data`, so without this the pipeline ran on its own previous
+        # output: a re-run despiked an already-despiked array and ALS-baselined
+        # an already-baselined one. Editing a preset and pressing Run again then
+        # applied the new setting to the *residual of the old one* rather than
+        # to the spectrum, which is how a changed preset could look like it had
+        # no effect. Three symptoms, one cause:
+        #   - x-range could only ever narrow, because stage 1 overwrote
+        #     `raw_data` with the crop and then cropped that again next time;
+        #   - switching baseline to "None (Skip)" left the previous ALS
+        #     baseline subtracted, since skipping only declines to subtract a
+        #     *new* one;
+        #   - even re-running an unedited preset drifted the fitted areas by a
+        #     few percent per run.
+        # `reset_to_raw` restores from `original_data`, which no stage writes,
+        # and clears the flags and fit that belong to the superseded run. It is
+        # the same call the sidebar's "Reset to Raw" button makes -- operators
+        # previously had to know to press it first.
+        #
+        # After the block check, not before: a material with no block for this
+        # file's technique cannot run, and discarding a good fit on the way to
+        # saying so would make picking the wrong material in the dropdown
+        # destructive.
+        spectrum.reset_to_raw()
+
         # ========== STAGE 1: X-RANGE CROPPING ==========
         # Match manual workflow: replicate what happens when user clicks "Apply X-Range"
         if block.x_range_enabled:

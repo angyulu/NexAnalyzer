@@ -220,6 +220,45 @@ PL_PANEL_COLUMNS: PanelColumns = (
 )
 
 
+#: Axis labels per technique, for panels built from a material's own peaks
+#: rather than from the inherited columns above.
+_AXIS_LABELS = {
+    "Raman": ("FWHM (cm⁻¹)", "Raman shift (cm⁻¹)"),
+    "PL": ("FWHM (nm)", "Wavelength (nm)"),
+}
+
+
+def panels_for_labels(labels: Sequence[str], technique: str) -> PanelColumns:
+    """FWHM and centre columns for `labels`, in the order given.
+
+    The inherited `PANEL_COLUMNS` name WSe₂'s peaks (`E2g+A1g`, `2LA`, `B2g`)
+    and PL's name the WSe₂ lineage's two. A material whose peaks are called
+    something else — MoS₂ fits `E2g` and `A1g` as separate peaks — matches none
+    of them, and every panel rendered "no E2g+A1g fits" however good the fits
+    were. This builds the columns from the peaks actually present instead.
+
+    **No spec lines, deliberately.** The four in this lineage are inherited
+    literals tied to WSe₂'s peaks (see the module docstring); there is no
+    measured tolerance for an arbitrary material's peaks, and a grey line the
+    reader takes for a spec is worse than no line. Panels built here carry
+    `spec=None`.
+
+    **No ratio column either.** `RAMAN_RATIO_PAIRS` is the lineage's two
+    diagnostic ratios; which ratios mean something for another material is a
+    materials question, not a plotting one.
+    """
+    fwhm_label, center_label = _AXIS_LABELS.get(technique, _AXIS_LABELS["Raman"])
+    return (
+        ("FWHM", tuple(
+            PeakPanel(label, "fwhm", fwhm_label, label) for label in labels
+        )),
+        ("Peak Centers", tuple(
+            PeakPanel(label, "center", center_label, f"{label} center")
+            for label in labels
+        )),
+    )
+
+
 @dataclass(frozen=True)
 class QualityFigureSpec:
     """Everything that makes this figure one technique's rather than another's.
@@ -233,6 +272,32 @@ class QualityFigureSpec:
     columns: PanelColumns
     cleaning: CleaningRule
     statistic: str  # "mean" | "median" — the per-position marker
+
+    def columns_for(self, labels: Sequence[str]) -> PanelColumns:
+        """`columns`, or peak-derived ones when they name none of `labels`.
+
+        The test is "does any panel address a peak this sample actually
+        fitted", not "is this WSe₂": a material that happens to share the
+        inherited peak names keeps the inherited columns, spec lines and all.
+        Only a sample that would otherwise render entirely empty falls back.
+        """
+        # dict, not set: peak order is the order the fitter reports, which is
+        # the preset's own — E2g before A1g, ascending in wavenumber. Sorting
+        # would put A1g first and read as wrong to anyone who knows the
+        # spectrum.
+        present = dict.fromkeys(labels)
+        for _, panels in self.columns:
+            for panel in panels:
+                named = (
+                    (panel.numerator, panel.denominator)
+                    if isinstance(panel, RatioPanel)
+                    else (panel.peak,)
+                )
+                if any(name in present for name in named):
+                    return self.columns
+        if not present:
+            return self.columns
+        return panels_for_labels(tuple(present), self.technique)
 
 
 RAMAN_QUALITY = QualityFigureSpec("Raman", PANEL_COLUMNS, RAMAN_CLEANING, "mean")
@@ -406,9 +471,10 @@ def build_peak_quality_figure(
     `spec` carries the columns, the cleaning rule and the per-position marker
     statistic as one value: pass `RAMAN_QUALITY` or `PL_QUALITY`.
 
-    The grid is computed from `spec.columns`, so a column with fewer panels
-    than its neighbours simply leaves its bottom cell empty rather than having
-    its last panel silently dropped.
+    The grid is computed from `spec.columns_for(...)` — the spec's own columns,
+    or ones built from this sample's peak labels when the spec's name none of
+    them — so a column with fewer panels than its neighbours simply leaves its
+    bottom cell empty rather than having its last panel silently dropped.
 
     Returns bytes rather than a Figure so a caller cannot leak the canvas.
     """
@@ -419,6 +485,16 @@ def build_peak_quality_figure(
 
     records = _clean(_records(fits_by_point), spec.cleaning)
 
+    # Resolved from the fits, not from `spec`: a material whose peaks the
+    # inherited columns never name gets columns built from its own. Taken
+    # before cleaning, so the panel set is a property of the material rather
+    # than of how well this particular sample fitted — a sample cleaned down to
+    # nothing keeps its panels and shows them empty, which is the honest
+    # result.
+    columns = spec.columns_for(
+        [peak.label for _, fit in fits_by_point for peak in fit.fitted_peaks]
+    )
+
     # Positions come from the fits, not from the surviving records: a position
     # whose every fit was cleaned away keeps its tick and shows as a gap, which
     # is the thing worth seeing. Dropping it would close the gap and make nine
@@ -426,14 +502,14 @@ def build_peak_quality_figure(
     positions = sorted({point for point, _ in fits_by_point})
     spectra = len(fits_by_point)
 
-    n_cols = len(spec.columns)
-    n_rows = max(len(panels) for _, panels in spec.columns)
+    n_cols = len(columns)
+    n_rows = max(len(panels) for _, panels in columns)
 
     fig = plt.figure(figsize=(_COLUMN_W_IN * n_cols, _ROW_H_IN * n_rows), dpi=dpi)
     try:
         grid = gridspec.GridSpec(n_rows, n_cols, figure=fig, hspace=0.0, wspace=0.30)
 
-        for column, (title, panels) in enumerate(spec.columns):
+        for column, (title, panels) in enumerate(columns):
             top = None
             for row, panel in enumerate(panels):
                 ax = fig.add_subplot(grid[row, column], sharex=top)

@@ -180,16 +180,12 @@ def fit_voigt_peaks(
 
         # Convert FWHM to sigma/gamma using shape parameter
         # Shape: 0 = pure Gaussian, 1 = pure Lorentzian, 0.5 = equal contribution
+        # The split is linear in shape across the whole range; this used to be
+        # written as an if/else on shape < 0.5 whose two arms were identical,
+        # which read as though the halves were treated differently.
         shape = peak.shape
-
-        if shape < 0.5:
-            # More Gaussian-like
-            frac_gaussian = 1.0 - shape
-            frac_lorentzian = shape
-        else:
-            # More Lorentzian-like
-            frac_gaussian = 1.0 - shape
-            frac_lorentzian = shape
+        frac_gaussian = 1.0 - shape
+        frac_lorentzian = shape
 
         # Distribute FWHM according to shape
         # Gaussian FWHM = 2.355 * sigma, Lorentzian FWHM = 2 * gamma

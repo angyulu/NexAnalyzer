@@ -23,6 +23,7 @@ from core.io.export import (
 )
 from ..io.results_csv import export_fit_params_csv, export_master_csv
 from ..io.preset_store import load_presets
+from ..utils.preset_staleness import technique_fingerprint
 from ..viz.fit_plot import plot_composite
 from .session_state import (
     initialize_session_state,
@@ -102,6 +103,56 @@ def _describe_detected_modes(files) -> None:
         st.caption(f"**Detected from filenames**: {line}")
 
 
+#: Fingerprint of the preset block each file was last fitted with, keyed by
+#: filename. Session state rather than a `SpectrumFile` field: which preset a
+#: fit came from is a UI affordance, not part of the measurement, and keeping
+#: it here leaves the model's serialization alone.
+_FIT_PRESET_KEY = "fit_preset_fingerprints"
+
+
+def _remember_fit_preset(spectrum, preset) -> None:
+    """Record which preset block `spectrum` was just fitted with."""
+    fingerprints = st.session_state.setdefault(_FIT_PRESET_KEY, {})
+    fingerprints[spectrum.filename] = (
+        preset.material_name, technique_fingerprint(preset, spectrum.mode)
+    )
+
+
+def _warn_if_preset_moved(spectrum, preset) -> None:
+    """Say so when the selected preset no longer matches the displayed fit.
+
+    The QC Report has compared preset fingerprints since v5.0.0 and tells the
+    operator to re-run; the Spectra page compared nothing, so editing a preset
+    and coming back left a fit on screen that no longer matched the settings
+    beside it, with nothing to say so. `fit_stale` covers despike and baseline
+    only -- and nothing rendered it either.
+
+    A warning, not an automatic refit: fitting is the operator's action, and
+    the previous fit stays exportable until they take it.
+    """
+    if spectrum is None or not spectrum.fit_done:
+        return
+    remembered = st.session_state.get(_FIT_PRESET_KEY, {}).get(spectrum.filename)
+    if remembered is None:
+        return  # fitted before this ran, or by hand; nothing to compare against
+
+    material, fingerprint = remembered
+    if material == preset.material_name and \
+            fingerprint == technique_fingerprint(preset, spectrum.mode):
+        return
+
+    made_with = (
+        f"**{material}**'s earlier settings"
+        if material == preset.material_name
+        else f"**{material}**, not **{preset.material_name}**"
+    )
+    st.warning(
+        f"The fit shown was made with {made_with}. Run the auto-workflow "
+        f"again to apply the current preset.",
+        icon="⚠️",
+    )
+
+
 def render_sidebar():
     """
     Render sidebar with mode toggle, file upload, and results export.
@@ -168,6 +219,10 @@ def render_sidebar():
             if current_spectrum is None:
                 st.caption("Load spectrum files below to enable Auto-Workflow")
 
+            # Immediately above the Run button, which is the thing to press
+            # about it.
+            _warn_if_preset_moved(current_spectrum, preset)
+
             # No max-iterations control here. As of v5.2.0 the fit iteration
             # budget is a field of the technique block, edited on the Material
             # Presets page alongside the baseline and peak settings it belongs
@@ -189,6 +244,8 @@ def render_sidebar():
                     # Show success message with summary
                     summary = format_workflow_summary(result, preset, current_spectrum.mode)
                     st.success(summary)
+
+                    _remember_fit_preset(current_spectrum, preset)
 
                     # Update view options to show fit results
                     st.session_state['show_fit'] = True
@@ -274,6 +331,7 @@ def render_sidebar():
                             result = execute_auto_workflow(spectrum, preset)
                             if result["success"]:
                                 success_count += 1
+                                _remember_fit_preset(spectrum, preset)
                             else:
                                 failed_files.append(
                                     (filename, result.get("error_message") or "Unknown error")

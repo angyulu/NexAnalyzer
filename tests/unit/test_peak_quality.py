@@ -450,3 +450,86 @@ class TestBuildFigure:
         png = build_peak_quality_figure(fits, sample_name="Gap", spec=PL_QUALITY)
 
         assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+class TestColumnsForAMaterialTheInheritedPanelsDoNotName:
+    """v5.4.0: MoS₂ fits peaks called `E2g` and `A1g` separately, and the
+    inherited columns name `E2g+A1g`, `2LA`, `B2g`, `LA`, `LB` and `C`. Every
+    panel therefore read "no E2g+A1g fits" however good the fits were, on every
+    run — so no MoS₂ preset edit could ever change this figure.
+    """
+
+    def _mos2_fit(self):
+        return _fit([
+            _peak("E2g", center=383.0, intensity=100.0, width_fwhm=6.5),
+            _peak("A1g", center=408.0, intensity=140.0, width_fwhm=8.5),
+        ])
+
+    def test_a_wse2_sample_keeps_the_inherited_columns(self):
+        """Identity, not equality: the inherited tuple must be handed back
+        untouched, spec lines and ratio column included."""
+        labels = [peak.label for peak in _wse2_fit().fitted_peaks]
+
+        assert RAMAN_QUALITY.columns_for(labels) is PANEL_COLUMNS
+
+    def test_one_matching_peak_is_enough_to_keep_them(self):
+        """The test is "would this render empty", not "is this WSe₂". A
+        material sharing even one inherited peak keeps the inherited panels."""
+        assert RAMAN_QUALITY.columns_for(["E2g+A1g", "Nonsense"]) is PANEL_COLUMNS
+
+    def test_a_pl_sample_keeps_the_inherited_pl_columns(self):
+        labels = [peak.label for peak in _pl_fit().fitted_peaks]
+
+        assert PL_QUALITY.columns_for(labels) is PL_PANEL_COLUMNS
+
+    def test_mos2_gets_columns_naming_its_own_peaks(self):
+        columns = RAMAN_QUALITY.columns_for(["E2g", "A1g"])
+
+        titles = [title for title, _ in columns]
+        assert titles == ["FWHM", "Peak Centers"]
+        assert [panel.peak for panel in columns[0][1]] == ["E2g", "A1g"]
+        assert [panel.peak for panel in columns[1][1]] == ["E2g", "A1g"]
+        assert [panel.metric for panel in columns[0][1]] == ["fwhm", "fwhm"]
+        assert [panel.metric for panel in columns[1][1]] == ["center", "center"]
+
+    def test_the_peaks_keep_the_order_the_fit_reports_them_in(self):
+        """The fitter returns the preset's order, ascending in wavenumber.
+        Sorting would print A1g above E2g and read as wrong."""
+        columns = RAMAN_QUALITY.columns_for(["E2g", "A1g", "E2g", "A1g"])
+
+        assert [panel.peak for panel in columns[0][1]] == ["E2g", "A1g"]
+
+    def test_no_spec_line_is_invented(self):
+        """The four spec values in this lineage are inherited literals tied to
+        WSe₂'s peaks. There is no measured tolerance for another material's,
+        and a grey line a reader takes for a spec is worse than no line."""
+        columns = RAMAN_QUALITY.columns_for(["E2g", "A1g"])
+
+        assert all(panel.spec is None
+                   for _, panels in columns for panel in panels)
+
+    def test_no_ratio_column_is_invented(self):
+        """`RAMAN_RATIO_PAIRS` is the lineage's two diagnostic ratios. Which
+        ratios mean something for another material is a materials question."""
+        columns = RAMAN_QUALITY.columns_for(["E2g", "A1g"])
+
+        assert "Diagnostic Ratios" not in [title for title, _ in columns]
+
+    def test_the_units_follow_the_technique(self):
+        raman = RAMAN_QUALITY.columns_for(["E2g"])
+        pl = PL_QUALITY.columns_for(["Defect"])
+
+        assert "cm⁻¹" in raman[0][1][0].ylabel
+        assert "nm" in pl[0][1][0].ylabel
+
+    def test_a_sample_with_no_peaks_at_all_keeps_the_inherited_columns(self):
+        """Nothing to build from, and an empty grid would raise."""
+        assert RAMAN_QUALITY.columns_for([]) is PANEL_COLUMNS
+
+    def test_the_rendered_mos2_figure_plots_its_peaks(self):
+        fits = [(point, self._mos2_fit()) for point in range(1, 4)]
+
+        png = build_peak_quality_figure(
+            fits, "MoS2-01", material_name="MoS₂", spec=RAMAN_QUALITY)
+
+        assert png.startswith(b"\x89PNG")
