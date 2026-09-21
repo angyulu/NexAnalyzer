@@ -5,6 +5,46 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.5.0] - 2026-09-21
+
+### Added
+
+- **A run stored twice is listed once, and Duplicate cleanup deletes the spare
+  copy.** The analysis folder is fed by a copier that matches on filename and
+  only ever adds, so renaming a run makes its source look absent on the next
+  pass and the recorder's original `DDHHMMSS.csv` name is copied straight back
+  in — HA1P01's 2026_09 folder was holding fourteen such pairs, every one
+  byte-identical to the renamed file beside it. `io.duplicates` answers it in
+  two parts, and which is primary matters: the copier runs on the tool PC on a
+  roughly three-minute cycle, so *deleting* a stale copy is a race this side
+  cannot win, while not *showing* one is a promise it can always keep.
+  `without_duplicates` filters the run list, and Duplicate cleanup reclaims the
+  disk space on demand by way of the Recycle Bin, never an unrecoverable
+  delete. Both read one `stale_copies` rule, so the preview an operator
+  confirms names exactly the files the table stopped showing them.
+
+  A file is a candidate only when another file *in the same directory* already
+  carries the canonical name for that run, and only on identical bytes: a
+  group with no canonically-named member is not a rename artifact and is left
+  alone, and a truncated or half-copied near-duplicate stays on disk *and*
+  stays visible, which is where someone will notice it. The same run under two
+  month folders is an archiving decision and is never touched. Grouping on the
+  `(directory, start, end, row count)` the folder scan has already read is what
+  makes it affordable — bytes are read only for files that already agree on all
+  four, which on the real 1392-run folder is ten files and 0.03 s, and the
+  digests are cached against mtime and size so the 60-second tick costs nothing.
+
+### Fixed
+
+- **`tag_store.clear_runcard_tag` deletes a tag entry without creating a
+  sidecar to say so.** `set_runcard_tag(..., "")` reaches the same result but
+  rewrites `runcard_tags.json` either way, so clearing a tag that was never
+  stored wrote the file into a folder that had never been tagged. The new
+  function returns without writing when the key is absent, matching what
+  `move_runcard_tag` already did for the same reason. Nothing else changes: the
+  on-disk format and the empty-tag-means-delete rule are untouched, and
+  `set_runcard_tag` keeps its behaviour for the tag editor that calls it.
+
 ## [5.4.1] - 2026-09-21
 
 ### Fixed
@@ -23,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shrink stops at `_FS_TITLE_MIN` (14pt) — below that the header stops reading
   as a title, and a string that long wants shortening at the source. The
   figure header only; no reported number changes.
+
 ## [5.4.0] - 2026-09-21
 
 ### Fixed

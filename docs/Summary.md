@@ -35,7 +35,7 @@ technique and went stale the moment a page grew an OM image.
 
 ### Frontend
 - **Framework**: Streamlit (Python web framework for data apps), multi-page via `st.navigation()` (v2.11.0+)
-- **Pages**: five, in two groups. Unlabelled — **Spectra** (`pages/1_Spectra.py`: sidebar + full-width plot, the entire spectrum workflow), **QC Report** (`pages/2_QC_Report.py`: seven figures and one workbook from a sample folder's 9-point OM + Raman + PL grid), **Material Presets** (`pages/3_Material_Presets.py`: create/edit/delete materials). Under **Process** — **Datalog** (`pages/4_Datalog.py`: a run folder's 1 Hz process logs as stacked PV/SV charts, with tolerance violations, summary stats, tagging and bulk rename), **Runcard** (`pages/5_Runcard.py`: a recipe's reconstructed time profile, growth window and gas chemistry). Sample Report and QC Panel were merged into QC Report at v5.0.0, and the Plot Explorer was dropped at the same time. The "Raman & PL" group was removed at v4.2.0 for naming a technique; "Process" names a data source instead, which is why it survives that argument.
+- **Pages**: five, in two groups. Unlabelled — **Spectra** (`pages/1_Spectra.py`: sidebar + full-width plot, the entire spectrum workflow), **QC Report** (`pages/2_QC_Report.py`: seven figures and one workbook from a sample folder's 9-point OM + Raman + PL grid), **Material Presets** (`pages/3_Material_Presets.py`: create/edit/delete materials). Under **Process** — **Datalog** (`pages/4_Datalog.py`: a run folder's 1 Hz process logs as stacked PV/SV charts, with tolerance violations, summary stats, tagging, bulk rename and duplicate cleanup), **Runcard** (`pages/5_Runcard.py`: a recipe's reconstructed time profile, growth window and gas chemistry). Sample Report and QC Panel were merged into QC Report at v5.0.0, and the Plot Explorer was dropped at the same time. The "Raman & PL" group was removed at v4.2.0 for naming a technique; "Process" names a data source instead, which is why it survives that argument.
 - **State Management**: Streamlit session state with automatic persistence
 - **Visualization**: Plotly (interactive multi-layer plots)
 
@@ -89,6 +89,8 @@ nexanalyzer/
 │   │   ├── io/threshold_store.py   # thresholds.json, likewise frozen and shared
 │   │   ├── io/renamer.py           # <timestamp>~tag.csv sweeps, with tag re-keying and
 │   │   │                           # rollback (frozen filename format)
+│   │   ├── io/duplicates.py        # Runs an outside copier stored twice: hidden from the
+│   │   │                           # list, Recycle-Binned on demand
 │   │   ├── io/config_store.py      # data/datalog.json — nexanalyzer's own remembered folder
 │   │   ├── processing/analysis.py  # Summary stats, tolerance violations, plateau alignment
 │   │   ├── ui/datalog_state.py     # Isolated session-state namespace for the Datalog page

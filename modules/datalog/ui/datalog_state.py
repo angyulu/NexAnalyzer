@@ -33,6 +33,8 @@ def initialize_datalog_state() -> None:
             # artifact tuples; see _SELECTIONS.
             "rename_plans": None,      # pending sweep, already filtered to will_change
             "rename_result": None,     # the last sweep's renamed/skipped lists
+            "duplicate_plans": None,   # pending cleanup, one plan per stale copy
+            "duplicate_result": None,  # the last cleanup's removed/skipped lists
         }
 
 
@@ -53,6 +55,13 @@ _SELECTIONS = ("folder",)
 #: previous one, or a preview appears to report results it has not produced yet.
 _RENAME_ARTIFACTS = ("rename_plans", "rename_result")
 
+#: The duplicate-cleanup workflow's same two steps. Separate from
+#: `_RENAME_ARTIFACTS` so a new rename preview does not silently discard a
+#: cleanup banner the operator has not read, but reset by the same folder
+#: change: a `DuplicatePlan` holds absolute paths into the previous folder, and
+#: confirming one after a switch would Recycle-Bin files nobody is looking at.
+_DUPLICATE_ARTIFACTS = ("duplicate_plans", "duplicate_result")
+
 
 def reset_results(state: dict) -> None:
     """Drop every derived artifact, keeping the operator's selection.
@@ -67,9 +76,16 @@ def reset_results(state: dict) -> None:
     orphaned, so dropping the plan here is still the actual fix.
     """
     reset_rename_results(state)
+    reset_duplicate_results(state)
 
 
 def reset_rename_results(state: dict) -> None:
     """Drop the pending rename plan and the last sweep's banner."""
     for key in _RENAME_ARTIFACTS:
+        state[key] = None
+
+
+def reset_duplicate_results(state: dict) -> None:
+    """Drop the pending cleanup plan and the last cleanup's banner."""
+    for key in _DUPLICATE_ARTIFACTS:
         state[key] = None

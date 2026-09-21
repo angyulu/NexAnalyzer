@@ -172,6 +172,25 @@ def set_runcard_tag(root_folder: str, file_path: str, tag: str) -> None:
     _write_json(Path(root_folder) / RUNCARD_TAGS_FILENAME, tags)
 
 
+def clear_runcard_tag(root_folder: str, file_path: str) -> None:
+    """
+    Delete a run's tag entry, writing only if there was one.
+
+    `set_runcard_tag` with an empty tag does the same thing but rewrites the
+    sidecar either way, which in a folder that has never been tagged *creates*
+    `runcard_tags.json` as a side effect of removing a file. `move_runcard_tag`
+    already declines to write when the old key is absent, for the same reason:
+    nothing in this module should leave a sidecar behind to record that it had
+    nothing to record.
+    """
+    tags = load_runcard_tags(root_folder)
+    key = _relative_key(root_folder, file_path)
+    if key not in tags:
+        return
+    del tags[key]
+    _write_json(Path(root_folder) / RUNCARD_TAGS_FILENAME, tags)
+
+
 def move_runcard_tag(root_folder: str, old_path: str, new_path: str) -> None:
     """
     Re-key a run's tag after its file has been renamed on disk.

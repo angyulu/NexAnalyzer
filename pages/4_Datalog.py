@@ -45,7 +45,7 @@ import streamlit as st
 from core.io.export import create_filename, export_figure_png, prompt_save_path
 from core.io.folder_picker import prompt_folder_path
 from core.viz.render import render_plot
-from modules.datalog.io import renamer
+from modules.datalog.io import duplicates, renamer
 from modules.datalog.io.config_store import load_last_folder, save_last_folder
 from modules.datalog.io.scanner import (
     ALIGNMENT_SV_COLUMN,
@@ -221,6 +221,76 @@ def _render_bulk_rename(root_folder: str, state: dict) -> None:
                 )
 
 
+def _render_duplicate_cleanup(root_folder: str, state: dict) -> None:
+    """Preview / confirm / Recycle-Bin every run stored twice in the tree.
+
+    The same preview-then-confirm shape as `_render_bulk_rename`, and the same
+    two state keys, because it is the same conversation in a different verb.
+    The difference worth knowing is what a mistake costs: a wrong rename is
+    renamed back, so that flow can afford to be brisk, while this one takes
+    files away and shows every name it would take before touching one.
+
+    Collapsed by default when there is nothing pending, because the run list
+    above already hides these -- an operator who never opens this expander is
+    not looking at a wrong table, only at a folder using more disk than it
+    needs.
+    """
+    st.caption(
+        "Find runs stored twice — once under the recorder's original filename, "
+        "once under the renamed one — and move the original to the Recycle Bin. "
+        "The run list already hides these; this reclaims the disk space."
+    )
+    pending = state.get("duplicate_plans")
+    with st.expander("Duplicate cleanup", expanded=bool(pending or state.get("duplicate_result"))):
+        if st.button("Scan for duplicates", width="stretch"):
+            state["duplicate_plans"] = duplicates.find_duplicates(
+                root_folder, scan_folder(root_folder)
+            )
+            state["duplicate_result"] = None
+
+        plans = state.get("duplicate_plans")
+        if plans is not None:
+            if not plans:
+                st.info("No run in this folder is stored twice.")
+                state["duplicate_plans"] = None  # one-shot message
+            else:
+                st.write(f"{len(plans)} file(s) will go to the Recycle Bin:")
+                st.dataframe(
+                    pd.DataFrame([
+                        {
+                            "Remove": Path(p.path).name,
+                            "Identical to": Path(p.keeper).name,
+                        }
+                        for p in plans
+                    ]),
+                    hide_index=True, width="stretch",
+                )
+                col_confirm, col_cancel = st.columns(2)
+                if col_confirm.button("Confirm cleanup", width="stretch"):
+                    try:
+                        state["duplicate_result"] = duplicates.remove_duplicates(root_folder, plans)
+                    except ValueError as e:
+                        # tag_store._relative_key, as in the rename sweep: plans
+                        # built against another folder. Kept on screen rather
+                        # than cleared, so the error survives the next rerun.
+                        st.error(f"These plans do not belong to this folder: {e}")
+                    else:
+                        state["duplicate_plans"] = None
+                        st.rerun()
+                if col_cancel.button("Cancel cleanup", width="stretch"):
+                    state["duplicate_plans"] = None
+                    st.rerun()
+
+        result = state.get("duplicate_result")
+        if result is not None:
+            st.success(f"Moved {len(result.removed)} file(s) to the Recycle Bin.")
+            if result.skipped:
+                st.warning(
+                    "Skipped:\n"
+                    + "\n".join(f"- {Path(p).name}: {reason}" for p, reason in result.skipped)
+                )
+
+
 #: Where a failed tag write parks its message until a render pass can show it.
 #: Keyed by file path, so two selected runs cannot overwrite each other's error.
 _TAG_ERROR_KEY_PREFIX = "datalog_tag_error_"
@@ -319,11 +389,21 @@ def _render_run_table(root_folder: str, mode: str):
     change is visible and self-correcting -- the box still holds it -- where a
     surviving row index is not.
     """
-    runs = scan_folder(root_folder)
+    scanned = scan_folder(root_folder)
+    # Hidden, not deleted. See io.duplicates: the copier that re-creates these
+    # runs on the tool PC every few minutes, so the list showing a run once is
+    # a promise this page can keep and removing the file is not.
+    runs = duplicates.without_duplicates(root_folder, scanned)
+    hidden = len(scanned) - len(runs)
 
     col_caption, col_refresh = st.columns([3, 1])
     with col_caption:
         st.caption(f"{len(runs)} run(s) found on disk · auto-refreshes every 60s")
+        if hidden:
+            st.caption(
+                f"{hidden} duplicate file(s) hidden — the same run also stored "
+                "under its original filename. Duplicate cleanup deletes them."
+            )
     with col_refresh:
         # The return value is ignored on purpose: pressing it *is* the refresh,
         # because the resulting fragment rerun re-walks the folder and re-scans
@@ -792,6 +872,7 @@ if not root_folder:
 # ------------------------------------------------------------------ Renaming
 st.subheader("2. Filenames")
 _render_bulk_rename(root_folder, state)
+_render_duplicate_cleanup(root_folder, state)
 
 # ------------------------------------------------------------------ View mode
 st.subheader("3. View Mode")

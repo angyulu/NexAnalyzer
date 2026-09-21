@@ -6,10 +6,12 @@ import pytest
 
 from modules.datalog.ui import datalog_state
 from modules.datalog.ui.datalog_state import (
+    _DUPLICATE_ARTIFACTS,
     _RENAME_ARTIFACTS,
     _SELECTIONS,
     get_datalog_state,
     initialize_datalog_state,
+    reset_duplicate_results,
     reset_rename_results,
     reset_results,
 )
@@ -35,7 +37,8 @@ class TestEveryDerivedKeyIsResettable:
     def test_no_key_is_unaccounted_for(self, monkeypatch):
         state = _fresh_state(monkeypatch)
 
-        assert set(state) - (set(_SELECTIONS) | set(_RENAME_ARTIFACTS)) == set()
+        accounted = set(_SELECTIONS) | set(_RENAME_ARTIFACTS) | set(_DUPLICATE_ARTIFACTS)
+        assert set(state) - accounted == set()
 
 
 class TestInitializeState:
@@ -43,7 +46,7 @@ class TestInitializeState:
         state = _fresh_state(monkeypatch)
 
         assert state["folder"] is None
-        assert all(state[key] is None for key in _RENAME_ARTIFACTS)
+        assert all(state[key] is None for key in _RENAME_ARTIFACTS + _DUPLICATE_ARTIFACTS)
 
     def test_initializing_twice_does_not_discard_what_is_there(self, monkeypatch):
         state = _fresh_state(monkeypatch)
@@ -60,11 +63,13 @@ class TestResetResults:
         state["folder"] = r"D:\HA_DataRecord"
         state["rename_plans"] = ["a pending sweep"]
         state["rename_result"] = "last sweep's banner"
+        state["duplicate_plans"] = ["a pending cleanup"]
+        state["duplicate_result"] = "last cleanup's banner"
 
         reset_results(state)
 
         assert state["folder"] == r"D:\HA_DataRecord"
-        assert all(state[key] is None for key in _RENAME_ARTIFACTS)
+        assert all(state[key] is None for key in _RENAME_ARTIFACTS + _DUPLICATE_ARTIFACTS)
 
     def test_previewing_a_new_sweep_clears_the_previous_ones_banner(self, monkeypatch):
         # They reset together because they are the same conversation: a preview
@@ -78,6 +83,26 @@ class TestResetResults:
 
         assert state["rename_plans"] is None
         assert state["rename_result"] is None
+
+    def test_a_new_rename_preview_leaves_the_cleanup_banner_alone(self, monkeypatch):
+        # The two workflows reset independently: a rename preview must not
+        # discard a cleanup result the operator has not read yet.
+        state = _fresh_state(monkeypatch)
+        state["duplicate_result"] = "last cleanup's banner"
+
+        reset_rename_results(state)
+
+        assert state["duplicate_result"] == "last cleanup's banner"
+
+    def test_previewing_a_new_cleanup_clears_the_previous_ones_banner(self, monkeypatch):
+        state = _fresh_state(monkeypatch)
+        state["duplicate_plans"] = ["a pending cleanup"]
+        state["duplicate_result"] = "last cleanup's banner"
+
+        reset_duplicate_results(state)
+
+        assert state["duplicate_plans"] is None
+        assert state["duplicate_result"] is None
 
 
 class TestTheModuleFollowsTheHouseNamingConvention:
