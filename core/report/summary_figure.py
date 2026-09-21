@@ -108,6 +108,10 @@ FIT_COLUMN_ASPECT_RATIO = _FIT_COLUMN_W / _FIT_GRID_H
 
 # ---- Type ----
 _FS_TITLE = 24
+#: How far the title may shrink to fit the rule's width before it is allowed to
+#: overflow. Below this the header stops reading as the page's title, and a
+#: string that long is better shortened at the source than set in 10pt.
+_FS_TITLE_MIN = 14
 _FS_CAPTION = 12
 _FS_GRID_CAPTION = 11
 _FS_OM_NOTE = 9
@@ -192,6 +196,25 @@ def _text(fig, left: float, top: float, text: str, *, size: float,
     )
 
 
+def _fit_title_size(text: str, available_in: float, base_size: float) -> float:
+    """The largest size at or below `base_size` that keeps `text` inside
+    `available_in` inches.
+
+    The same problem `_fit_font_size` solves for a table cell, one line up: a
+    figure title is not clipped to anything, so an over-wide one simply draws
+    off the page. Every fit-grid page did, losing the tail of "— fitted
+    spectra (9 points)", because the header carries a subtitle the summary
+    page's does not and nothing measured the result.
+
+    Width is linear in size, so one division is exact and no search is needed.
+    """
+    drawn_pt = _text_width_pt(text, base_size, bold=True)
+    available_pt = available_in * 72.0
+    if drawn_pt <= available_pt:
+        return base_size
+    return max(_FS_TITLE_MIN, base_size * available_pt / drawn_pt)
+
+
 def _add_title_bar(fig, sample_name: str, material_name: str, report_date: str,
                    subtitle: Optional[str] = None) -> None:
     text = f"{sample_name}   |   Material: {material_name}   |   {report_date}"
@@ -199,7 +222,13 @@ def _add_title_bar(fig, sample_name: str, material_name: str, report_date: str,
         text += f"   |   {subtitle}"
     _text(
         fig, _TITLE_LEFT + _TITLE_INSET, _TITLE_TOP + _TITLE_H / 2, text,
-        size=_FS_TITLE, bold=True, va="center",
+        # Fitted to the rule beneath it, which is what the title reads as
+        # sitting on, inset at the right by as much as at the left so a shrunk
+        # title stops short of the rule's end rather than touching it. A short
+        # title -- the summary page's -- measures under the limit and keeps the
+        # full size, so that page is unchanged.
+        size=_fit_title_size(text, _TITLE_W - 2 * _TITLE_INSET, _FS_TITLE),
+        bold=True, va="center",
     )
     fig.add_artist(Rectangle(
         (_TITLE_LEFT / PAGE_WIDTH_IN, 1.0 - (_RULE_TOP + _RULE_H) / PAGE_HEIGHT_IN),

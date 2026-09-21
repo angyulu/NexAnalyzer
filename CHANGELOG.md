@@ -5,6 +5,24 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.4.1] - 2026-09-21
+
+### Fixed
+
+- **A QC Report page title too long for the page now shrinks instead of
+  running off it.** The header is one line drawn at a fixed position and a
+  fixed 24pt, and matplotlib clips figure text to nothing, so every fit-grid
+  page — `Raman — fitted spectra (9 points)` and its PL twin — lost the tail
+  of its own subtitle. It went unnoticed because the summary page's title,
+  which the layout was set up against, carries no subtitle and fits at full
+  size. `_fit_title_size` measures the string with the renderer-free
+  `_text_width_pt` the table fitter already uses, and scales the size down to
+  the rule's width inset at the right by as much as at the left; width is
+  linear in font size, so one division is exact and no search is needed. A
+  fit-grid title lands near 20pt, the summary page keeps its 24, and the
+  shrink stops at `_FS_TITLE_MIN` (14pt) — below that the header stops reading
+  as a title, and a string that long wants shortening at the source. The
+  figure header only; no reported number changes.
 ## [5.4.0] - 2026-09-21
 
 ### Fixed

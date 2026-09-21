@@ -32,7 +32,13 @@ from core.report.summary_figure import (  # noqa: E402
     _add_fit_legend,
     _add_om_note,
     _add_placeholder,
+    _add_title_bar,
     _fit_font_size,
+    _fit_title_size,
+    _FS_TITLE,
+    _FS_TITLE_MIN,
+    _TITLE_INSET,
+    _TITLE_W,
     _hex_to_rgb,
     _text_width_pt,
     _stats_caption,
@@ -187,6 +193,77 @@ class TestCaptions:
         caption = _stats_caption("Raman", [_stat()], has_ratios=False)
 
         assert caption == "Raman fit summary (mean ± std)"
+
+
+class TestTitleBar:
+    """The header is one unclipped line at a fixed position, so until v5.3.1
+    every fit-grid page drew its title off the right edge of the page and lost
+    the tail of "— fitted spectra (9 points)". Nothing measured it, because the
+    summary page's title — the one the layout was set up against — carries no
+    subtitle and fits at full size.
+    """
+
+    #: What the drawing fits to: the rule's width less the same inset at each
+    #: end, so a shrunk title stops short of the rule rather than touching it.
+    FITTED = _TITLE_W - 2 * _TITLE_INSET
+    #: What must never be exceeded: the text starts one inset in, so this is
+    #: where the rule ends.
+    LIMIT = _TITLE_W - _TITLE_INSET
+
+    def _title(self, sample="HADH65", material="WSe2", subtitle=None):
+        text = f"{sample}   |   Material: {material}   |   2026-09-21"
+        if subtitle:
+            text += f"   |   {subtitle}"
+        return text
+
+    @pytest.mark.parametrize("technique", ["Raman", "PL"])
+    def test_a_fit_grid_title_fits_the_rule_it_sits_on(self, technique):
+        text = self._title(subtitle=f"{technique} — fitted spectra (9 points)")
+
+        size = _fit_title_size(text, self.FITTED, _FS_TITLE)
+
+        assert _text_width_pt(text, size, True) / 72.0 <= self.LIMIT
+
+    def test_the_subtitled_title_is_the_one_that_needed_shrinking(self):
+        """Guards the fix against being read as unconditional: it is the
+        subtitle that overflows, so the base size must genuinely not fit."""
+        text = self._title(subtitle="Raman — fitted spectra (9 points)")
+
+        assert _text_width_pt(text, _FS_TITLE, True) / 72.0 > self.LIMIT
+
+    def test_the_summary_page_title_keeps_the_full_size(self):
+        """It already fitted; shrinking it would be a silent redesign of the
+        page this layout was built around."""
+        assert _fit_title_size(self._title(), self.FITTED, _FS_TITLE) == _FS_TITLE
+
+    def test_a_long_sample_name_shrinks_rather_than_overflowing(self):
+        text = self._title(sample="QC_HADH67_RECHECK",
+                           subtitle="Raman — fitted spectra (9 points)")
+
+        size = _fit_title_size(text, self.FITTED, _FS_TITLE)
+
+        assert size < _FS_TITLE
+        assert _text_width_pt(text, size, True) / 72.0 <= self.LIMIT
+
+    def test_the_shrink_stops_at_a_legible_floor(self):
+        """Below this the header stops reading as a title, so a pathological
+        string is left to overflow rather than set in 6pt."""
+        text = self._title(sample="A" * 200,
+                           subtitle="Raman — fitted spectra (9 points)")
+
+        assert _fit_title_size(text, self.FITTED, _FS_TITLE) == _FS_TITLE_MIN
+
+    def test_the_drawn_title_carries_the_fitted_size(self):
+        """_fit_title_size can be right while _add_title_bar ignores it."""
+        fig = plt.figure(figsize=(13.333, 7.5), dpi=100)
+        try:
+            _add_title_bar(fig, "HADH65", "WSe2", "2026-09-21",
+                           subtitle="Raman — fitted spectra (9 points)")
+            sizes = [t.get_fontsize() for t in fig.texts]
+        finally:
+            plt.close(fig)
+
+        assert sizes and max(sizes) < _FS_TITLE
 
 
 class TestPlaceholders:
