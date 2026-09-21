@@ -105,8 +105,6 @@ nexanalyzer/
 │   ├── optical/                    # Optical microscopy: contrast-based layer classification
 │   │   ├── processing/contrast.py  # The vendored segmentation (see OM_Contrast_Algo.md),
 │   │   │                           # plus class_summary/contrast_summary across frames
-│   │   ├── processing/adaptive.py  # Derives one wafer's threshold pair from its pooled
-│   │   │                           # frames, with the preset pair as the base
 │   │   ├── io/frame_tables.py      # The segmentation's numbers as rows: per-class stats and
 │   │   │                           # the per-frame rows behind them
 │   │   ├── ui/qc_report_state.py   # Isolated session-state namespace for the QC Report

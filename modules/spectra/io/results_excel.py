@@ -325,7 +325,8 @@ def _add_data_sheet(wb: Workbook, technique: TechniqueResults, show_fwhm_v1: boo
     ws.auto_filter.ref = ws.dimensions
 
 
-def _add_optical_sheets(wb: Workbook, frames: Sequence, threshold=None) -> None:
+def _add_optical_sheets(wb: Workbook, frames: Sequence,
+                        threshold_pair=None) -> None:
     """``OM_Stats`` and ``OM_Points``, or nothing when no frame segmented.
 
     Two sheets rather than one, matching the spectra pair: the three-row class
@@ -337,7 +338,7 @@ def _add_optical_sheets(wb: Workbook, frames: Sequence, threshold=None) -> None:
 
     for title, headers, rows in (
         ("OM_Stats", frame_tables.CLASS_COLUMNS,
-         frame_tables.frame_class_rows(frames, threshold)),
+         frame_tables.frame_class_rows(frames, threshold_pair)),
         ("OM_Points", frame_tables.POINT_COLUMNS, frame_tables.frame_point_rows(frames)),
     ):
         if not rows:
@@ -420,7 +421,7 @@ def build_sample_results_xlsx(
     report_date: str,
     techniques: Sequence[TechniqueResults] = (),
     optical_frames: Sequence = (),
-    optical_threshold=None,
+    optical_threshold_pair=None,
     show_fwhm_v1: bool = False,
 ) -> bytes:
     """
@@ -433,9 +434,9 @@ def build_sample_results_xlsx(
 
     `optical_frames` is the `FrameResult` list the OM figures were drawn from.
     Passed rather than re-segmented, so a sheet cannot describe a different
-    segmentation than the PNG saved next to it. `optical_threshold` is the
-    `AdaptivePair` that produced them, or None when the preset pair ran
-    unchanged; it lands on every `OM_Stats` row.
+    segmentation than the PNG saved next to it. `optical_threshold_pair` is
+    the preset's `(below, above)` contrast pair, or None for an `nsigma` run;
+    it lands on every `OM_Stats` row.
 
     `show_fwhm_v1` adds FWHM_v1/FWHM_v1_Stderr to each per-point sheet and
     FWHM_v1_Mean/FWHM_v1_Std to the Summary sheet — the pre-v3.4.0
@@ -457,7 +458,7 @@ def build_sample_results_xlsx(
     _add_summary_sheet(wb, sample_name, material_name, report_date, techniques, show_fwhm_v1)
     for technique in techniques:
         _add_data_sheet(wb, technique, show_fwhm_v1)
-    _add_optical_sheets(wb, optical_frames, optical_threshold)
+    _add_optical_sheets(wb, optical_frames, optical_threshold_pair)
 
     buffer = BytesIO()
     wb.save(buffer)

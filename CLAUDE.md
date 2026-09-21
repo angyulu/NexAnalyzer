@@ -94,10 +94,12 @@ The full reasoning is in the
   `abs_threshold / (sigma_noise / mode)` clears ~2; below that the cut is inside
   the reference distribution and the percentages are noise. See the v4.4.0
   section in [docs/OM_Contrast_Algo.md](docs/OM_Contrast_Algo.md).
-  On top of these, a preset that sets the abs pair gets the per-wafer
-  *adaptive* derivation **by default** (v4.6.0): `adaptive_threshold` is an
-  opt-out, so read `OpticalParams.adaptive_enabled`, never the raw field —
-  `None` means on-with-pair, and only an explicit `false` pins the fixed pair.
+  **The pair is the preset's, for every wafer** (v5.6.0). The per-wafer
+  *adaptive* derivation that stood here from v4.5.0 to v5.5.0 is gone: it
+  placed 28 of its 42 cuts on the 2σ noise floor, which turns a non-detection
+  into a number, and its stored results could not be reproduced from the
+  frames that produced them. Coverage is a comparison — wafer against spec,
+  wafer against wafer — and that needs one ruler.
 - **`OpticalParams` fields default to `None` meaning "contrast.py's default".**
   Keep the numbers in `contrast.py` alone, so a material with no optical block
   runs `analyse_frame(**{})` — which is what keeps
@@ -136,5 +138,7 @@ The full reasoning is in the
   Its tuning figures are still the defaults, but since v4.0.0 they are
   overridable per material and layer from the preset, and the doc's
   "circular"-labelled rows (σ_ff, margin) are applied to both frame types.
+  Its "Second divergence" section is **history**: the adaptive per-wafer pair
+  it specifies was retired in v5.5.0 and the section is marked as such.
   Its final section documents v4.4.0's `abs_threshold`, which is a deliberate
   divergence from the vendored algorithm rather than a restatement of it.

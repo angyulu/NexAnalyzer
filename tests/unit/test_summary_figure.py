@@ -367,38 +367,26 @@ class TestThresholdNote:
     outlives the on-screen warning that said so.
     """
 
-    def _drawn(self, note, flags=()):
+    def _drawn(self, note):
         fig = plt.figure(figsize=(13.333, 7.5))
-        _add_om_note(fig, note, flags)
+        _add_om_note(fig, note)
         texts = [t.get_text() for t in fig.texts]
         plt.close(fig)
         return texts
 
     def test_the_note_is_drawn(self):
-        texts = self._drawn("adaptive pair -2.50/+2.00 % (base -6.00/+4.25)")
+        texts = self._drawn("preset contrast pair -6.00 / +4.25 %")
 
-        assert any("-2.50/+2.00" in t for t in texts)
+        assert any("-6.00 / +4.25" in t for t in texts)
 
-    def test_a_flag_is_drawn_and_says_what_it_means(self):
-        texts = self._drawn("adaptive pair -6.00/+4.25 %", ["below NOT MEASURABLE"])
+    def test_no_note_draws_nothing(self):
+        assert self._drawn(None) == []
 
-        assert any("below NOT MEASURABLE" in t for t in texts)
-        assert any("segmentation noise" in t for t in texts)
-
-    def test_no_note_and_no_flags_draws_nothing(self):
-        assert self._drawn(None, ()) == []
-
-    def test_flags_draw_even_without_a_note(self):
-        texts = self._drawn(None, ["above NOT MEASURABLE"])
-
-        assert any("above NOT MEASURABLE" in t for t in texts)
-
-    def test_the_page_renders_with_a_note_and_a_flag(self):
+    def test_the_page_renders_with_a_note(self):
         png = build_summary_figure(
             sample_name="HADH57", material_name="WSe2", report_date="2026-09-19",
             om_classes=_classes(),
-            om_threshold_note="adaptive pair -2.50/+2.00 % (base -6.00/+4.25)",
-            om_threshold_flags=["below NOT MEASURABLE"],
+            om_threshold_note="preset contrast pair -6.00 / +4.25 %",
         )
 
         assert png[:8] == _PNG_MAGIC

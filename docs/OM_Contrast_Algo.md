@@ -156,7 +156,19 @@ The values are per material: `WSe2` keeps `nsigma`, `WSe2-HA` carries the
 
 ---
 
-## Second divergence: adaptive per-wafer pair (NexAnalyzer v4.5.0)
+## Second divergence: adaptive per-wafer pair (NexAnalyzer v4.5.0-v5.4.0, retired)
+
+> **History. Not how the code works today.** v5.5.0 removed this and
+> went back to the preset's fixed pair for every wafer. Of the 42 cuts
+> the `crossing` rule placed on the HA 202609 set, 28 landed on the
+> 2 sigma floor exactly -- a non-detection recorded as a boundary --
+> and HADH57's stored pair could not be re-derived from its own
+> frames. Coverage is a comparison, wafer against spec and wafer
+> against wafer, so it needs one ruler. The observation that motivated
+> the method still stands: on HADH51 the fixed +4.25 % cut does
+> undercount 3L. That is now a known, uniform bias rather than a
+> per-wafer correction that fired wrongly two times in three.
+> See the v5.5.0 CHANGELOG entry.
 
 `abs_threshold` fixed one pair per material; wafers drift. HADH51's trilayer
 valley sits at +2.5 % where the material pair says +4.25, and at +4.25 the

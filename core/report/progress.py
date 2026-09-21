@@ -63,14 +63,16 @@ class Stage:
 #: The full chain, in execution order, with weights. A caller keeps only the
 #: stages its run will actually perform.
 STAGES: Sequence[Stage] = (
-    Stage("optical_images", "Loading optical images", 0.083),
-    Stage("optical_adaptive", "Deriving the threshold pair", 0.078),
-    Stage("optical_segmentation", "Segmenting optical frames", 0.390),
-    Stage("om_figures", "Rendering OM figures", 0.155),
-    Stage("fit", "Fitting spectra", 0.082),
-    Stage("raman_figures", "Rendering Raman figures", 0.093),
-    Stage("pl_figures", "Rendering PL figures", 0.103),
-    Stage("compose", "Composing the report", 0.016),
+    # Renormalised in v5.5.0, when the 0.078 the threshold derivation held was
+    # given back to the stages proportionally rather than to any one of them:
+    # the measured run is the same run, minus a pass that no longer happens.
+    Stage("optical_images", "Loading optical images", 0.090),
+    Stage("optical_segmentation", "Segmenting optical frames", 0.423),
+    Stage("om_figures", "Rendering OM figures", 0.168),
+    Stage("fit", "Fitting spectra", 0.089),
+    Stage("raman_figures", "Rendering Raman figures", 0.101),
+    Stage("pl_figures", "Rendering PL figures", 0.112),
+    Stage("compose", "Composing the report", 0.017),
 )
 
 
@@ -84,7 +86,7 @@ sample's share; a run fitting more spectra scales it up from here.
 
 def stages_for(
     *, has_raman: bool, has_pl: bool, has_optical: bool,
-    has_segmentation: bool = True, has_adaptive: bool = False,
+    has_segmentation: bool = True,
     fit_spectra: Optional[int] = None,
 ) -> List[Stage]:
     """The stages a run will actually perform, in order.
@@ -109,9 +111,6 @@ def stages_for(
         # A folder can have images without a segmentation to run — no material
         # picked, or a preset with no optical block the operator declined. The
         # summary page's grid still wants the frames loaded.
-        # The derivation opens every frame again to pool their contrast, so it
-        # is a second pass over the same images, not a cheap lookup.
-        "optical_adaptive": has_optical and has_segmentation and has_adaptive,
         "optical_segmentation": has_optical and has_segmentation,
         "om_figures": has_optical and has_segmentation,
         "fit": has_raman or has_pl,
@@ -274,7 +273,6 @@ def build(
     has_pl: bool,
     has_optical: bool,
     has_segmentation: bool = True,
-    has_adaptive: bool = False,
     fit_spectra: Optional[int] = None,
 ) -> Optional[ReportProgress]:
     """A `ReportProgress` for a run with these techniques, or None if there is
@@ -288,7 +286,6 @@ def build(
         has_pl=has_pl,
         has_optical=has_optical,
         has_segmentation=has_segmentation,
-        has_adaptive=has_adaptive,
         fit_spectra=fit_spectra,
     )
     if not stages:

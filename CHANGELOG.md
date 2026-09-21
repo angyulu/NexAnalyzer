@@ -5,6 +5,47 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.6.0] - 2026-09-21
+
+### Removed
+
+- **The per-wafer adaptive threshold, and with it the second ruler.** Every
+  wafer is segmented on the preset's `abs_threshold` pair again, as it was
+  before v4.5.0. The derivation was introduced to follow a 3L boundary that
+  drifts between wafers, and on the HA 202609 set it did move 34 of 76 wafers
+  off the base pair - but `crossing`, the weaker of its two evidence rules,
+  produced 42 of those cuts and 28 of them landed on the 2 sigma noise floor
+  exactly. A cut at the floor is not a boundary the fit found; it is the
+  guardrail refusing to go closer, recorded as though it were a measurement.
+  HADH57 is the worked example: its stored pair of -6.0/+2.754 read 87.3 %
+  bilayer against 95.6 % on the base pair, an 8-point swing across the 95 %
+  spec line, and re-deriving it from the same nine frames with the same code
+  returns the base pair instead - the mixture component that decides it sits
+  0.04 % from its own clamp. A number that flips on that is not a measurement
+  either.
+
+  Coverage is a comparison - wafer against spec, wafer against wafer - so it
+  needs one ruler. The genuine finding behind the derivation stands: on wafers
+  like HADH51 the fixed +4.25 % cut undercounts 3L, and the wafer's own
+  histogram puts the boundary at +2.46 %. That is a known, consistent bias
+  across every wafer, which is usable; a per-wafer correction that fires
+  wrongly two times in three is not.
+
+- `modules/optical/processing/adaptive.py` and `tests/unit/test_adaptive_threshold.py`
+  are deleted; `OpticalParams.adaptive_threshold` and `adaptive_enabled` are
+  gone, and a stored preset still carrying `adaptive_threshold` loads with the
+  key dropped rather than rejected. The `optical_adaptive` progress stage is
+  removed and its weight redistributed.
+
+### Changed
+
+- **`OM_Stats` carries two threshold columns instead of seven.**
+  `Threshold_Below_pct` and `Threshold_Above_pct` hold the pair that segmented
+  the wafer; `Threshold_Base_*`, `Threshold_*_Source` and `Noise_Sigma_pct`
+  described a derivation that no longer happens. The summary page's note under
+  the OM table now reads `preset contrast pair -6.00 / +4.25 %`, and its
+  NOT MEASURABLE flag line is gone with the rule that raised it.
+
 ## [5.5.0] - 2026-09-21
 
 ### Added

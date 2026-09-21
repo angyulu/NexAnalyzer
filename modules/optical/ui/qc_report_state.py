@@ -37,7 +37,7 @@ def initialize_qc_report_state() -> None:
             "frames": None,               # list[contrast.FrameResult]
             "om_png": None,               # Figure 2, clean (for the report)
             "om_diagnostic_png": None,    # Figure 3, with the histogram row
-            "optical_threshold": None,    # adaptive.AdaptivePair, or None
+            "optical_threshold_pair": None,  # preset (below, above), or None
             "optical_fingerprint": None,
             "raman_stats": None,
             "raman_ratios": None,         # [(label, (median, mad, n))]
@@ -78,7 +78,7 @@ _COMPOSITE_ARTIFACTS = ("batch_result", "report_date", "summary_png", "xlsx_byte
 
 #: Derived keys, grouped by the preset block whose settings produced them.
 _OPTICAL_ARTIFACTS = (
-    "frames", "om_png", "om_diagnostic_png", "optical_threshold",
+    "frames", "om_png", "om_diagnostic_png", "optical_threshold_pair",
     "optical_fingerprint",
 )
 _RAMAN_ARTIFACTS = (

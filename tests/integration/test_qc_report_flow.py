@@ -319,24 +319,23 @@ class TestAdaptiveThreshold:
         next(b for b in at.button if "Generate QC Report" in b.label).click().run()
         return at
 
-    def test_the_run_derives_a_pair_and_keeps_it(self, tmp_path):
+    def test_the_run_keeps_the_preset_pair(self, tmp_path):
         at = self._wse2_app(tmp_path)
 
         assert not at.exception, [e.value for e in at.exception]
-        derived = at.session_state["qc_report"]["optical_threshold"]
-        assert derived is not None, "the page did not derive a pair"
-        assert derived.base == (6.0, 4.25), "the preset pair should be the base"
+        pair = at.session_state["qc_report"]["optical_threshold_pair"]
+        assert pair == (6.0, 4.25), "the preset pair should segment the wafer"
 
-    def test_the_derived_pair_is_what_actually_segmented(self, tmp_path):
-        """Not just computed and dropped: the frames must carry cuts placed by
-        the derived pair, not by the base."""
+    def test_the_preset_pair_is_what_actually_segmented(self, tmp_path):
+        """One ruler for every wafer: the cuts on the frames must be the
+        preset's pair, placed against each frame's own mode."""
         at = self._wse2_app(tmp_path)
         state = at.session_state["qc_report"]
-        derived = state["optical_threshold"]
+        below, above = state["optical_threshold_pair"]
         frame = state["frames"][0]
 
-        expected_low = frame.mode * (1.0 - derived.pair[0] / 100.0)
-        expected_high = frame.mode * (1.0 + derived.pair[1] / 100.0)
+        expected_low = frame.mode * (1.0 - below / 100.0)
+        expected_high = frame.mode * (1.0 + above / 100.0)
         assert frame.threshold_low == pytest.approx(expected_low, rel=1e-6)
         assert frame.threshold_high == pytest.approx(expected_high, rel=1e-6)
 
@@ -348,18 +347,11 @@ class TestAdaptiveThreshold:
         rows = list(wb["OM_Stats"].iter_rows(min_row=1, values_only=True))
         header, first = rows[0], rows[1]
 
-        assert first[header.index("Threshold_Below_pct")] == pytest.approx(
-            state["optical_threshold"].pair[0])
-        assert first[header.index("Threshold_Base_Below_pct")] == pytest.approx(6.0)
+        assert first[header.index("Threshold_Below_pct")] == pytest.approx(6.0)
+        assert first[header.index("Threshold_Above_pct")] == pytest.approx(4.25)
 
-    def test_the_derivation_is_announced_on_screen(self, tmp_path):
-        at = self._wse2_app(tmp_path)
-
-        assert any("adaptive pair" in m.value for m in at.markdown),             "the run did not say which pair it derived"
-
-    def test_a_preset_without_a_pair_derives_nothing(self, tmp_path):
-        """Silicon is nsigma-only. The derivation needs a base pair to move, so
-        asking for it would be meaningless rather than merely slow."""
+    def test_a_preset_without_a_pair_has_no_cut_to_name(self, tmp_path):
+        """Silicon is nsigma-only, so there is no contrast pair to record."""
         for point in range(1, 10):
             _write_om_frame(tmp_path / f"50x_{point}.png", seed=100 + point)
         at = AppTest.from_file(PAGE, default_timeout=300)
@@ -371,7 +363,7 @@ class TestAdaptiveThreshold:
         next(b for b in at.button if "Generate QC Report" in b.label).click().run()
 
         assert not at.exception, [e.value for e in at.exception]
-        assert at.session_state["qc_report"]["optical_threshold"] is None
+        assert at.session_state["qc_report"]["optical_threshold_pair"] is None
         assert at.session_state["qc_report"]["om_png"] is not None
 
 

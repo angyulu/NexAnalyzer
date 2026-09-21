@@ -5,8 +5,8 @@ fitted results and shareable reports, driven by per-material presets rather than
 parameter tuning.
 
 **Modules available today:** Raman & photoluminescence spectra (peak fitting + sample reports),
-and optical-microscopy layer QC (contrast segmentation with `nsigma`, fixed-contrast, or
-adaptive per-wafer thresholds — see `docs/OM_Contrast_Algo.md`). The platform is built so
+and optical-microscopy layer QC (contrast segmentation with `nsigma` or a fixed
+contrast pair — see `docs/OM_Contrast_Algo.md`). The platform is built so
 further techniques plug in alongside it — see [Architecture](#architecture).
 
 ---

@@ -32,7 +32,6 @@ from modules.optical.io.frame_tables import (
     frame_class_stats,
     frame_point_rows,
 )
-from modules.optical.processing.adaptive import AdaptivePair
 from modules.optical.processing.contrast import FrameResult, class_labels
 from modules.spectra.io.results_excel import TechniqueResults, build_sample_results_xlsx
 from modules.spectra.models.peak import FittedPeak, FitResult
@@ -419,58 +418,40 @@ class TestSummarySheet:
         assert wb.sheetnames[0] == "Summary"
 
 
-def _pair(below=2.5, above=2.0, base=(6.0, 4.25), measurable=(True, True)):
-    return AdaptivePair(
-        pair=(below, above), base=base,
-        below_source="valley", above_source="valley",
-        below_gate=12.9, above_gate=10.3,
-        below_measurable=measurable[0], above_measurable=measurable[1],
-        noise_sigma_pct=0.19,
-    )
-
-
 class TestThresholdProvenance:
-    """Adaptive derives a different pair per wafer, so a sheet that does not
-    carry the pair cannot be told apart from one produced by a different cut.
-
-    On the 202609 batch the derivation moved the pair on 21 of 55 wafers, and
-    on one of them that was worth 3.6 points of bilayer coverage — so "which
-    pair ran" is not metadata, it is part of the measurement.
+    """One preset pair segments every wafer, but a preset can be edited, so a
+    sheet that does not carry the pair cannot be told apart from one produced
+    before the edit. "Which pair ran" is not metadata, it is part of the
+    measurement.
     """
 
-    def test_a_derived_pair_lands_on_every_class_row(self):
+    def test_the_pair_lands_on_every_class_row(self):
         frames = [_frame(p, (10.0, 70.0, 20.0)) for p in (1, 2)]
 
-        df = pd.DataFrame(frame_class_rows(frames, _pair()), columns=list(CLASS_COLUMNS))
+        df = pd.DataFrame(frame_class_rows(frames, (6.0, 4.25)),
+                          columns=list(CLASS_COLUMNS))
 
-        assert list(df["Threshold_Below_pct"]) == [2.5] * 3
-        assert list(df["Threshold_Above_pct"]) == [2.0] * 3
-        assert list(df["Threshold_Base_Below_pct"]) == [6.0] * 3
-        assert list(df["Threshold_Base_Above_pct"]) == [4.25] * 3
-        assert set(df["Threshold_Below_Source"]) == {"valley"}
+        assert list(df["Threshold_Below_pct"]) == [6.0] * 3
+        assert list(df["Threshold_Above_pct"]) == [4.25] * 3
 
-    def test_no_derivation_is_recorded_as_preset_not_as_blank(self):
-        """A run that used the preset pair unchanged must be distinguishable
-        from an adaptive run that derived its way back to the base."""
-        cells = threshold_columns(None)
-
-        assert cells[4] == "preset" and cells[5] == "preset"
-        assert cells[0] is None and cells[1] is None
+    def test_an_nsigma_run_has_no_pair_to_name(self):
+        """No absolute pair means no contrast cut exists to record — blank,
+        rather than a zero that would read as a measurement."""
+        assert threshold_columns(None) == [None, None]
 
     def test_the_pair_reaches_the_workbook(self):
         frames = [_frame(p, (10.0, 70.0, 20.0)) for p in (1, 2)]
-        wb = _workbook(optical_frames=frames, optical_threshold=_pair())
+        wb = _workbook(optical_frames=frames, optical_threshold_pair=(6.0, 4.25))
 
         stats = _sheet_frame(wb, "OM_Stats")
 
-        assert stats.iloc[0]["Threshold_Below_pct"] == pytest.approx(2.5)
-        assert stats.iloc[0]["Threshold_Base_Below_pct"] == pytest.approx(6.0)
-        assert stats.iloc[0]["Noise_Sigma_pct"] == pytest.approx(0.19)
+        assert stats.iloc[0]["Threshold_Below_pct"] == pytest.approx(6.0)
+        assert stats.iloc[0]["Threshold_Above_pct"] == pytest.approx(4.25)
 
-    def test_a_preset_run_reaches_the_workbook_too(self):
+    def test_an_nsigma_run_reaches_the_workbook_too(self):
         frames = [_frame(p, (10.0, 70.0, 20.0)) for p in (1, 2)]
         wb = _workbook(optical_frames=frames)
 
         stats = _sheet_frame(wb, "OM_Stats")
 
-        assert set(stats["Threshold_Below_Source"]) == {"preset"}
+        assert stats["Threshold_Below_pct"].isna().all()

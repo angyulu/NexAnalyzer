@@ -323,31 +323,6 @@ class OpticalParams:
     ff_divisor: Optional[float] = None
     abs_threshold_below: Optional[float] = None
     abs_threshold_above: Optional[float] = None
-    #: Third threshold method: derive the pair per wafer from its own pooled
-    #: frames (modules/optical/processing/adaptive.py), using the two
-    #: `abs_threshold_*` fields as the base pair that only strong evidence can
-    #: move. Since v4.6.0 this is the *default* whenever the pair is set --
-    #: `None` means on, and only an explicit `False` pins the fixed pair --
-    #: because the adaptive path degrades to the base pair exactly when the
-    #: evidence is weak, so opting out is the decision worth writing down.
-    #: Read `adaptive_enabled`, not this field. Not passed to `analyse_frame`
-    #: (as_kwargs skips it): the QC Panel resolves it into a concrete pair
-    #: first, because the derivation needs every frame and `analyse_frame`
-    #: sees one at a time.
-    adaptive_threshold: Optional[bool] = None
-
-    @property
-    def adaptive_enabled(self) -> bool:
-        """Whether the per-wafer derivation should run.
-
-        Requires the abs pair (there is no base to derive from otherwise) and
-        honours only an explicit ``False`` as an opt-out.
-        """
-        below, above = (getattr(self, f) for f in self._ABS_FIELDS)
-        if below is None or above is None:
-            return False
-        return self.adaptive_threshold is not False
-
     #: Field name -> the `contrast.analyse_frame` keyword it sets.
     _KWARGS = {
         "nsigma": "nsigma",
@@ -404,25 +379,26 @@ class OpticalParams:
             value = getattr(self, name)
             if value is not None and not (0.5 <= value <= 50.0):
                 errors.append(f"{name} {value} out of range [0.5, 50.0] %")
-        if self.adaptive_threshold and (below is None or above is None):
-            errors.append(
-                "adaptive_threshold needs abs_threshold_below and "
-                "abs_threshold_above as its base pair; set both or turn it off"
-            )
         return errors
 
     def to_dict(self) -> dict:
         """Only the fields that are set; absent means "algorithm default"."""
         return {
             name: getattr(self, name)
-            for name in tuple(self._KWARGS) + self._ABS_FIELDS + ("adaptive_threshold",)
+            for name in tuple(self._KWARGS) + self._ABS_FIELDS
             if getattr(self, name) is not None
         }
 
+    #: Keys that older presets carry and this version no longer honours.
+    #: Dropped rather than rejected: a stored preset written by v4.6-v5.4 is
+    #: still a valid preset, it just names a method that no longer exists.
+    _RETIRED = ("adaptive_threshold",)
+
     @classmethod
     def from_dict(cls, data: dict) -> "OpticalParams":
-        """Deserialize from dictionary."""
-        return _construct(cls, dict(data), what="optical block")
+        """Deserialize from dictionary, ignoring retired keys."""
+        data = {k: v for k, v in data.items() if k not in cls._RETIRED}
+        return _construct(cls, data, what="optical block")
 
 
 def _construct(cls, data: dict, what: str):

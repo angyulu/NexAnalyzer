@@ -56,14 +56,11 @@ CLASS_COLUMNS: Tuple[str, ...] = (
     "Class", "Position", "N_Frames",
     "Coverage_Mean_pct", "Coverage_Std_pct",
     "Contrast_Mean_pct", "Contrast_Std_pct",
-    # Wafer-level, repeated on every class row. Adaptive derives a different
-    # pair per wafer, so a sheet that does not carry the pair cannot be told
-    # apart from one produced by a different cut. Repetition is the price of
-    # keeping this a flat table that stacks across samples.
+    # Wafer-level, repeated on every class row. One preset pair segments every
+    # wafer, but a preset can be edited, so a sheet that does not carry the
+    # pair cannot be told apart from one produced before the edit. Repetition
+    # is the price of keeping this a flat table that stacks across samples.
     "Threshold_Below_pct", "Threshold_Above_pct",
-    "Threshold_Base_Below_pct", "Threshold_Base_Above_pct",
-    "Threshold_Below_Source", "Threshold_Above_Source",
-    "Noise_Sigma_pct",
 )
 
 
@@ -98,35 +95,29 @@ def frame_class_stats(frames: Sequence[FrameResult]) -> List[OpticalClassStat]:
     ]
 
 
-def threshold_columns(threshold) -> list:
-    """The seven wafer-level threshold cells, from an `AdaptivePair` or None.
+def threshold_columns(pair) -> list:
+    """The two wafer-level threshold cells, from a `(below, above)` pair.
 
-    None means the run used the preset pair as-is (no derivation), which is
-    recorded as the pair equalling its own base and a source of "preset" —
-    distinguishable from an adaptive run that derived its way back to the base,
-    which reports "default...".
+    None means the segmentation ran on `nsigma` rather than an absolute pair,
+    so there is no contrast cut to name.
     """
-    if threshold is None:
-        return [None, None, None, None, "preset", "preset", None]
-    return [
-        threshold.pair[0], threshold.pair[1],
-        threshold.base[0], threshold.base[1],
-        threshold.below_source, threshold.above_source,
-        threshold.noise_sigma_pct,
-    ]
+    if pair is None:
+        return [None, None]
+    return [pair[0], pair[1]]
 
 
-def frame_class_rows(frames: Sequence[FrameResult], threshold=None) -> List[list]:
+def frame_class_rows(frames: Sequence[FrameResult],
+                     threshold_pair=None) -> List[list]:
     """`frame_class_stats` as rows aligned to `CLASS_COLUMNS`.
 
     `Position` is carried here but not on `OpticalClassStat`: it exists to make
     two samples stackable in a spreadsheet, which is a table concern rather
     than something the summary figure draws.
 
-    `threshold` is the `AdaptivePair` the run derived, or None when the preset
-    pair was used unchanged.
+    `threshold_pair` is the preset's `(below, above)` contrast pair, or None
+    when the segmentation ran on `nsigma` instead.
     """
-    cells = threshold_columns(threshold)
+    cells = threshold_columns(threshold_pair)
     return [
         [
             entry.label, position, entry.n_frames,
