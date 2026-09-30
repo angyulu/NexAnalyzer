@@ -5,6 +5,107 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.8.0] - 2026-09-30
+
+### Added
+
+- **A OneNote page, under a new "Publish" nav section.** The team keeps one
+  OneNote page per wafer and fills it by hand — saving figures out of this app
+  and pasting them in. This page is the first half of doing that directly:
+  it names the wafer, checks its material, and shows what would be published.
+  Sign-in and the upload itself are not wired up yet, so nothing leaves the
+  machine at this version; the material check is live.
+
+  "Publish" is the one nav section not named for a data source, and it has to
+  be: OneNote reads no measurements and no tool logs, it sends the other
+  pages' finished results out. Filing it under "Analysis" or "Process" would
+  have falsified the rule those two headings state, so the rule now says it
+  holds for exactly the two sections that state it.
+
+- **A wafer-prefix -> material table, `data/material_prefixes.json`.** A wafer
+  ID is `[tool 2][version 2][sequence 2]`, and the material is a property of
+  the tool: `HA`, `VA`, `VB`, `DU`, `DD` grow WSe2, `QU` grows MoS2. The table
+  is keyed on those first two letters.
+
+  It is a convention written down, not a record, because no per-wafer material
+  record exists. Three searches — the Data Collection share, the Google Drive
+  mount, this repo — found material asserted only at container level: a sheet
+  named `WSe2_SEP Control Table`, a toolkit named `wse2_optical_analysis`, a
+  generated deck titled `HADH06 | Material: WSe2`. Never a field with a value
+  per wafer. Those three conventions can silently disagree; one reviewed file
+  replaces them.
+
+  The check is a guardrail, not validation: five of six tool lines grow WSe2,
+  so it agrees for almost every wafer. It earns its place on the QU wafer left
+  on the previous sample's WSe2 preset, and on the tool line nobody has added
+  yet. A mismatch warns and uploads anyway — a check that blocked would assume
+  the table is always right, and the day a tool changes chemistry it would be
+  worked around rather than corrected. "Unknown prefix" renders differently
+  from "mismatch" on purpose: *we did not check* and *we checked and it
+  disagrees* must not read alike.
+
+- **A gitignored overlay, `data/material_prefixes.local.json`.** An unknown
+  prefix can be added from the app, but only to this file, layered over the
+  committed one. Letting the button edit the shared table would put one
+  operator's guess on one machine — uncommitted, invisible to everyone else —
+  while both saw a green verdict. Anything resolved from the overlay is marked
+  *locally added, not yet shared* wherever it appears. Same split this repo
+  already draws between `data/materials.json` and `data/report_settings.json`.
+
+- **The OneNote page takes a tool folder and lists its wafers.** Point it at
+  `...\Data Collection\HA1P01` once and pick a wafer from a dropdown; the
+  three artifacts are found under it. Previously it wanted a single wafer
+  folder, which meant re-picking for every wafer and gave no way to see what a
+  wafer actually had.
+
+- **`data/tool_layouts.json`, declaring where each tool keeps its artifacts.**
+  The layout is declared per tool rather than inferred, because a survey of
+  all twelve tool folders found there is no convention to infer: the runcard
+  folder is spelled four ways (`RUNCARD`, `Runcard`, `Run Card`, absent), the
+  optical folder six (`OPTICALS`, `Optical Properties`, `Raman&PL`,
+  `RAMAN&PL`, `RAMAN`, `Characterization`), depth to a wafer runs one to four
+  levels, and the intermediate tier is a month in one tool, a wafer-prefix in
+  another, a technique in a third. Only two of the twelve have a datalog at
+  all, and the older eight key their files on a run serial rather than a wafer
+  ID, so a wafer lookup in them can never match.
+
+  An undeclared tool raises and names the file to add it to. A loader that
+  guessed would return empty for most tools while looking like it had
+  searched, which for a QC tool is worse than saying it does not know.
+
+  Ships with HA1P01 alone. The optical side needs two patterns because the
+  naming changed mid-2026: `OPTICALS/202609/<WAFER>/` is a folder per wafer,
+  the twelve earlier months are flat `.wip` files, and the five before those
+  key on a run serial and are unreachable by wafer ID at all.
+
+- **A read-only "found on disk" panel per wafer**, and it says *not linked*,
+  never *missing*. 1186 of HA1P01's 1404 datalog CSVs carry no `~<WAFER>` in
+  the filename, so 58% of its wafers have a log that exists but cannot be
+  addressed by name; 19 wafers have optical data and no runcard under any
+  glob. Calling either "missing" would send someone hunting for a file that is
+  sitting in the folder. Measured against the real share: 526 wafers, 100%
+  optical, 80% runcard, 32% datalog.
+
+### Notes
+
+- The upload log deliberately survives `reset_results`, breaking the pattern
+  every other state module follows. A derived key is dropped on an input
+  change because a stale figure under a new sample's name is a lie; the log
+  records what *happened*, which stays true whatever is picked next. Dropping
+  it would erase the record of a failed upload at exactly the moment the
+  operator moved on.
+
+- The runcard and datalog loaders are unchanged. Both already recurse and both
+  already gate on content — a recipe's clock advances where a datalog's does
+  not — so they only ever needed a better starting folder. Pointing them at
+  the tool root instead would be actively harmful: the Datalog page's bulk
+  rename walks from its root, and `runcard_tags.json` is keyed by path
+  relative to it, so moving the root would orphan all 231 existing tags.
+
+- `BACKUP/` is excluded from the wafer list. It holds a full parallel
+  `OM/<YYYYMM>/<WAFER>/` tree, so every wafer in it would otherwise appear
+  twice with nothing to tell the two apart.
+
 ## [5.7.1] - 2026-09-30
 
 ### Fixed

@@ -19,6 +19,7 @@ PAGES = [
     "pages/3_Material_Presets.py",
     "pages/4_Datalog.py",
     "pages/5_Runcard.py",
+    "pages/6_OneNote.py",
 ]
 
 

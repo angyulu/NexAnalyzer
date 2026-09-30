@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "prefixes": {
+    "HA": "WSe2",
+    "VA": "WSe2",
+    "VB": "WSe2",
+    "DU": "WSe2",
+    "DD": "WSe2",
+    "QU": "MoS2"
+  }
+}

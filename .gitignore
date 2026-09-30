@@ -76,3 +76,10 @@ data/runcard.json
 # .wip project file that exceeds GitHub's per-file size limit anyway) —
 # must never be committed.
 /Example/
+
+# Per-installation additions to the wafer-prefix -> material table, written by
+# the OneNote page's "add this prefix" button. Deliberately NOT committed:
+# data/material_prefixes.json is the team's shared, reviewed table, and a
+# prefix added here is marked "not yet shared" everywhere it is rendered until
+# someone promotes it into that file.
+data/material_prefixes.local.json
