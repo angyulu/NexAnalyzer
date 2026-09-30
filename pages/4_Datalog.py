@@ -29,6 +29,16 @@ docstring says what breaks if it is tightened or widened.
 ``<timestamp>~<tag>.csv`` and re-keys their tags in the same step, so a run
 copied out of the folder still says which runcard it belongs to.
 
+**Runcard detection names files.** "Detect runcards" replays every recipe in
+the tool's runcard folder against each untagged run and proposes the card that
+produced it (`processing.runcard_match`); applying renames the files to
+``<timestamp>~<tag>.csv``. The filename, not the sidecar, is the durable
+carrier on HA1P01: its DATALOG is filled by SulfurSync (a one-way robocopy from
+the tool PC), which also copies the tool PC's own `runcard_tags.json` over this
+one whenever that changes. SulfurSync's ``keepRenamed`` (on for HA-DataRecord
+since 2026-09-28) keeps renamed files renamed instead of copying the original
+name back beside them. "Save as tags only" remains for folders nothing copies into.
+
 **Two sidecars here are not ours to change.** `runcard_tags.json` and
 `thresholds.json` live in the operator's data folder and are read by
 datalog_monitor, the application this page replaces, which is still installed
@@ -37,6 +47,7 @@ this page owns is the remembered folder, in `data/datalog.json`.
 """
 
 import os
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -49,6 +60,7 @@ from modules.datalog.io import duplicates, renamer
 from modules.datalog.io.config_store import load_last_folder, save_last_folder
 from modules.datalog.io.scanner import (
     ALIGNMENT_SV_COLUMN,
+    get_run_metadata,
     PRESSURE_GROUP_LABEL_COLUMN,
     PRESSURE_GROUP_NUMERIC,
     detect_pv_sv_pairs,
@@ -56,8 +68,20 @@ from modules.datalog.io.scanner import (
     load_run,
     scan_folder,
 )
-from modules.datalog.io.tag_store import get_runcard_tag, load_runcard_tags, set_runcard_tag
+from modules.datalog.io.runcard_index import (
+    default_runcard_folder,
+    read_run_steps,
+    read_runcards,
+    runcard_signature,
+)
+from modules.datalog.io.tag_store import (
+    get_runcard_tag,
+    load_runcard_tags,
+    set_runcard_tag,
+    set_runcard_tags,
+)
 from modules.datalog.io.threshold_store import load_thresholds, save_thresholds
+from modules.datalog.processing import runcard_match
 from modules.datalog.processing.analysis import (
     TIME_COLUMN,
     compute_all_violations,
@@ -161,7 +185,9 @@ def _render_bulk_rename(root_folder: str, state: dict) -> None:
     st.caption(
         "Rename every run in this folder (recursively) to `<timestamp>~<tag>.csv`. "
         "Target names are recomputed from current data, so this also fixes files "
-        "renamed under a tag that has since been edited."
+        "renamed under a tag that has since been edited. In a folder a sync writes into, "
+        "the sync must keep renamed files (SulfurSync: keepRenamed, on for HA-DataRecord) "
+        "or it copies the original name back beside every renamed file."
     )
     pending = state.get("rename_plans")
     with st.expander("Bulk rename", expanded=bool(pending or state.get("rename_result"))):
@@ -291,6 +317,432 @@ def _render_duplicate_cleanup(root_folder: str, state: dict) -> None:
                 )
 
 
+# ------------------------------------------------------------------ Runcard detection
+#: How many tagged cleaning runs are loaded as references at most. Each is a
+#: file read on first use, and the matcher only looks within 30 days anyway.
+_MAX_CLEANING_REFERENCES = 60
+
+#: A run file modified this recently may still be being written by the
+#: controller (and copied by the sync); renaming it now would leave the copy
+#: that arrives next under the old name.
+_LIVE_WINDOW_S = 30 * 60
+
+#: A file longer than this is one of the continuous daily logs the tool wrote
+#: before April 2025, holding several runs; one tag cannot name all of them.
+_MAX_SINGLE_RUN_SPAN = pd.Timedelta(hours=12)
+
+#: How far back "Runs from" starts by default, from the newest run: the backlog
+#: an operator is catching up on, not two years of history in one table.
+_DEFAULT_DETECT_SPAN = pd.Timedelta(days=60)
+
+#: Confidence levels the detector pre-ticks for saving. "low" is shown and left
+#: for the operator to tick: it means the log differs from every card in
+#: several steps, which is a run worth a human look before it is named.
+_PRESELECTED_CONFIDENCE = ("high", "medium")
+
+
+@st.cache_data(show_spinner=False, ttl=60)
+def _runcard_signature(folder: str):
+    """The recipe folder's (path, mtime, size) list, re-walked at most once a minute.
+
+    The per-run suggestion renders inside the 60-second fragment; walking a
+    thousand cards on every tick would buy nothing, and a card saved a minute
+    ago is picked up on the next one.
+    """
+    return runcard_signature(folder)
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def _runcards(folder: str, signature):
+    """Every candidate recipe, parsed once per change to the folder.
+
+    `signature` is the cache key and is never read -- no leading underscore,
+    for the reason `scanner.load_run_dataframe` gives.
+    """
+    return read_runcards(folder)
+
+
+@st.cache_data(show_spinner=False, max_entries=4096)
+def _run_steps(path: str, mtime: float):
+    """One run reduced for matching: a few kB, so thousands of them fit."""
+    return read_run_steps(path)
+
+
+def _steps_for(path: str):
+    try:
+        return _run_steps(path, os.path.getmtime(path))
+    except OSError:
+        return None
+
+
+def _runcard_folder(root_folder: str, state: dict) -> str:
+    """The recipe folder to match against: the operator's pick, else the guess."""
+    if state.get("runcard_folder") is None:
+        state["runcard_folder"] = default_runcard_folder(root_folder) or ""
+    return state["runcard_folder"]
+
+
+def _usable(steps) -> bool:
+    """Enough recipe to compare: two blocks and two minutes of waits."""
+    return steps is not None and len(steps.blocks) >= 2 and steps.total >= 120
+
+
+def _tag_context(root_folder: str, runs, tags: dict, window=None, exclude=None):
+    """Tags already on runs, and the tagged cleaning runs that can stand as references.
+
+    Returns ``(used, reference_paths)``: ``used`` maps each tag to its run's
+    start -- those growth cards are taken, and they anchor the order check --
+    and ``reference_paths`` holds ``(tag, path)`` for numbered-cleaning runs
+    inside `window` (a ``(start, end)`` pair), newest first, capped. Nothing is
+    read here; `_load_references` reads them, and only when a cleaning needs them.
+    """
+    used, refs = {}, []
+    for meta in runs:
+        if meta.path == exclude:
+            continue
+        tag = get_runcard_tag(root_folder, meta.path, tags)
+        if not tag:
+            continue
+        used.setdefault(tag, meta.start_time)
+        if runcard_match.cleaning_name(tag) and (
+            window is None or window[0] <= meta.start_time <= window[1]
+        ):
+            refs.append((meta.start_time, tag, meta.path))
+    refs.sort(reverse=True)
+    return used, tuple((tag, path) for _t, tag, path in refs[:_MAX_CLEANING_REFERENCES])
+
+
+def _load_references(reference_paths):
+    """``(tag, steps)`` for each reference run that holds enough recipe to compare."""
+    out = []
+    for tag, path in reference_paths:
+        steps = _steps_for(path)
+        if _usable(steps):
+            out.append((tag, steps))
+    return out
+
+
+def _detect_runcards(root_folder: str, runcard_folder: str, progress, since=None) -> dict:
+    """Suggest a runcard for every untagged run started on or after `since`. Returns the page's result dict.
+
+    Starts from the list the run table shows -- `duplicates.without_duplicates`
+    has already dropped the byte-identical stale copies -- and then also skips a
+    run with any *tagged twin*: another file with the same start time, such as
+    a copy the sync put back that differs by a trailing row. It is the same
+    run, so it is listed as such rather than named twice.
+    """
+    runs = duplicates.without_duplicates(root_folder, scan_folder(root_folder))
+    tags = load_runcard_tags(root_folder)
+    tagged_start = {}
+    for meta in runs:
+        if get_runcard_tag(root_folder, meta.path, tags):
+            tagged_start.setdefault(meta.start_time, meta.path)
+    untagged = [m for m in runs if not get_runcard_tag(root_folder, m.path, tags)]
+    twins = [(m, tagged_start[m.start_time]) for m in untagged if m.start_time in tagged_start]
+    todo, seen, multi = [], set(), []
+    for meta in sorted(untagged, key=lambda m: m.start_time):
+        if since is not None and meta.start_time < since:
+            continue
+        if meta.start_time in tagged_start or meta.start_time in seen:
+            continue
+        seen.add(meta.start_time)
+        if meta.end_time - meta.start_time > _MAX_SINGLE_RUN_SPAN:
+            multi.append(meta)
+            continue
+        todo.append(meta)
+    twins = [(m, other) for m, other in twins if since is None or m.start_time >= since]
+
+    pairs, unreadable = [], []
+    for k, meta in enumerate(todo):
+        progress(k / max(len(todo), 1) * 0.5, f"Reading {Path(meta.path).name}")
+        steps = _steps_for(meta.path)
+        if _usable(steps):
+            pairs.append((meta.path, steps))
+        else:
+            unreadable.append(meta)
+
+    cards = _runcards(runcard_folder, _runcard_signature(runcard_folder))
+    suggestions = {}
+    if pairs and cards:
+        span = (min(s.start for _p, s in pairs) - pd.Timedelta(days=30),
+                max(s.start for _p, s in pairs) + pd.Timedelta(days=30))
+        used, reference_paths = _tag_context(root_folder, runs, tags, window=span)
+        suggestions = runcard_match.suggest_runcards(
+            pairs, cards, used=used, references=_load_references(reference_paths),
+            progress=lambda done, total: progress(0.5 + 0.5 * done / max(total, 1), "Matching runcards"),
+        )
+    rows = []
+    for meta in todo:
+        s = suggestions.get(meta.path)
+        if s is None:
+            continue
+        rows.append({
+            "path": meta.path,
+            "Save": s.confidence in _PRESELECTED_CONFIDENCE,
+            "Start": meta.start_time.strftime("%Y-%m-%d %H:%M"),
+            "File": Path(meta.path).name,
+            "Tag": s.tag,
+            "Confidence": s.confidence,
+            "Differences": "; ".join(s.differences) or "none",
+            "Notes": "; ".join(list(s.notes) + (["also fits: " + ", ".join(s.alternatives)] if s.alternatives else [])),
+        })
+    return {
+        "rows": rows,
+        "nonce": pd.Timestamp.now().value,
+        "cards": len(cards),
+        "twins": [(m.path, other) for m, other in twins],
+        "unreadable": [m.path for m in unreadable],
+        "multi": [m.path for m in multi],
+    }
+
+
+def _render_runcard_detection(root_folder: str, state: dict) -> None:
+    """Find the runcard behind each untagged run and apply the names the operator accepts.
+
+    Lives beside the bulk rename, outside the fragment, for the reason
+    `_render_bulk_rename` gives. Two state keys carry it: ``runcard_suggestions``
+    (the detector's rows, pending) and ``runcard_detect_result`` (the last
+    rename's or save's outcome), both dropped with the folder.
+    """
+    runcard_folder = _runcard_folder(root_folder, state)
+    pending = state.get("runcard_suggestions")
+    with st.expander("Detect runcards for untagged runs",
+                     expanded=bool(pending or state.get("runcard_detect_result"))):
+        st.caption(
+            "Replays every recipe in the runcard folder against each untagged run and "
+            "proposes the one that produced it. CLEANING-1~5 and the other files at the "
+            "folder's top level can match any number of runs; every other card matches one. "
+            "Rename puts the tag in the filename (`<timestamp>~<tag>.csv`); a folder that a "
+            "sync writes into needs that sync to keep renamed files (SulfurSync: keepRenamed)."
+        )
+        col_folder, col_change = st.columns([3, 1])
+        with col_folder:
+            st.caption(f"Runcard folder: {runcard_folder or 'none found next to this datalog folder'}")
+        with col_change:
+            if st.button("Change...", key="datalog_runcard_folder_pick", width="stretch"):
+                try:
+                    picked = prompt_folder_path(default_dir=runcard_folder or root_folder,
+                                                title="Select Runcard Folder")
+                except Exception as e:
+                    st.error(f"Failed to open folder browser: {e}")
+                    picked = None
+                if picked:
+                    state["runcard_folder"] = picked
+                    state["runcard_suggestions"] = None
+                    st.rerun()
+        if not runcard_folder:
+            st.info("Choose the tool's runcard folder to detect runcards.")
+            return
+
+        runs = scan_folder(root_folder)
+        newest = runs[0].start_time if runs else pd.Timestamp.now()
+        # Keyed by folder, for the reason the tolerance input gives: `value`
+        # seeds a keyed widget once, and another folder's date would stick.
+        since = st.date_input("Runs from", value=(newest - _DEFAULT_DETECT_SPAN).date(),
+                              key=f"datalog_detect_since_{root_folder}")
+        if st.button("Detect runcards", width="stretch"):
+            bar = st.progress(0.0, text="Reading runs")
+            try:
+                state["runcard_suggestions"] = _detect_runcards(
+                    root_folder, runcard_folder, lambda f, text: bar.progress(min(f, 1.0), text=text),
+                    since=pd.Timestamp(since))
+            except OSError as e:
+                st.error(f"Could not read the folders: {e}")
+                state["runcard_suggestions"] = None
+            finally:
+                bar.empty()
+            state["runcard_detect_result"] = None
+
+        found = state.get("runcard_suggestions")
+        if found is not None:
+            rows = found["rows"]
+            if found["twins"]:
+                st.warning(
+                    f"{len(found['twins'])} untagged file(s) are copies of a tagged run "
+                    "(same start time) -- typically the original name put back by a one-way "
+                    "copy after the file was renamed. They are left alone:\n"
+                    + "\n".join(f"- {Path(a).name} = {Path(b).name}" for a, b in found["twins"][:20])
+                )
+            if found.get("multi"):
+                st.caption(
+                    f"{len(found['multi'])} file(s) span more than 12 hours -- continuous logs "
+                    "holding several runs -- and are not tagged: one tag cannot name them all."
+                )
+            if found["unreadable"]:
+                st.caption(
+                    f"{len(found['unreadable'])} run(s) stopped before enough of a recipe ran to "
+                    "compare, and get no suggestion."
+                )
+            if not rows:
+                st.info(f"No untagged run to suggest a runcard for ({found['cards']} runcards read).")
+            else:
+                st.write(f"{len(rows)} suggestion(s) from {found['cards']} runcards. "
+                         "Edit a tag or untick a row before saving.")
+                edited = st.data_editor(
+                    pd.DataFrame(rows).drop(columns=["path"]),
+                    hide_index=True, width="stretch",
+                    disabled=["Start", "File", "Confidence", "Differences", "Notes"],
+                    # A new detection is a new widget: its pending edits belong
+                    # to the rows they were made on, not to whatever is listed next.
+                    key=f"datalog_runcard_suggestions_{root_folder}_{found['nonce']}",
+                )
+                chosen = [
+                    (row["path"], str(edited.iloc[i]["Tag"]).strip())
+                    for i, row in enumerate(rows)
+                    if bool(edited.iloc[i]["Save"]) and str(edited.iloc[i]["Tag"]).strip()
+                ]
+                col_rename, col_tags, col_clear = st.columns(3)
+                if col_rename.button(f"Rename {len(chosen)} file(s)", width="stretch", type="primary"):
+                    state["runcard_detect_result"] = _rename_to_tags(root_folder, chosen)
+                    state["runcard_suggestions"] = None
+                    st.rerun()
+                if col_tags.button("Save as tags only", width="stretch"):
+                    try:
+                        set_runcard_tags(root_folder, dict(chosen))
+                    except OSError as e:
+                        # A read-only share, or runcard_tags.json held open by
+                        # datalog_monitor. Nothing was written: the batch is one write.
+                        st.error(f"Could not save the tags: {e}")
+                    else:
+                        state["runcard_detect_result"] = {"tagged": len(chosen)}
+                        state["runcard_suggestions"] = None
+                        st.rerun()
+                if col_clear.button("Discard", width="stretch"):
+                    state["runcard_suggestions"] = None
+                    st.rerun()
+
+        done = state.get("runcard_detect_result")
+        if done is not None:
+            if "tagged" in done:
+                st.success(f"Saved {done['tagged']} tag(s) to runcard_tags.json.")
+            else:
+                st.success(f"Renamed {len(done['renamed'])} file(s).")
+                if done["skipped"]:
+                    st.warning("Not renamed:\n" + "\n".join(
+                        f"- {Path(p).name}: {reason}" for p, reason in done["skipped"]))
+
+
+def _rename_to_tags(root_folder: str, chosen) -> dict:
+    """Rename each ``(path, tag)`` to ``<start>~<tag>.csv`` through the renamer's own sweep.
+
+    `renamer.execute_sweep` is what makes this safe to run on hundreds of files:
+    a collision or a locked file costs its own row, and a tag already stored
+    for the old name follows the file. A run still being written is skipped --
+    the controller (and the sync behind it) would carry on under the old name.
+    """
+    plans, skipped = [], []
+    now = time.time()   # epoch, like getmtime; a naive pd.Timestamp would read as UTC
+    for path, tag in chosen:
+        try:
+            if now - os.path.getmtime(path) < _LIVE_WINDOW_S:
+                skipped.append((path, "still being written; try again later"))
+                continue
+            meta = get_run_metadata(path)
+        except OSError as e:
+            skipped.append((path, str(e)))
+            continue
+        if meta is None:
+            skipped.append((path, "not a readable run"))
+            continue
+        src = Path(path)
+        dest = src.with_name(renamer.target_filename(meta.start_time, tag, src.suffix))
+        if dest == src:
+            continue
+        plans.append(renamer.RenamePlan(path=path, new_path=str(dest), will_change=True,
+                                        collision=dest.exists()))
+    result = renamer.execute_sweep(root_folder, plans)
+    return {"renamed": result.renamed,
+            "skipped": skipped + result.skipped + [(old, why) for old, _new, why in result.tag_orphaned]}
+
+
+@st.cache_data(show_spinner=False, max_entries=256)
+def _cached_suggestion(path: str, mtime: float, runcard_folder: str, signature, used_items, reference_paths):
+    """One run's suggestion, recomputed only when the run, the cards or the other tags change.
+
+    Every argument is cache key. References are read only when the plain answer
+    is a cleaning recipe: they exist to tell CLEANING-N versions apart, and a
+    growth run's answer does not depend on them.
+    """
+    steps = _run_steps(path, mtime)
+    if not _usable(steps):
+        return None
+    cards = _runcards(runcard_folder, signature)
+    if not cards:
+        return None
+    used = dict(used_items)
+    s = runcard_match.suggest_runcards([(path, steps)], cards, used=used).get(path)
+    if s is not None and "CLEAN" in s.card_name.upper() and reference_paths:
+        s = runcard_match.suggest_runcards(
+            [(path, steps)], cards, used=used, references=_load_references(reference_paths)
+        ).get(path, s)
+    return s
+
+
+def _single_suggestion(root_folder: str, meta, tags: dict, runs):
+    """The detector's answer for one selected run, or None when there is nothing to say.
+
+    Excludes the run's own tag from the taken cards, so a tagged run is checked
+    against its own card rather than pushed off it.
+    """
+    runcard_folder = _runcard_folder(root_folder, get_datalog_state())
+    if not runcard_folder:
+        return None
+    try:
+        mtime = os.path.getmtime(meta.path)
+    except OSError:
+        return None
+    window = (meta.start_time - pd.Timedelta(days=30), meta.start_time + pd.Timedelta(days=30))
+    used, reference_paths = _tag_context(root_folder, runs, tags, window=window, exclude=meta.path)
+    return _cached_suggestion(meta.path, mtime, runcard_folder, _runcard_signature(runcard_folder),
+                              tuple(sorted(used.items())), reference_paths)
+
+
+def _use_suggested_tag(root_folder: str, file_path: str, widget_key: str, tag: str) -> None:
+    """Button callback: store the suggested tag and show it in the tag box.
+
+    Written through the same sidecar call as a typed tag, and the box's session
+    value is set here -- in a callback, before the rerun paints the widget --
+    because a keyed text_input ignores ``value`` after its first render.
+    """
+    try:
+        set_runcard_tag(root_folder, file_path, tag)
+    except OSError as e:
+        st.session_state[_TAG_ERROR_KEY_PREFIX + file_path] = f"Could not save the runcard tag: {e}"
+        return
+    st.session_state[widget_key] = tag
+
+
+def _render_suggestion(root_folder: str, meta, tags: dict, runs, widget_key: str) -> None:
+    """Under a selected run's tag box: the detected runcard, or a check of the tag it has."""
+    try:
+        s = _single_suggestion(root_folder, meta, tags, runs)
+    except Exception as e:     # a detector bug must not cost the tag editor
+        st.caption(f"Runcard detection failed: {e}")
+        return
+    if s is None:
+        return
+    current = get_runcard_tag(root_folder, meta.path, tags)
+    detail = f"{s.confidence} confidence"
+    if s.notes:
+        detail += " -- " + "; ".join(s.notes)
+    if not current:
+        st.caption(f"Detected runcard: **{s.tag}** ({detail})")
+        if s.differences:
+            st.caption("Differs from the card: " + "; ".join(s.differences[:4]))
+        st.button(f"Use {s.tag}", key=f"datalog_use_suggestion_{meta.path}",
+                  on_click=_use_suggested_tag, args=(root_folder, meta.path, widget_key, s.tag))
+        return
+    same = runcard_match.base_tag(current) == runcard_match.base_tag(s.tag) or (
+        "CLEAN" in current.upper() and "CLEAN" in s.tag.upper()
+        and (runcard_match.cleaning_name(current) is None
+             or runcard_match.cleaning_name(current) == runcard_match.cleaning_name(s.tag))
+    )
+    if same:
+        st.caption(f"The log matches this tag's runcard ({s.card_name}, {s.confidence} confidence).")
+    else:
+        st.warning(f"The log looks like **{s.tag}**, not {current} ({detail}).")
+
+
 #: Where a failed tag write parks its message until a render pass can show it.
 #: Keyed by file path, so two selected runs cannot overwrite each other's error.
 _TAG_ERROR_KEY_PREFIX = "datalog_tag_error_"
@@ -329,7 +781,7 @@ def _commit_tag_edit(root_folder: str, file_path: str, widget_key: str) -> None:
         )
 
 
-def _render_tag_editor(root_folder: str, meta, tags: dict) -> None:
+def _render_tag_editor(root_folder: str, meta, tags: dict, runs) -> None:
     """One selected run's tag box and its rename button.
 
     Both widgets are keyed by absolute path -- the identity of the thing being
@@ -354,6 +806,7 @@ def _render_tag_editor(root_folder: str, meta, tags: dict) -> None:
     tag_error = st.session_state.pop(_TAG_ERROR_KEY_PREFIX + meta.path, None)
     if tag_error:
         st.error(tag_error)
+    _render_suggestion(root_folder, meta, tags, runs, widget_key)
 
     plan = renamer.plan_single_rename(root_folder, meta)
     if plan.will_change:
@@ -475,7 +928,7 @@ def _render_run_table(root_folder: str, mode: str):
         st.divider()
         st.caption("Edit runcard tag for the selected run(s):")
         for meta in selected_metas:
-            _render_tag_editor(root_folder, meta, tags)
+            _render_tag_editor(root_folder, meta, tags, runs)
 
     return [meta.path for meta in selected_metas]
 
@@ -871,6 +1324,7 @@ if not root_folder:
 
 # ------------------------------------------------------------------ Renaming
 st.subheader("2. Filenames")
+_render_runcard_detection(root_folder, state)
 _render_bulk_rename(root_folder, state)
 _render_duplicate_cleanup(root_folder, state)
 

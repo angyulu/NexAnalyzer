@@ -123,9 +123,21 @@ The full reasoning is in the
   records as previously fixed, and which this app reintroduced at v5.1.0 by
   porting an older ancestor. See [docs/reference/README.md](docs/reference/README.md).
 
+- **Runcard matching counts only `Wait` time, and on HA1P01 the filename carries the tag.**
+  `processing/runcard_match.py` aligns a card's steps with a log's on a *wait
+  clock*; Pumping and Check Status last as long as the chamber takes, so they are
+  off the clock on both sides. Do not swap in `growth_window.build_timeline`,
+  whose Check Status costs 10 s — right for drawing a recipe, wrong for matching.
+  HA1P01's DATALOG is filled by a one-way robocopy (SulfurSync) that also copies
+  the tool PC's `runcard_tags.json` over the OneDrive one, so a tag saved only
+  in OneDrive is temporary; renames survive because the HA-DataRecord job runs
+  with `keepRenamed`. See [docs/Runcard_Matching.md](docs/Runcard_Matching.md).
+
 ## Doc trust levels
 
 - [docs/Summary.md](docs/Summary.md) — current.
+- [docs/Runcard_Matching.md](docs/Runcard_Matching.md) — current as of v5.7.0; its
+  validation numbers were measured on HA1P01 on 2026-09-28.
 - [docs/Fitting_Algo.md](docs/Fitting_Algo.md) — §1–§4 verified against the code at
   v3.6.0. §5–§8 are history; their listings quote code as it stood at the time.
 - [docs/Baseline_Algo.md](docs/Baseline_Algo.md) — paths repointed at v3.6.0, but the

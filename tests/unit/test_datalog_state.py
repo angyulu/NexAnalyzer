@@ -6,6 +6,7 @@ import pytest
 
 from modules.datalog.ui import datalog_state
 from modules.datalog.ui.datalog_state import (
+    _DETECT_ARTIFACTS,
     _DUPLICATE_ARTIFACTS,
     _RENAME_ARTIFACTS,
     _SELECTIONS,
@@ -37,8 +38,23 @@ class TestEveryDerivedKeyIsResettable:
     def test_no_key_is_unaccounted_for(self, monkeypatch):
         state = _fresh_state(monkeypatch)
 
-        accounted = set(_SELECTIONS) | set(_RENAME_ARTIFACTS) | set(_DUPLICATE_ARTIFACTS)
+        accounted = (set(_SELECTIONS) | set(_RENAME_ARTIFACTS)
+                     | set(_DUPLICATE_ARTIFACTS) | set(_DETECT_ARTIFACTS))
         assert set(state) - accounted == set()
+
+    def test_a_folder_change_drops_the_detector_and_its_recipe_folder(self, monkeypatch):
+        # Another tool's recipe folder carried onto this tool's logs would
+        # match every run against the wrong recipes.
+        state = _fresh_state(monkeypatch)
+        state["folder"] = r"D:\HA1P01\DATALOG"
+        state["runcard_folder"] = r"D:\HA1P01\RUNCARD\lcy"
+        state["runcard_suggestions"] = {"rows": ["pending"]}
+        state["runcard_detect_result"] = 3
+
+        reset_results(state)
+
+        assert state["folder"] == r"D:\HA1P01\DATALOG"
+        assert all(state[key] is None for key in _DETECT_ARTIFACTS)
 
 
 class TestInitializeState:

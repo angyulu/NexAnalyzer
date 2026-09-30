@@ -17,7 +17,10 @@ asserting on it would be asserting on Streamlit.
 """
 
 import json
+import os
 from pathlib import Path
+
+import pandas as pd
 
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -26,7 +29,7 @@ import core.io.folder_picker as folder_picker
 import modules.datalog.io.config_store as config_store
 from core.paths import PROJECT_ROOT
 from modules.datalog.io.tag_store import RUNCARD_TAGS_FILENAME, set_runcard_tag
-from tests.datalog_fixtures import DATALOG_SHORT, write_datalog
+from tests.datalog_fixtures import DATALOG_SHORT, MATCH_RUNCARD, recipe_datalog, write_datalog
 
 _PAGE = str(PROJECT_ROOT / "pages" / "4_Datalog.py")
 
@@ -168,3 +171,79 @@ class TestTheRunTableIsANewWidgetPerFolder:
         assert any(folder in (df.key or "") for df in at.dataframe), (
             f"no run table keyed by its folder; keys were {[df.key for df in at.dataframe]}"
         )
+
+
+class TestDetectingRuncards:
+    """The detector end to end: a tool folder, one untagged run, one card that ran it.
+
+    What is checked is the folder listing and the sidecar, because those are
+    what outlive the page. Renaming is the primary action -- on HA1P01 the
+    filename is the carrier that survives SulfurSync -- and "Save as tags only"
+    writes the frozen sidecar instead, renaming nothing.
+    """
+
+    def _tool(self, tmp_path, live=False):
+        datalog = tmp_path / "HA1P01" / "DATALOG"
+        month = tmp_path / "HA1P01" / "RUNCARD" / "lcy" / "NSHA1P01" / "202608"
+        datalog.mkdir(parents=True)
+        month.mkdir(parents=True)
+        run = datalog / "2026-08-06_173312.csv"
+        run.write_text(recipe_datalog(), encoding="utf-8")
+        card = month / "HAXA01.csv"
+        card.write_text(MATCH_RUNCARD, encoding="utf-8")
+        saved = pd.Timestamp("2026-08-06 17:33:04").to_pydatetime().timestamp()
+        os.utime(card, (saved, saved))
+        if not live:
+            # A finished run: the controller last wrote it at its end, long ago.
+            ended = pd.Timestamp("2026-08-06 17:42:00").to_pydatetime().timestamp()
+            os.utime(run, (ended, ended))
+        return str(datalog)
+
+    def _click(self, at, label, prefix=False):
+        for button in at.button:
+            if button.label == label or (prefix and button.label.startswith(label)):
+                return button.click().run()
+        raise AssertionError(f"no {label!r} button; buttons were {[b.label for b in at.button]}")
+
+    def _detect(self, tmp_path, monkeypatch, live=False):
+        folder = self._tool(tmp_path, live=live)
+        at = AppTest.from_file(_PAGE, default_timeout=60).run()
+        at = _pick(at, monkeypatch, folder)
+        at = self._click(at, "Detect runcards")
+        assert not at.exception, [e.value for e in at.exception]
+        return folder, at
+
+    def test_the_run_is_found_and_the_card_suggested(self, tmp_path, monkeypatch):
+        _folder, at = self._detect(tmp_path, monkeypatch)
+
+        found = at.session_state["datalog"]["runcard_suggestions"]
+        assert [row["Tag"] for row in found["rows"]] == ["HAXA01"]
+
+    def test_rename_puts_the_tag_in_the_filename_and_writes_no_sidecar(self, tmp_path, monkeypatch):
+        folder, at = self._detect(tmp_path, monkeypatch)
+
+        at = self._click(at, "Rename ", prefix=True)
+
+        assert not at.exception, [e.value for e in at.exception]
+        assert sorted(p.name for p in Path(folder).glob("*.csv")) == ["2026-08-06_173312~HAXA01.csv"]
+        assert _tags_on_disk(folder) is None
+
+    def test_save_as_tags_only_writes_the_sidecar_and_renames_nothing(self, tmp_path, monkeypatch):
+        folder, at = self._detect(tmp_path, monkeypatch)
+
+        at = self._click(at, "Save as tags only")
+
+        assert not at.exception, [e.value for e in at.exception]
+        assert _tags_on_disk(folder) == {"2026-08-06_173312.csv": "HAXA01"}
+        assert sorted(p.name for p in Path(folder).glob("*.csv")) == ["2026-08-06_173312.csv"]
+
+    def test_a_run_still_being_written_is_not_renamed(self, tmp_path, monkeypatch):
+        # The controller, and the sync behind it, would carry on writing under
+        # the old name.
+        folder, at = self._detect(tmp_path, monkeypatch, live=True)
+
+        at = self._click(at, "Rename ", prefix=True)
+
+        assert not at.exception, [e.value for e in at.exception]
+        assert sorted(p.name for p in Path(folder).glob("*.csv")) == ["2026-08-06_173312.csv"]
+        assert at.session_state["datalog"]["runcard_detect_result"]["skipped"]

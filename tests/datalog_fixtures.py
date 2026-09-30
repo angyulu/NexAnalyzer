@@ -165,3 +165,77 @@ def write_datalog(folder, text=DATALOG_SHORT, name="2026-08-06_173312~VBBE00.csv
     path = folder / name
     path.write_text(text, encoding="utf-8", newline="")
     return str(path)
+
+
+# ------------------------------------------------------------------ runcard matching
+#: The runcard the matcher tests replay. Shaped like a real HA growth card cut
+#: down to four waits: a purge (MFC-1/3/8 on for 60 s, then off), a 120 s hold,
+#: a 180 s "growth" step (MFC-6 on, H2Se 4) and a 120 s H2Se-1 tail. Every
+#: variant a test needs is this text with one line changed, so the diff between
+#: the two is the thing the test is about.
+MATCH_RUNCARD = """\
+Pumping,5.00E-01,--
+MFC/PC,MFC-8 H2Se,0.01
+MFC/PC,MFC-1 Ar,50
+MFC/PC,MFC-3 O2,0.01
+Wait,Sec,60
+MFC/PC,MFC-8 H2Se,0
+MFC/PC,MFC-1 Ar,0
+MFC/PC,MFC-3 O2,0
+Wait,Sec,120
+MFC/PC,MFC-6 Ar,50
+MFC/PC,MFC-8 H2Se,4
+Wait,Sec,180
+MFC/PC,MFC-8 H2Se,1
+Wait,Sec,120
+End,--,--
+--,--,--
+--,--,--
+"""
+
+#: What the controller logs for MATCH_RUNCARD, as (Program, seconds, SV changes).
+#: The changes land on the step's first row; only `Wait` rows advance the
+#: matcher's clock, so the 30 s of Pumping is invisible to it.
+MATCH_STEPS = [
+    ("Pumping", 30, {}),
+    ("MFC/PC", 1, {"MFC-8": 0.01, "MFC-1": 50, "MFC-3": 0.01}),
+    ("Wait", 60, {}),
+    ("MFC/PC", 1, {"MFC-8": 0, "MFC-1": 0, "MFC-3": 0}),
+    ("Wait", 120, {}),
+    ("MFC/PC", 1, {"MFC-6": 50, "MFC-8": 4}),
+    ("Wait", 180, {}),
+    ("MFC/PC", 1, {"MFC-8": 1}),
+    ("Wait", 120, {}),
+    ("End", 5, {}),
+]
+
+_MATCH_COLUMNS = (
+    ["Time", "Auto Action", "Program", "651C Gauge", "Stage Rot", "Heater PV", "Heater SV"]
+    + [f"MFC-{i} SV" for i in range(1, 9)]
+    + ["P1 SV", "P2 SV", "P3 SV"]
+)
+
+
+def recipe_datalog(steps=MATCH_STEPS, start="2026-08-06 17:33:12", initial=None):
+    """CSV text of a 1 Hz datalog that executed `steps`.
+
+    `initial` overrides the starting SVs (``{"MFC-4": 500}`` is the previous
+    run's vent flow still on). The heater sits at a stale 900 with the chamber
+    at 30 °C throughout, which is what a card with no Heater Ramp predicts.
+    """
+    import pandas as pd
+
+    state = {f"MFC-{i}": 0.0 for i in range(1, 9)}
+    state.update({"P1": 150.0, "P2": 300.0, "P3": 0.0})
+    state.update(initial or {})
+    t = pd.Timestamp(start)
+    lines = [",".join(_MATCH_COLUMNS)]
+    for program, seconds, changes in steps:
+        state.update(changes)
+        for _ in range(seconds):
+            row = [t.strftime("%Y/%m/%d %H:%M:%S"), "lcy", program, "100 Torr", "10.0", "30", "900"]
+            row += [f"{state[f'MFC-{i}']:.3f}" for i in range(1, 9)]
+            row += [f"{state[p]:.3f}" for p in ("P1", "P2", "P3")]
+            lines.append(",".join(row))
+            t += pd.Timedelta(seconds=1)
+    return "\n".join(lines) + "\n"

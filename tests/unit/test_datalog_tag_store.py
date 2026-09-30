@@ -10,6 +10,7 @@ from modules.datalog.io.tag_store import (
     load_runcard_tags,
     move_runcard_tag,
     set_runcard_tag,
+    set_runcard_tags,
 )
 
 
@@ -115,6 +116,34 @@ class TestPreloadedTagMap:
         set_runcard_tag(str(tmp_path), path, "ON DISK")
 
         assert get_runcard_tag(str(tmp_path), path, {}) == "VBBE00"
+
+
+class TestSetRuncardTags:
+    """The detector's batch save: the single call's rules, in one write."""
+
+    def test_several_tags_land_in_one_write(self, tmp_path, monkeypatch):
+        import modules.datalog.io.tag_store as tag_store
+
+        a = _run(tmp_path, "a.csv")
+        b = _run(tmp_path / "2026_09", "b.csv")
+        writes = []
+        real_write = tag_store._write_json
+        monkeypatch.setattr(tag_store, "_write_json", lambda path, data: (writes.append(1), real_write(path, data)))
+
+        set_runcard_tags(str(tmp_path), {a: "HADH75", b: "CLEANING-4"})
+
+        assert _sidecar(tmp_path) == {"a.csv": "HADH75", "2026_09/b.csv": "CLEANING-4"}
+        assert len(writes) == 1
+
+    def test_existing_tags_are_kept_and_an_empty_tag_deletes(self, tmp_path):
+        a = _run(tmp_path, "a.csv")
+        b = _run(tmp_path, "b.csv")
+        set_runcard_tag(str(tmp_path), a, "KEEP")
+        set_runcard_tag(str(tmp_path), b, "OLD")
+
+        set_runcard_tags(str(tmp_path), {b: ""})
+
+        assert _sidecar(tmp_path) == {"a.csv": "KEEP"}
 
 
 class TestMoveRuncardTag:

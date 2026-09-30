@@ -5,6 +5,57 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.7.0] - 2026-09-30
+
+### Added
+
+- **The Datalog page detects which runcard produced each untagged run.**
+  *2. Filenames → Detect runcards for untagged runs* replays every recipe in the
+  tool's runcard folder (guessed from the datalog folder: `…\HA1P01\RUNCARD\lcy`)
+  against each untagged run and proposes the card that ran it, with a
+  confidence and the exact step differences. CLEANING-1~5 and the other files at
+  the folder's top level can match any number of runs; every other card matches
+  one. **Rename** gives the accepted files `<timestamp>~<tag>.csv` through the
+  existing renamer (a file written to in the last 30 minutes is skipped as still
+  logging); **Save as tags only** writes `runcard_tags.json` in one write instead.
+  Method and numbers: [docs/Runcard_Matching.md](docs/Runcard_Matching.md).
+
+  Consecutive growth cards are routinely identical, so content alone names only
+  the recipe family. The member is chosen jointly across runs: each growth card
+  goes to one run, card numbers rise with run time inside a series, and a card
+  saved seconds before a run started (a third of them are) wins a tie. Measured
+  on HA1P01 with each run's tag hidden and every other tag kept: 241 of 243
+  growth runs and 107 of 108 cleanings named correctly.
+
+- **A selected run shows the detected runcard under its tag box** — with a
+  *Use* button when it is untagged, and a check of the existing tag when it is
+  not ("the log looks like CLEANING-2, not HADD54").
+
+- `tag_store.set_runcard_tags`: several tags in one read and one write, so a
+  batch save does not rewrite the sidecar datalog_monitor reads a hundred times.
+
+### Changed
+
+- **Renaming is the detector's default because the filename is what survives
+  on HA1P01.** Its DATALOG is filled by a one-way robocopy (SulfurSync), which
+  also copies the tool PC's own `runcard_tags.json` over the OneDrive one
+  whenever that is newer, so a tag saved only in OneDrive lasts until the tool
+  PC next saves a tag. The same copy used to put a renamed file's original name
+  back beside it (141 duplicates on 2026-09-28); SulfurSync's HA-DataRecord job
+  now has `keepRenamed` (see the doc), which stops that. Bulk rename's caption
+  says so, and files sharing a start time with a tagged run are listed as copies
+  and not suggested for -- on top of v5.5.0's duplicate hiding, which the
+  detector now starts from.
+
+- `modules/datalog` now imports `modules.runcard.io.parser` (in
+  `io/runcard_index.py`), so a recipe is parsed one way. The dependency runs one
+  direction; `docs/Summary.md` records it.
+
+### Notes
+
+- No existing number moves. The run list, charts, tolerances and both renamers
+  behave as before; the only new writes are the tags an operator chooses to save.
+
 ## [5.6.0] - 2026-09-21
 
 ### Removed

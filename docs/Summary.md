@@ -23,7 +23,9 @@ are not techniques — they read the deposition tool's own logs and recipes rath
 measured off a sample afterwards. They are separate packages rather than one `process` package
 because they share nothing: different parsers, different data structures, different folders, not
 one constant in common. A module here is a unit of independence, and those two are maximally
-independent.
+independent. One thing crosses, since v5.7.0, and in one direction: the Datalog page's runcard
+detection reads recipes through `modules.runcard.io.parser` (in `datalog/io/runcard_index.py`), so
+a recipe is never parsed two ways. Nothing in `runcard` imports `datalog`.
 
 They are also the reason the navigation grew its "Process" section: that label names a *data
 source*, which no future technique can falsify, where the old "Raman & PL" heading named a
@@ -92,7 +94,11 @@ nexanalyzer/
 │   │   ├── io/duplicates.py        # Runs an outside copier stored twice: hidden from the
 │   │   │                           # list, Recycle-Binned on demand
 │   │   ├── io/config_store.py      # data/datalog.json — nexanalyzer's own remembered folder
+│   │   ├── io/runcard_index.py     # The recipe folder and the runs, read for runcard matching
+│   │   │                           # (the one import of modules.runcard)
 │   │   ├── processing/analysis.py  # Summary stats, tolerance violations, plateau alignment
+│   │   ├── processing/runcard_match.py  # Which runcard produced a run: replay, align, assign
+│   │   │                           # (see docs/Runcard_Matching.md)
 │   │   ├── ui/datalog_state.py     # Isolated session-state namespace for the Datalog page
 │   │   └── viz/charts.py           # Stacked shared-x run figures, single and comparison
 │   ├── runcard/                    # The deposition tool's recipes. Recipe semantics

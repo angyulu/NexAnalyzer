@@ -191,6 +191,26 @@ def clear_runcard_tag(root_folder: str, file_path: str) -> None:
     _write_json(Path(root_folder) / RUNCARD_TAGS_FILENAME, tags)
 
 
+def set_runcard_tags(root_folder: str, tags_by_path: dict) -> None:
+    """
+    Store several tags in one read and one write: `set_runcard_tag` for a batch.
+
+    The runcard detector saves a tag per untagged run -- a hundred at once on a
+    folder that has never been tagged -- and one write per run would rewrite
+    the shared sidecar a hundred times while datalog_monitor may be reading it.
+    Same rules as the single call: keys relative to the root, an empty tag
+    deletes the entry.
+    """
+    tags = load_runcard_tags(root_folder)
+    for file_path, tag in tags_by_path.items():
+        key = _relative_key(root_folder, file_path)
+        if tag:
+            tags[key] = tag
+        else:
+            tags.pop(key, None)
+    _write_json(Path(root_folder) / RUNCARD_TAGS_FILENAME, tags)
+
+
 def move_runcard_tag(root_folder: str, old_path: str, new_path: str) -> None:
     """
     Re-key a run's tag after its file has been renamed on disk.

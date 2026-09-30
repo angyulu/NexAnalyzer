@@ -35,6 +35,9 @@ def initialize_datalog_state() -> None:
             "rename_result": None,     # the last sweep's renamed/skipped lists
             "duplicate_plans": None,   # pending cleanup, one plan per stale copy
             "duplicate_result": None,  # the last cleanup's removed/skipped lists
+            "runcard_folder": None,    # recipes to match against; None = guess from folder
+            "runcard_suggestions": None,   # the detector's rows, waiting to be applied
+            "runcard_detect_result": None, # the last rename's or save's outcome
         }
 
 
@@ -62,6 +65,13 @@ _RENAME_ARTIFACTS = ("rename_plans", "rename_result")
 #: confirming one after a switch would Recycle-Bin files nobody is looking at.
 _DUPLICATE_ARTIFACTS = ("duplicate_plans", "duplicate_result")
 
+#: The runcard detector's state. ``runcard_folder`` is in here rather than in
+#: `_SELECTIONS` although the operator can set it: it is chosen *for* a datalog
+#: folder -- normally guessed from it -- and one tool's recipe folder carried
+#: onto another tool's logs would match every run against the wrong recipes.
+#: The suggestions hold absolute paths into the folder, like a rename plan.
+_DETECT_ARTIFACTS = ("runcard_folder", "runcard_suggestions", "runcard_detect_result")
+
 
 def reset_results(state: dict) -> None:
     """Drop every derived artifact, keeping the operator's selection.
@@ -77,6 +87,8 @@ def reset_results(state: dict) -> None:
     """
     reset_rename_results(state)
     reset_duplicate_results(state)
+    for key in _DETECT_ARTIFACTS:
+        state[key] = None
 
 
 def reset_rename_results(state: dict) -> None:
