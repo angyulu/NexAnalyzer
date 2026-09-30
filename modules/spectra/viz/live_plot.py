@@ -36,6 +36,7 @@ import plotly.graph_objects as go  # Plotly graphing library (creates interactiv
 import streamlit as st  # Streamlit web framework (provides session_state, UI widgets)
 from typing import Optional, Dict  # Type hints for function parameters/returns
 from ..models.spectrum import SpectrumFile  # SpectrumFile dataclass (contains all spectrum data + metadata)
+from ..ui.session_state import set_view_options
 from .palette import (
     COMPONENT_DASH,
     COMPONENT_OPACITY,
@@ -135,7 +136,8 @@ def compute_default_visibility(spectrum: SpectrumFile) -> Dict[str, bool]:
         "corrected_preview": False,  # Reserved for future use (currently unused)
         "baseline_corrected": False,  # Purple line - data after baseline subtraction (confirmed)
         "fit_total": False,  # Black line - sum of all fitted peak components
-        "components": False  # Colored dashed lines - individual Voigt peak components
+        "components": False,  # Colored dashed lines - individual Voigt peak components
+        "residuals": False  # Scatter - baseline-corrected minus fit total
     }
 
     # Apply visibility rules based on processing stage
@@ -148,12 +150,18 @@ def compute_default_visibility(spectrum: SpectrumFile) -> Dict[str, bool]:
         visibility["despiked"] = False  # Hide intermediate processing layers
         visibility["baseline_corrected"] = True  # Purple line - data that was fitted
         visibility["fit_total"] = True  # Black line - sum of all fitted Voigt components
-        visibility["components"] = False  # Hidden by default per design.md (user can enable in View Options)
+        # Components and residuals ON, matching what every other path writes
+        # for a completed fit (_update_visibility_for_file, the auto-workflow's
+        # fit stage, the batch run). This function had them off, so which
+        # fitted file showed components depended on which writer ran last.
+        visibility["components"] = True  # Colored dashed - individual Voigt peaks
+        visibility["residuals"] = True  # Scatter - fit quality at a glance
         # WHY: User wants to see how well the fit matches the corrected data (R² evaluation)
     elif despike_preview_active:
         visibility["raw"] = True
         visibility["despiked_preview"] = False
         visibility["despiked"] = False
+        visibility["residuals"] = False
     elif baseline_preview_active:
         visibility["raw"] = True
         visibility["baseline_preview"] = True
@@ -458,31 +466,57 @@ def _update_visibility_for_file(spectrum):
     so any caller that isn't itself running before the sidebar (e.g. a
     same-run reaction to a widget change) must go through
     sync_pending_file_switch() instead of calling this directly — see there.
+
+    Checkboxes the user has set by hand are pinned and survive the switch;
+    only the untouched ones follow the new file's processing stage.
     """
     # Clear preview data to prevent stale previews from previous file
     st.session_state['despike_preview'] = None
     st.session_state['baseline_preview'] = None
     if spectrum.fit_done and getattr(spectrum, 'fit_result', None) and spectrum.fit_result.success:
-        st.session_state['show_raw'] = False
-        st.session_state['show_despiked'] = False
-        st.session_state['show_corrected'] = True
-        st.session_state['show_fit'] = True
-        st.session_state['show_components'] = True
-        st.session_state['show_residuals'] = True
+        set_view_options({
+            'show_raw': False,
+            'show_despiked': False,
+            'show_corrected': True,
+            'show_fit': True,
+            'show_components': True,
+            'show_residuals': True,
+        })
     elif getattr(spectrum, 'baseline_done', False):
-        st.session_state['show_raw'] = False
-        st.session_state['show_despiked'] = False
-        st.session_state['show_corrected'] = True
-        st.session_state['show_fit'] = False
-        st.session_state['show_components'] = False
-        st.session_state['show_residuals'] = False
+        set_view_options({
+            'show_raw': False,
+            'show_despiked': False,
+            'show_corrected': True,
+            'show_fit': False,
+            'show_components': False,
+            'show_residuals': False,
+        })
     else:
-        st.session_state['show_raw'] = True
-        st.session_state['show_despiked'] = False
-        st.session_state['show_corrected'] = False
-        st.session_state['show_fit'] = False
-        st.session_state['show_components'] = False
-        st.session_state['show_residuals'] = False
+        set_view_options({
+            'show_raw': True,
+            'show_despiked': False,
+            'show_corrected': False,
+            'show_fit': False,
+            'show_components': False,
+            'show_residuals': False,
+        })
+
+
+def sync_pending_view_options():
+    """Apply a pending "Follow the data again" reset from the View Options.
+
+    That button sits below the checkboxes it would write, so it only records
+    the intent and reruns; the write happens here, before the sidebar
+    instantiates them. Same ordering constraint as sync_pending_file_switch(),
+    and this must likewise run once per script run before render_sidebar().
+    """
+    if not st.session_state.pop('_pending_view_options_reset', False):
+        return
+
+    files = st.session_state.get("files", {})
+    spectrum = files.get(st.session_state.get("current_file"))
+    if spectrum is not None:
+        _update_visibility_for_file(spectrum)
 
 
 def sync_pending_file_switch():

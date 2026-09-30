@@ -5,6 +5,40 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.7.1] - 2026-09-30
+
+### Fixed
+
+- **A View Option you set by hand now stays set.** The six `show_*` checkboxes
+  are one global set of choices, but four separate paths wrote to them as if
+  they were state derived from the current file's processing stage: the file
+  switch (`_update_visibility_for_file`), each of the auto-workflow's four
+  stages, the sidebar after a single and after a batch run, and
+  `compute_default_visibility` inside the plot builder. Whichever ran last won,
+  so a checkbox survived only until the next file was selected — the reported
+  "change the data and it turns back to the original setting".
+
+  Toggling a checkbox now *pins* it, and `set_view_options()` — the single
+  automatic writer the other paths were rewritten to go through — skips pinned
+  keys. Untouched checkboxes still follow the data, so the common case of
+  loading a file and seeing the right layers is unchanged. A "Follow the data
+  again" button appears once anything is pinned, because a sticky choice with
+  no way back is the opposite bug.
+
+- **The four writers disagreed about components at the fit stage.**
+  `compute_default_visibility` set `components` off for a completed fit while
+  every other writer set it on, and it had no `residuals` key at all — so that
+  layer could only ever be off on the fallback path, whatever the file's stage.
+  Both now match the other writers. This path is reached only when
+  `create_unified_figure` is called without a `layer_config`, which the Spectra
+  page never does, so nothing on screen moves today; it was the half of the
+  disagreement waiting for the next caller.
+
+- **Quick Export follows View Options instead of hardcoding them.** The
+  exported PNG/HTML passed `show_components=True` and let `show_residuals`
+  default to True, so the downloaded figure could disagree with the plot the
+  user had just tuned above it.
+
 ## [5.7.0] - 2026-09-30
 
 ### Added

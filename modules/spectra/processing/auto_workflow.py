@@ -19,6 +19,7 @@ from .baseline import (
 )
 from .fitting import fit_voigt_peaks
 from ..utils.fit_staleness import mark_fit_stale_if_needed, compute_preprocessing_hash
+from ..ui.session_state import set_view_options
 
 
 class WorkflowExecutionError(Exception):
@@ -145,12 +146,16 @@ def execute_auto_workflow(
             if 'baseline_preview' in st.session_state:
                 st.session_state['baseline_preview'] = None
 
-            # Update view options (matches manual workflow)
-            st.session_state['show_raw'] = True
-            st.session_state['show_despiked'] = False
-            st.session_state['show_corrected'] = False
-            st.session_state['show_fit'] = False
-            st.session_state['show_components'] = False
+            # Update view options (matches manual workflow). Via
+            # set_view_options so a checkbox the user set by hand is not
+            # reset out from under them by a re-run.
+            set_view_options({
+                'show_raw': True,
+                'show_despiked': False,
+                'show_corrected': False,
+                'show_fit': False,
+                'show_components': False,
+            })
 
             # Auto-expand next section (matches manual workflow)
             st.session_state['expanded_section'] = 'despiking'
@@ -183,11 +188,13 @@ def execute_auto_workflow(
             st.session_state['despike_preview'] = None
 
         # Update view options (matches manual workflow)
-        st.session_state['show_raw'] = True
-        st.session_state['show_despiked'] = True  # Show despiked for comparison
-        st.session_state['show_corrected'] = False
-        st.session_state['show_fit'] = False
-        st.session_state['show_components'] = False
+        set_view_options({
+            'show_raw': True,
+            'show_despiked': True,  # Show despiked for comparison
+            'show_corrected': False,
+            'show_fit': False,
+            'show_components': False,
+        })
 
         # Auto-expand next section (matches manual workflow)
         st.session_state['expanded_section'] = 'baseline'
@@ -282,11 +289,13 @@ def execute_auto_workflow(
                 st.session_state['baseline_preview'] = None
 
         # Update view options (matches manual workflow)
-        st.session_state['show_raw'] = False
-        st.session_state['show_despiked'] = False
-        st.session_state['show_corrected'] = True  # Show baseline-corrected
-        st.session_state['show_fit'] = False
-        st.session_state['show_components'] = False
+        set_view_options({
+            'show_raw': False,
+            'show_despiked': False,
+            'show_corrected': True,  # Show baseline-corrected
+            'show_fit': False,
+            'show_components': False,
+        })
 
         # Auto-expand next section (matches manual workflow)
         st.session_state['expanded_section'] = 'peak_fitting'
@@ -354,12 +363,14 @@ def execute_auto_workflow(
             st.session_state['baseline_preview'] = None
 
         # Update view options (matches manual workflow)
-        st.session_state['show_raw'] = False
-        st.session_state['show_despiked'] = False
-        st.session_state['show_corrected'] = True       # Show baseline-corrected data
-        st.session_state['show_fit'] = True             # Show fit total curve
-        st.session_state['show_components'] = True      # Show peak components
-        st.session_state['show_residuals'] = True       # Show residuals
+        set_view_options({
+            'show_raw': False,
+            'show_despiked': False,
+            'show_corrected': True,       # Show baseline-corrected data
+            'show_fit': True,             # Show fit total curve
+            'show_components': True,      # Show peak components
+            'show_residuals': True,       # Show residuals
+        })
 
         # Auto-expand export section (matches manual workflow)
         st.session_state['expanded_section'] = 'export'

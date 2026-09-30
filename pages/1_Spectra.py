@@ -8,7 +8,11 @@ import streamlit as st
 
 from core.version import APP_NAME, REPO_URL, __version__
 from modules.spectra.ui.sidebar import render_sidebar
-from modules.spectra.viz.live_plot import render_unified_plot, sync_pending_file_switch
+from modules.spectra.viz.live_plot import (
+    render_unified_plot,
+    sync_pending_file_switch,
+    sync_pending_view_options,
+)
 
 st.title("📊 Raman & PL Spectra")
 st.markdown("**Peak fitting with material presets — load a file, pick a material, run.**")
@@ -18,6 +22,10 @@ st.markdown("**Peak fitting with material presets — load a file, pick a materi
 # land before the sidebar's checkboxes are instantiated (see
 # sync_pending_file_switch()'s docstring).
 sync_pending_file_switch()
+
+# Same ordering rule: the View Options' "Follow the data again" button sits
+# below the checkboxes it resets, so it defers the write to here.
+sync_pending_view_options()
 
 # Sidebar: material preset selection, Run Auto-Workflow, export, and
 # view/reset controls — the sidebar is this page's single workflow surface.

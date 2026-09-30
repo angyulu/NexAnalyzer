@@ -53,6 +53,62 @@ def initialize_session_state():
             st.session_state[_key] = False
 
 
+VIEW_OPTION_KEYS = (
+    "show_raw",
+    "show_despiked",
+    "show_corrected",
+    "show_fit",
+    "show_components",
+    "show_residuals",
+)
+
+# Session key holding the set of View Options the user has set by hand.
+VIEW_OPTIONS_PINNED_KEY = "_view_options_pinned"
+
+
+def pinned_view_options() -> set:
+    """The View Options the user has toggled by hand this session.
+
+    A pinned key is the user's answer, not a derived one, so the stage-driven
+    defaults leave it alone. Before v5.7.1 nothing tracked this: the file
+    switch, the auto-workflow and the batch run each rewrote all six keys, so
+    a toggle survived only until the next file was selected.
+    """
+    pinned = st.session_state.get(VIEW_OPTIONS_PINNED_KEY)
+    if not isinstance(pinned, set):
+        pinned = set()
+        st.session_state[VIEW_OPTIONS_PINNED_KEY] = pinned
+    return pinned
+
+
+def pin_view_option(key: str) -> None:
+    """Mark a View Options checkbox as the user's own answer.
+
+    Runs as the checkbox's on_change callback.
+    """
+    pinned_view_options().add(key)
+
+
+def clear_pinned_view_options() -> None:
+    """Forget every hand-set View Option, so the layers follow the data again."""
+    st.session_state[VIEW_OPTIONS_PINNED_KEY] = set()
+
+
+def set_view_options(values: dict, *, respect_pinned: bool = True) -> None:
+    """Write stage-derived View Options, skipping any the user pinned.
+
+    Every automatic writer of the show_* keys goes through here, so one place
+    knows that a hand-set checkbox outranks a stage default. Callers must run
+    before the sidebar instantiates those checkboxes: Streamlit forbids
+    writing a widget's key after the widget exists in the same script run.
+    """
+    pinned = pinned_view_options() if respect_pinned else set()
+    for key, value in values.items():
+        if key in pinned:
+            continue
+        st.session_state[key] = value
+
+
 def get_current_spectrum():
     """
     Get the currently selected SpectrumFile.

@@ -32,6 +32,10 @@ from .session_state import (
     clear_all_files,
     set_mode,
     get_current_spectrum,
+    set_view_options,
+    clear_pinned_view_options,
+    pin_view_option,
+    pinned_view_options,
 )
 
 
@@ -247,9 +251,9 @@ def render_sidebar():
 
                     _remember_fit_preset(current_spectrum, preset)
 
-                    # Update view options to show fit results
-                    st.session_state['show_fit'] = True
-                    st.session_state['show_components'] = True
+                    # Update view options to show fit results, unless the
+                    # user pinned these checkboxes by hand.
+                    set_view_options({'show_fit': True, 'show_components': True})
 
                     # Auto-expand export section
                     st.session_state['expanded_section'] = 'export'
@@ -363,8 +367,7 @@ def render_sidebar():
                             for fname, err in failed_files:
                                 st.error(f"**{fname}**: {err}")
 
-                    st.session_state['show_fit'] = True
-                    st.session_state['show_components'] = True
+                    set_view_options({'show_fit': True, 'show_components': True})
                     st.session_state['expanded_section'] = 'export'
                     st.session_state['despike_preview'] = None
                     st.session_state['baseline_preview'] = None
@@ -408,7 +411,12 @@ def render_sidebar():
                 fit_result=export_spectrum.fit_result,
                 mode=export_spectrum.mode,
                 title=f"{export_spectrum.filename} - Fit Results",
-                show_components=True,
+                # Follow View Options rather than hardcoding both on: the
+                # exported figure is the same picture the user just tuned
+                # on screen, and shipping a PNG that disagrees with the
+                # plot above it is the bug this fixes.
+                show_components=st.session_state.get("show_components", True),
+                show_residuals=st.session_state.get("show_residuals", True),
             )
         except Exception as e:
             st.error(f"Failed to prepare export: {e}")
@@ -704,25 +712,53 @@ print(json.dumps(list(selected_files)))
         # sync_pending_file_switch() (run before the sidebar) may also have
         # just written these — passing value= as well would make Streamlit
         # warn that the widget's state was set through both paths.
+        #
+        # on_change pins the key: from then on the checkbox is the user's
+        # answer, and the stage-derived defaults (file switch, auto-workflow,
+        # batch) stop overwriting it. Before v5.7.1 every one of those paths
+        # reset all six, so a toggle survived only until the next file.
         st.checkbox("Show Raw", key="show_raw",
+                   on_change=pin_view_option, args=("show_raw",),
                    help="Show raw data (before any processing)")
 
         st.checkbox("Show De-spiked", key="show_despiked",
+                   on_change=pin_view_option, args=("show_despiked",),
                    help="Show data after spike removal")
 
         st.checkbox("Show Baseline-corrected", key="show_corrected",
+                   on_change=pin_view_option, args=("show_corrected",),
                    help="Show data after baseline correction")
 
         st.markdown("---")
         st.markdown("**Peak Fitting Display**")
 
         st.checkbox("Show Fit", key="show_fit",
+                   on_change=pin_view_option, args=("show_fit",),
                    help="Show total fitted curve")
 
         st.checkbox("Show Components", key="show_components",
+                   on_change=pin_view_option, args=("show_components",),
                    help="Show individual peak components")
 
         st.checkbox("Show Residuals", key="show_residuals",
+                   on_change=pin_view_option, args=("show_residuals",),
                    help="Show fit residuals (Baseline-corrected minus Fit Total)")
 
-        st.caption("Toggle plot layers on/off without reprocessing.")
+        st.caption(
+            "Toggle plot layers on/off without reprocessing. A layer you set "
+            "here stays set when you switch files or re-run the workflow."
+        )
+
+        if pinned_view_options():
+            if st.button("Follow the data again", width="stretch",
+                         help="Drop your manual choices and let each file's "
+                              "processing stage pick the layers again"):
+                # Un-pin here, but re-derive on the NEXT run: this button sits
+                # below the checkboxes, and Streamlit raises
+                # StreamlitAPIException if show_* is written after its widget
+                # was instantiated in the same run. The flag is consumed by
+                # sync_pending_view_options(), which the page calls before the
+                # sidebar — the same ordering sync_pending_file_switch() uses.
+                clear_pinned_view_options()
+                st.session_state['_pending_view_options_reset'] = True
+                st.rerun()
