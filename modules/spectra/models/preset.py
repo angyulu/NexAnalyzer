@@ -7,7 +7,7 @@ that enable automated workflow execution.
 
 from dataclasses import dataclass, field, fields
 from typing import Dict, List, Tuple, Optional
-from .peak import PeakDefinition
+from .peak import MAX_PEAKS, PeakDefinition
 
 #: Layers an optical block may be keyed by. The stored form, never the words
 #: `contrast.layer_word` prints for them.
@@ -244,9 +244,9 @@ class TechniquePreset:
         # Peak templates validation
         if len(self.peak_templates) == 0:
             errors.append("At least one peak template required")
-        if len(self.peak_templates) > 10:
+        if len(self.peak_templates) > MAX_PEAKS:
             errors.append(
-                f"Maximum 10 peaks allowed (got {len(self.peak_templates)})"
+                f"Maximum {MAX_PEAKS} peaks allowed (got {len(self.peak_templates)})"
             )
 
         # Validate individual peak templates

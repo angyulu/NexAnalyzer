@@ -101,7 +101,7 @@ Peak Table: List[PeakDefinition]
     ↓
 [Voigt Fitting] fit_voigt_peaks()
     ↓
-    ├─→ Validation (1-10 peaks, array lengths)
+    ├─→ Validation (1-MAX_PEAKS (20) peaks, array lengths)
     ├─→ Auto-bounds calculation (mode-dependent)
     ├─→ Build composite model (sum of Voigt models)
     ├─→ Initialize parameters with bounds
@@ -118,8 +118,8 @@ FitResult: success, fitted_peaks, total_fit_curve, R², χ²
 ```python
 if len(peak_table) == 0:
     raise ValueError("peak_table must have at least 1 peak")
-if len(peak_table) > 10:
-    raise ValueError(f"peak_table must have <= 10 peaks (got {len(peak_table)})")
+if len(peak_table) > MAX_PEAKS:  # 20, from models.peak
+    raise ValueError(f"peak_table must have <= {MAX_PEAKS} peaks (got {len(peak_table)})")
 if len(x) != len(y):
     raise ValueError(f"x and y must have same length")
 ```

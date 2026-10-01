@@ -171,6 +171,221 @@
           "abs_threshold_above": 4.25
         }
       }
+    },
+    {
+      "material_name": "WSe2 extended",
+      "enabled": true,
+      "description": "WSe2 with the monolayer multi-phonon peaks of De Luca et al., arXiv:1910.12503, Table 1 (experimental frequencies, column 1): the 208-270 cm-1 bands, plus the broad LA band split into LA (130.5, the *LA(M) zone-edge mode) and LO2(K)-ZA(K) (137.4). E2g+A1g and 2LA are WSe2's own. LA/E2g+A1g here uses the narrow 130.5 peak, so it is not comparable to WSe2's ratio. Optical block as WSe2.",
+      "raman": {
+        "x_range_enabled": true,
+        "x_min": 6.0,
+        "x_max": 400.0,
+        "despike_threshold": 8.0,
+        "baseline_algorithm": "ALS",
+        "baseline_degree": null,
+        "baseline_lambda": 50000.0,
+        "baseline_p": 0.02,
+        "peak_templates": [
+          {
+            "peak_label": "E2g+A1g",
+            "center": 250.0,
+            "center_tolerance": 7.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#EF482E"
+          },
+          {
+            "peak_label": "2LA",
+            "center": 260.0,
+            "center_tolerance": 7.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#D5EF2E"
+          },
+          {
+            "peak_label": "B2g",
+            "center": 310.0,
+            "center_tolerance": 10.0,
+            "width_fwhm": 2.0,
+            "shape": 0.3,
+            "color": "#2ED5EF"
+          },
+          {
+            "peak_label": "LB",
+            "center": 30.0,
+            "center_tolerance": 5.0,
+            "width_fwhm": 2.0,
+            "shape": 0.3,
+            "color": "#482EEF"
+          },
+          {
+            "peak_label": "LA",
+            "center": 130.5,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#76EC32"
+          },
+          {
+            "peak_label": "LO2(K)-ZA(K)",
+            "center": 137.4,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#2E8B57"
+          },
+          {
+            "peak_label": "C",
+            "center": 17.0,
+            "center_tolerance": 5.0,
+            "width_fwhm": 5.0,
+            "shape": 0.3,
+            "color": "#3276EC"
+          },
+          {
+            "peak_label": "center",
+            "center": 0.0,
+            "center_tolerance": 3.0,
+            "width_fwhm": 5.0,
+            "shape": 0.3,
+            "color": "#3276EC"
+          },
+          {
+            "peak_label": "TO1(K)",
+            "center": 208.1,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#8C564B"
+          },
+          {
+            "peak_label": "TA(M)+ZA(M)",
+            "center": 219.2,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#E377C2"
+          },
+          {
+            "peak_label": "TA(K)+ZA(K)",
+            "center": 224.4,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#7F7F7F"
+          },
+          {
+            "peak_label": "TA(M)+LA(M)",
+            "center": 231.2,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#BCBD22"
+          },
+          {
+            "peak_label": "Unassigned 238",
+            "center": 237.8,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#AAAAAA"
+          },
+          {
+            "peak_label": "TA(K)+LA(K)",
+            "center": 239.9,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#17BECF"
+          },
+          {
+            "peak_label": "2ZA(M)",
+            "center": 244.2,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#FF7F0E"
+          },
+          {
+            "peak_label": "ZO1(K)",
+            "center": 258.2,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#9467BD"
+          },
+          {
+            "peak_label": "ZO2(K)",
+            "center": 262.3,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#1F77B4"
+          },
+          {
+            "peak_label": "ZO1(M)",
+            "center": 263.3,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#C71585"
+          },
+          {
+            "peak_label": "ZA(K)+LA(K)",
+            "center": 266.6,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#8B4513"
+          },
+          {
+            "peak_label": "ZO2(M)",
+            "center": 270.1,
+            "center_tolerance": 1.5,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#008080"
+          }
+        ],
+        "exclusion_ranges": null
+      },
+      "pl": {
+        "x_range_enabled": false,
+        "x_min": null,
+        "x_max": null,
+        "despike_threshold": 8.0,
+        "baseline_algorithm": "ALS",
+        "baseline_degree": null,
+        "baseline_lambda": 50000.0,
+        "baseline_p": 0.01,
+        "peak_templates": [
+          {
+            "peak_label": "Exciton",
+            "center": 770.0,
+            "center_tolerance": 15.0,
+            "width_fwhm": 30.0,
+            "shape": 0.3,
+            "color": "#d62728"
+          },
+          {
+            "peak_label": "Trion",
+            "center": 800.0,
+            "center_tolerance": 15.0,
+            "width_fwhm": 50.0,
+            "shape": 0.3,
+            "color": "#9467bd"
+          }
+        ],
+        "exclusion_ranges": "650-880"
+      },
+      "optical": {
+        "2L": {
+          "nsigma": 4.0,
+          "minpx": 3,
+          "abs_threshold_below": 6.0,
+          "abs_threshold_above": 4.25
+        }
+      }
     }
   ]
 }

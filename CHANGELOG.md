@@ -5,6 +5,33 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.9.0] - 2026-10-01
+
+### Added
+
+- **A `WSe2 extended` material preset** with the monolayer multi-phonon peaks
+  of De Luca et al., arXiv:1910.12503, Table 1. It copies `WSe2` (processing
+  settings, PL block, optical block) and adds the twelve 208-270 cm-1 bands at
+  the paper's experimental frequencies (column 1, +/-1 cm-1), labelled by their
+  first assignment with the BZ-edge `*` dropped; the unassigned 237.8 band is
+  `Unassigned 238`. New peaks use +/-1.5 cm-1 tolerance and 2.5 cm-1 FWHM,
+  because several sit 1-2 cm-1 apart. `E2g+A1g` and `2LA` stay as in `WSe2` in
+  place of the table's 249.9 and 261.0 rows.
+- The broad `LA` band (135, FWHM 15) is replaced in this preset by the table's
+  two components: `LA` at 130.5 (the `*LA(M)` zone-edge mode) and
+  `LO2(K)-ZA(K)` at 137.4. The label `LA` is kept so the defect ratio still
+  reports, but **its numbers move**: LA/E2g+A1g on `WSe2 extended` measures the
+  narrow 130.5 component, not the whole hump, and is not comparable to `WSe2`
+  or the 0.13 reference line. `WSe2` itself is unchanged.
+
+### Changed
+
+- **A fit may carry up to 20 peaks, up from 10.** The cap now lives in one
+  constant, `models.peak.MAX_PEAKS`, used by preset validation,
+  `fit_voigt_peaks()` and `FitResult`; before it was a literal `10` in each.
+  No existing preset's numbers move. A 20-peak fit is slower, and closely
+  spaced peaks (e.g. ZO2(K) 262.3 / ZO1(M) 263.3) can carry large stderrs.
+
 ## [5.8.0] - 2026-09-30
 
 ### Added

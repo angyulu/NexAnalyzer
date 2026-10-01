@@ -11,6 +11,10 @@ from dataclasses import dataclass
 from typing import Optional
 import numpy as np
 
+#: Most peaks one fit may carry -- the preset block, the fit and its result all
+#: check against this. Raised from 10 at v5.9.0 for `WSe2 extended` (20 peaks).
+MAX_PEAKS = 20
+
 
 @dataclass
 class PeakDefinition:
@@ -285,7 +289,7 @@ class FitResult:
     success : bool
         True if Levenberg-Marquardt solver converged.
     fitted_peaks : list[FittedPeak]
-        Fitted parameters for each peak (1-10 peaks).
+        Fitted parameters for each peak (1 to MAX_PEAKS).
     total_fit_curve : np.ndarray
         Sum of all fitted peaks (same length as X).
     residuals : np.ndarray
@@ -313,8 +317,8 @@ class FitResult:
     def __post_init__(self):
         """Validate attributes."""
         # Allow empty fitted_peaks only if success=False
-        if self.success and not (1 <= len(self.fitted_peaks) <= 10):
-            raise ValueError(f"fitted_peaks must have 1-10 peaks when success=True (got {len(self.fitted_peaks)})")
+        if self.success and not (1 <= len(self.fitted_peaks) <= MAX_PEAKS):
+            raise ValueError(f"fitted_peaks must have 1-{MAX_PEAKS} peaks when success=True (got {len(self.fitted_peaks)})")
 
         # R-squared is 1 - SS_res/SS_tot, which is unbounded below: any model
         # that fits worse than a horizontal line through the mean scores

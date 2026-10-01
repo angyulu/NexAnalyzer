@@ -19,7 +19,7 @@ from lmfit import Parameters
 from lmfit.models import VoigtModel
 import time
 from typing import List
-from ..models.peak import PeakDefinition, FittedPeak, FitResult
+from ..models.peak import MAX_PEAKS, PeakDefinition, FittedPeak, FitResult
 
 
 # FWHM of a unit-sigma Gaussian: 2*sqrt(2*ln 2). The bounds and initial
@@ -118,7 +118,7 @@ def fit_voigt_peaks(
     Raises
     ------
     ValueError
-        If peak_table is empty or has > 10 peaks.
+        If peak_table is empty or has more than MAX_PEAKS peaks.
 
     Notes
     -----
@@ -148,8 +148,8 @@ def fit_voigt_peaks(
     if len(peak_table) == 0:
         raise ValueError("peak_table must have at least 1 peak")
 
-    if len(peak_table) > 10:
-        raise ValueError(f"peak_table must have <= 10 peaks (got {len(peak_table)})")
+    if len(peak_table) > MAX_PEAKS:
+        raise ValueError(f"peak_table must have <= {MAX_PEAKS} peaks (got {len(peak_table)})")
 
     if len(x) != len(y):
         raise ValueError(f"x and y must have same length (got {len(x)} vs {len(y)})")

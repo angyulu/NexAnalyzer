@@ -10,7 +10,7 @@ from modules.spectra.processing.fitting import (
     voigt_fwhm,
     voigt_fwhm_stderr,
 )
-from modules.spectra.models.peak import PeakDefinition
+from modules.spectra.models.peak import MAX_PEAKS, PeakDefinition
 from modules.spectra.models.preset import PeakTemplate
 
 
@@ -49,7 +49,7 @@ class TestFitVoigtPeaks:
 
     def test_too_many_peaks_raises(self, synthetic_spectrum):
         x, y = synthetic_spectrum()
-        peak_defs = [PeakDefinition(center=float(c), intensity=1.0, width_fwhm=20.0) for c in range(11)]
+        peak_defs = [PeakDefinition(center=float(c), intensity=1.0, width_fwhm=20.0) for c in range(MAX_PEAKS + 1)]
         with pytest.raises(ValueError):
             fit_voigt_peaks(x, y, peak_defs, mode="Raman")
 
