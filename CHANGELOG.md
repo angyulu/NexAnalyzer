@@ -5,6 +5,33 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.10.0] - 2026-10-02
+
+### Added
+
+- **A `WSe2 extended V2` material preset**: `WSe2 extended` moved to the
+  theoretical frequencies of De Luca et al., arXiv:1910.12503, Table 1
+  (column 2, 0 K DFT), for comparison against the experimental-frequency
+  preset. Where a row lists two calculated values, the first assignment's is
+  used (`TA(M)+LA(M)` 228.5, `2ZA(M)` 244.0, `ZO1(K)` 257.3); `LA` sits at
+  130.1, the `*LA(M)` value; `Unassigned 238` is dropped, having no
+  calculated value. Added peaks use +/-4 cm-1 tolerance and 4 cm-1 FWHM.
+- The 1L first-order mode is **split** into `E2g` (E', 250.8) and `A1g`
+  (A'1, 251.3), each +/-1.5. The two are 0.5 cm-1 apart with identical
+  starting widths, so expect their split of intensity to be poorly
+  determined. With no `E2g+A1g` peak, the QC Report's LA/E2g+A1g ratio and
+  E2g+A1g panels are blank for this preset; it is not meant for QC reports.
+  C, LB, center, 2LA and B2g are `WSe2`'s own.
+
+### Changed
+
+- **`WSe2 extended` tolerances, edited on the Material Presets page.** Its
+  table peaks widen from +/-1.5 to +/-4 cm-1; `E2g+A1g` goes from +/-7 to
+  +/-4 with a 2.5 cm-1 starting FWHM (was 4); `2LA` from +/-7 to +/-4.
+  **Its fitted numbers move.** `WSe2` itself is unchanged.
+- The page's save also writes each block's `max_iterations` (2000, the
+  existing default) explicitly. No numbers move from that.
+
 ## [5.9.0] - 2026-10-01
 
 ### Added

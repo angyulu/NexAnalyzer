@@ -32,13 +32,14 @@
             "color": "#9467bd"
           }
         ],
-        "exclusion_ranges": "375-390; 400-415"
+        "exclusion_ranges": "375-390; 400-415",
+        "max_iterations": 2000
       }
     },
     {
       "material_name": "Silicon",
       "enabled": true,
-      "description": "Silicon reference peak at 520 cm⁻¹",
+      "description": "Silicon reference peak at 520 cm\u207b\u00b9",
       "raman": {
         "x_range_enabled": false,
         "x_min": null,
@@ -58,7 +59,8 @@
             "color": "#2ca02c"
           }
         ],
-        "exclusion_ranges": null
+        "exclusion_ranges": null,
+        "max_iterations": 2000
       }
     },
     {
@@ -132,7 +134,8 @@
             "color": "#3276EC"
           }
         ],
-        "exclusion_ranges": null
+        "exclusion_ranges": null,
+        "max_iterations": 2000
       },
       "pl": {
         "x_range_enabled": false,
@@ -161,7 +164,8 @@
             "color": "#9467bd"
           }
         ],
-        "exclusion_ranges": "650-880"
+        "exclusion_ranges": "650-880",
+        "max_iterations": 2000
       },
       "optical": {
         "2L": {
@@ -189,15 +193,15 @@
           {
             "peak_label": "E2g+A1g",
             "center": 250.0,
-            "center_tolerance": 7.0,
-            "width_fwhm": 4.0,
+            "center_tolerance": 4.0,
+            "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#EF482E"
           },
           {
             "peak_label": "2LA",
             "center": 260.0,
-            "center_tolerance": 7.0,
+            "center_tolerance": 4.0,
             "width_fwhm": 4.0,
             "shape": 0.3,
             "color": "#D5EF2E"
@@ -253,7 +257,7 @@
           {
             "peak_label": "TO1(K)",
             "center": 208.1,
-            "center_tolerance": 1.5,
+            "center_tolerance": 4.0,
             "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#8C564B"
@@ -261,7 +265,7 @@
           {
             "peak_label": "TA(M)+ZA(M)",
             "center": 219.2,
-            "center_tolerance": 1.5,
+            "center_tolerance": 4.0,
             "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#E377C2"
@@ -269,7 +273,7 @@
           {
             "peak_label": "TA(K)+ZA(K)",
             "center": 224.4,
-            "center_tolerance": 1.5,
+            "center_tolerance": 4.0,
             "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#7F7F7F"
@@ -277,7 +281,7 @@
           {
             "peak_label": "TA(M)+LA(M)",
             "center": 231.2,
-            "center_tolerance": 1.5,
+            "center_tolerance": 4.0,
             "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#BCBD22"
@@ -285,7 +289,7 @@
           {
             "peak_label": "Unassigned 238",
             "center": 237.8,
-            "center_tolerance": 1.5,
+            "center_tolerance": 4.0,
             "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#AAAAAA"
@@ -293,7 +297,7 @@
           {
             "peak_label": "TA(K)+LA(K)",
             "center": 239.9,
-            "center_tolerance": 1.5,
+            "center_tolerance": 4.0,
             "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#17BECF"
@@ -301,7 +305,7 @@
           {
             "peak_label": "2ZA(M)",
             "center": 244.2,
-            "center_tolerance": 1.5,
+            "center_tolerance": 4.0,
             "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#FF7F0E"
@@ -309,7 +313,7 @@
           {
             "peak_label": "ZO1(K)",
             "center": 258.2,
-            "center_tolerance": 1.5,
+            "center_tolerance": 4.0,
             "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#9467BD"
@@ -317,7 +321,7 @@
           {
             "peak_label": "ZO2(K)",
             "center": 262.3,
-            "center_tolerance": 1.5,
+            "center_tolerance": 4.0,
             "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#1F77B4"
@@ -325,7 +329,7 @@
           {
             "peak_label": "ZO1(M)",
             "center": 263.3,
-            "center_tolerance": 1.5,
+            "center_tolerance": 4.0,
             "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#C71585"
@@ -333,7 +337,7 @@
           {
             "peak_label": "ZA(K)+LA(K)",
             "center": 266.6,
-            "center_tolerance": 1.5,
+            "center_tolerance": 4.0,
             "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#8B4513"
@@ -341,13 +345,14 @@
           {
             "peak_label": "ZO2(M)",
             "center": 270.1,
-            "center_tolerance": 1.5,
+            "center_tolerance": 4.0,
             "width_fwhm": 2.5,
             "shape": 0.3,
             "color": "#008080"
           }
         ],
-        "exclusion_ranges": null
+        "exclusion_ranges": null,
+        "max_iterations": 2000
       },
       "pl": {
         "x_range_enabled": false,
@@ -376,7 +381,225 @@
             "color": "#9467bd"
           }
         ],
-        "exclusion_ranges": "650-880"
+        "exclusion_ranges": "650-880",
+        "max_iterations": 2000
+      },
+      "optical": {
+        "2L": {
+          "nsigma": 4.0,
+          "minpx": 3,
+          "abs_threshold_below": 6.0,
+          "abs_threshold_above": 4.25
+        }
+      }
+    },
+    {
+      "material_name": "WSe2 extended V2",
+      "enabled": true,
+      "description": "WSe2 extended at the theoretical frequencies of De Luca et al., arXiv:1910.12503, Table 1 (column 2, 0 K DFT; first assignment's value where a row lists two), with the 1L first-order mode split into E2g (E', 250.8) and A1g (A'1, 251.3). Added peaks: +/-4 tolerance, 4 FWHM; E2g/A1g +/-1.5. C, LB, center, 2LA and B2g are WSe2's own. No E2g+A1g peak, so the QC Report's WSe2 metrics are blank for this preset.",
+      "raman": {
+        "x_range_enabled": true,
+        "x_min": 6.0,
+        "x_max": 400.0,
+        "despike_threshold": 8.0,
+        "baseline_algorithm": "ALS",
+        "baseline_degree": null,
+        "baseline_lambda": 50000.0,
+        "baseline_p": 0.02,
+        "peak_templates": [
+          {
+            "peak_label": "center",
+            "center": 0.0,
+            "center_tolerance": 3.0,
+            "width_fwhm": 5.0,
+            "shape": 0.3,
+            "color": "#3276EC"
+          },
+          {
+            "peak_label": "C",
+            "center": 17.0,
+            "center_tolerance": 5.0,
+            "width_fwhm": 5.0,
+            "shape": 0.3,
+            "color": "#3276EC"
+          },
+          {
+            "peak_label": "LB",
+            "center": 30.0,
+            "center_tolerance": 5.0,
+            "width_fwhm": 2.0,
+            "shape": 0.3,
+            "color": "#482EEF"
+          },
+          {
+            "peak_label": "LA",
+            "center": 130.1,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#76EC32"
+          },
+          {
+            "peak_label": "LO2(K)-ZA(K)",
+            "center": 135.2,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#2E8B57"
+          },
+          {
+            "peak_label": "TO1(K)",
+            "center": 209.6,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#8C564B"
+          },
+          {
+            "peak_label": "TA(M)+ZA(M)",
+            "center": 220.4,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#E377C2"
+          },
+          {
+            "peak_label": "TA(K)+ZA(K)",
+            "center": 223.6,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#7F7F7F"
+          },
+          {
+            "peak_label": "TA(M)+LA(M)",
+            "center": 228.5,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#BCBD22"
+          },
+          {
+            "peak_label": "TA(K)+LA(K)",
+            "center": 242.3,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#17BECF"
+          },
+          {
+            "peak_label": "2ZA(M)",
+            "center": 244.0,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#FF7F0E"
+          },
+          {
+            "peak_label": "E2g",
+            "center": 250.8,
+            "center_tolerance": 1.5,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#EF482E"
+          },
+          {
+            "peak_label": "A1g",
+            "center": 251.3,
+            "center_tolerance": 1.5,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#B22222"
+          },
+          {
+            "peak_label": "ZO1(K)",
+            "center": 257.3,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#9467BD"
+          },
+          {
+            "peak_label": "2LA",
+            "center": 260.0,
+            "center_tolerance": 7.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#D5EF2E"
+          },
+          {
+            "peak_label": "ZO2(K)",
+            "center": 261.9,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#1F77B4"
+          },
+          {
+            "peak_label": "ZO1(M)",
+            "center": 263.3,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#C71585"
+          },
+          {
+            "peak_label": "ZA(K)+LA(K)",
+            "center": 266.1,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#8B4513"
+          },
+          {
+            "peak_label": "ZO2(M)",
+            "center": 270.0,
+            "center_tolerance": 4.0,
+            "width_fwhm": 4.0,
+            "shape": 0.3,
+            "color": "#008080"
+          },
+          {
+            "peak_label": "B2g",
+            "center": 310.0,
+            "center_tolerance": 10.0,
+            "width_fwhm": 2.0,
+            "shape": 0.3,
+            "color": "#2ED5EF"
+          }
+        ],
+        "exclusion_ranges": null,
+        "max_iterations": 2000
+      },
+      "pl": {
+        "x_range_enabled": false,
+        "x_min": null,
+        "x_max": null,
+        "despike_threshold": 8.0,
+        "baseline_algorithm": "ALS",
+        "baseline_degree": null,
+        "baseline_lambda": 50000.0,
+        "baseline_p": 0.01,
+        "peak_templates": [
+          {
+            "peak_label": "Exciton",
+            "center": 770.0,
+            "center_tolerance": 15.0,
+            "width_fwhm": 30.0,
+            "shape": 0.3,
+            "color": "#d62728"
+          },
+          {
+            "peak_label": "Trion",
+            "center": 800.0,
+            "center_tolerance": 15.0,
+            "width_fwhm": 50.0,
+            "shape": 0.3,
+            "color": "#9467bd"
+          }
+        ],
+        "exclusion_ranges": "650-880",
+        "max_iterations": 2000
       },
       "optical": {
         "2L": {
