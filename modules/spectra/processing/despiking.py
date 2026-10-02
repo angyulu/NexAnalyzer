@@ -14,6 +14,8 @@ import numpy as np
 from scipy.stats import median_abs_deviation
 from typing import Tuple
 
+from ..models.spectrum import DESPIKE_THRESHOLD_MAX, DESPIKE_THRESHOLD_MIN
+
 
 def remove_spikes(
     y: np.ndarray,
@@ -28,9 +30,10 @@ def remove_spikes(
     y : np.ndarray
         Intensity array (1D, float64).
     threshold : float, default=6.0
-        Modified Z-score threshold (3.0-15.0).
-        Higher = less sensitive (fewer spikes detected).
-        Recommended: 6.0 for typical Raman/PL data.
+        Modified Z-score threshold (DESPIKE_THRESHOLD_MIN to
+        DESPIKE_THRESHOLD_MAX). Higher = less sensitive (fewer spikes
+        detected). The score is against the whole spectrum's median and MAD,
+        so a strong real peak can exceed a low threshold and be flattened.
     window_size : int, default=5
         Window size for local median replacement (must be odd).
         Used to replace detected spikes with local median.
@@ -45,7 +48,8 @@ def remove_spikes(
     Raises
     ------
     ValueError
-        If threshold is outside [3.0, 15.0] or window_size is even.
+        If threshold is outside [DESPIKE_THRESHOLD_MIN, DESPIKE_THRESHOLD_MAX]
+        or window_size is even.
 
     Notes
     -----
@@ -81,9 +85,10 @@ def remove_spikes(
     - Modified Z-score: robust alternative to standard Z-score
     """
     # Validation
-    # **FIX (Issue 4)**: Extended range to 30.0 per user request
-    if not (3.0 <= threshold <= 30.0):
-        raise ValueError(f"threshold must be in [3.0, 30.0] (got {threshold})")
+    if not (DESPIKE_THRESHOLD_MIN <= threshold <= DESPIKE_THRESHOLD_MAX):
+        raise ValueError(
+            f"threshold must be in [{DESPIKE_THRESHOLD_MIN}, {DESPIKE_THRESHOLD_MAX}] (got {threshold})"
+        )
 
     if window_size % 2 == 0:
         raise ValueError(f"window_size must be odd (got {window_size})")

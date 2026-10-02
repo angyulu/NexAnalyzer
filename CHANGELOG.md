@@ -5,6 +5,33 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.10.5] - 2026-10-02
+
+### Changed
+
+- **The despike threshold now goes up to 500, from 30.** The modified
+  Z-score is taken against the whole spectrum's median and MAD, so a strong
+  real peak scores like a cosmic ray, and below its score its top is replaced
+  by the median of its neighbours. On TSMC_May TSM260500 (900 spectra, the
+  WSe2 presets' 6–400 cm⁻¹ window), E2g is the highest point in 879 spectra
+  and scores 12.6–30.4. In the other 21 the highest point is elsewhere, most
+  likely a cosmic ray, scoring 89–1521. At the presets' threshold of 8, every
+  spectrum has points flagged, and its highest point drops by a median 6.1%.
+  On this wafer a threshold between 31 and 89 leaves every E2g alone and still
+  catches those 21. At 500, 12 of the 21 would get through.
+  - The range is one constant, `DESPIKE_THRESHOLD_MIN` / `_MAX` in
+    `models/spectrum.py`. The despiker, `ProcessingSettings`, the preset's
+    `validate()` and the Material Presets editor all read it. Before, each one
+    had its own copy of 30.
+
+- **`WSe2`, `WSe2 extended` and `WSe2 extended V2` despike Raman at 100, up
+  from 8.** On TSM260500 that leaves every E2g alone; 2 of the 21 likely
+  cosmic rays (scores 89 and 100) get through. Their PL blocks stay at 8.
+
+WSe2 Raman numbers move: E2g's top is no longer flattened, so its intensity
+and the ratios built on it change. The size of the shift on fitted values is
+not yet measured. MoS2 and Silicon are untouched.
+
 ## [5.10.0] - 2026-10-02
 
 ### Added

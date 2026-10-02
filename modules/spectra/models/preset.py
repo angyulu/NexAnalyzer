@@ -8,6 +8,7 @@ that enable automated workflow execution.
 from dataclasses import dataclass, field, fields
 from typing import Dict, List, Tuple, Optional
 from .peak import MAX_PEAKS, PeakDefinition
+from .spectrum import DESPIKE_THRESHOLD_MAX, DESPIKE_THRESHOLD_MIN
 
 #: Layers an optical block may be keyed by. The stored form, never the words
 #: `contrast.layer_word` prints for them.
@@ -195,9 +196,10 @@ class TechniquePreset:
         errors = []
 
         # Despike threshold
-        if not (3.0 <= self.despike_threshold <= 30.0):
+        if not (DESPIKE_THRESHOLD_MIN <= self.despike_threshold <= DESPIKE_THRESHOLD_MAX):
             errors.append(
-                f"despike_threshold {self.despike_threshold} out of range [3.0, 30.0]"
+                f"despike_threshold {self.despike_threshold} out of range "
+                f"[{DESPIKE_THRESHOLD_MIN}, {DESPIKE_THRESHOLD_MAX}]"
             )
 
         # Fit iteration budget

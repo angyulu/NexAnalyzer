@@ -11,6 +11,15 @@ from dataclasses import dataclass, field
 from typing import Optional, Literal
 import numpy as np
 
+#: Allowed despike threshold (modified Z-score) -- the despiker, the processing
+#: settings, the preset block and the preset editor all check against this.
+#: The Z-score is taken against the whole spectrum's median and MAD, so a strong
+#: real peak can score like a cosmic ray: on WSe2 TSM260500, E2g scores 12.6-30.4
+#: and the likely cosmic rays 89-1521. Raised from 30 at v5.10.5 so a preset can
+#: sit above its own peaks; the WSe2 presets use 100.
+DESPIKE_THRESHOLD_MIN = 3.0
+DESPIKE_THRESHOLD_MAX = 500.0
+
 
 @dataclass(frozen=True)
 class SpectrumData:
@@ -97,7 +106,8 @@ class ProcessingSettings:
     Attributes
     ----------
     despike_threshold : float
-        Modified Z-score threshold for spike detection (3.0-15.0, default 6.0).
+        Modified Z-score threshold for spike detection
+        (DESPIKE_THRESHOLD_MIN to DESPIKE_THRESHOLD_MAX).
     despike_applied : bool
         Whether spike removal has been run.
     baseline_algorithm : Literal["Polynomial", "ALS"]
@@ -125,9 +135,11 @@ class ProcessingSettings:
 
     def __post_init__(self):
         """Validate parameters."""
-        # **FIX (Issue 4)**: Extended range to 30.0 per user request
-        if not (3.0 <= self.despike_threshold <= 30.0):
-            raise ValueError(f"despike_threshold must be in [3.0, 30.0] (got {self.despike_threshold})")
+        if not (DESPIKE_THRESHOLD_MIN <= self.despike_threshold <= DESPIKE_THRESHOLD_MAX):
+            raise ValueError(
+                f"despike_threshold must be in [{DESPIKE_THRESHOLD_MIN}, {DESPIKE_THRESHOLD_MAX}] "
+                f"(got {self.despike_threshold})"
+            )
 
         if self.baseline_algorithm not in ["Polynomial", "ALS"]:
             raise ValueError(f"baseline_algorithm must be 'Polynomial' or 'ALS' (got {self.baseline_algorithm})")

@@ -3,6 +3,8 @@
 import numpy as np
 import pytest
 
+from modules.spectra.models.preset import TechniquePreset
+from modules.spectra.models.spectrum import DESPIKE_THRESHOLD_MAX, ProcessingSettings
 from modules.spectra.processing.despiking import (
     remove_spikes,
     count_spikes,
@@ -41,7 +43,24 @@ class TestRemoveSpikes:
         with pytest.raises(ValueError):
             remove_spikes(y, threshold=2.0)
         with pytest.raises(ValueError):
-            remove_spikes(y, threshold=31.0)
+            remove_spikes(y, threshold=DESPIKE_THRESHOLD_MAX + 1)
+
+    def test_threshold_above_a_real_peak_leaves_it_alone(self):
+        """The Z-score is global, so a strong real peak scores like a spike.
+
+        A threshold above the peak's own score must leave it untouched -- the
+        reason the ceiling went from 30 to 500 (v5.10.5).
+        """
+        x = np.linspace(100.0, 400.0, 600)
+        rng = np.random.default_rng(0)
+        y = 100.0 + 2000.0 * np.exp(-0.5 * ((x - 250.0) / 2.0) ** 2) + rng.normal(0, 5, x.size)
+
+        _, low = remove_spikes(y, threshold=30.0)
+        y_clean, high = remove_spikes(y, threshold=DESPIKE_THRESHOLD_MAX)
+
+        assert low.any()            # the peak top is "despiked" at 30
+        assert not high.any()
+        np.testing.assert_array_equal(y_clean, y)
 
     def test_even_window_size_raises(self):
         y = np.arange(20, dtype=float)
@@ -78,3 +97,26 @@ class TestSuggestThreshold:
     def test_constant_signal_returns_default(self):
         y = np.full(50, 42.0)
         assert suggest_threshold(y) == 6.0
+
+
+def _despike_errors(threshold):
+    """A bare block also lacks peak templates; look only at the despike check."""
+    errors = TechniquePreset(despike_threshold=threshold).validate()
+    return [e for e in errors if "despike_threshold" in e]
+
+
+class TestThresholdCeilingAgrees:
+    """The despiker, the processing settings and the preset share one range."""
+
+    def test_the_ceiling_is_accepted_everywhere(self):
+        assert not _despike_errors(DESPIKE_THRESHOLD_MAX)
+        ProcessingSettings(despike_threshold=DESPIKE_THRESHOLD_MAX)
+        remove_spikes(np.arange(20, dtype=float), threshold=DESPIKE_THRESHOLD_MAX)
+
+    def test_above_the_ceiling_is_rejected_everywhere(self):
+        above = DESPIKE_THRESHOLD_MAX + 1
+        assert _despike_errors(above)
+        with pytest.raises(ValueError):
+            ProcessingSettings(despike_threshold=above)
+        with pytest.raises(ValueError):
+            remove_spikes(np.arange(20, dtype=float), threshold=above)

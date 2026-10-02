@@ -34,6 +34,7 @@ from modules.spectra.models.preset import (
     PeakTemplate,
     TechniquePreset,
 )
+from modules.spectra.models.spectrum import DESPIKE_THRESHOLD_MAX, DESPIKE_THRESHOLD_MIN
 from modules.spectra.io.preset_store import load_store, save_presets
 
 PEAK_COLUMNS = ["peak_label", "center", "center_tolerance", "width_fwhm", "shape", "color"]
@@ -113,7 +114,8 @@ def _render_technique_block(key_prefix: str, mode: str,
     col3, col4 = st.columns(2)
     with col3:
         despike_threshold = st.number_input(
-            "Despike threshold", min_value=3.0, max_value=30.0,
+            "Despike threshold",
+            min_value=DESPIKE_THRESHOLD_MIN, max_value=DESPIKE_THRESHOLD_MAX,
             value=d.despike_threshold if d else 6.0, step=0.5,
             key=f"{key_prefix}_despike"
         )
