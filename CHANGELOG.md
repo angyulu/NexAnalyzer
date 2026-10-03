@@ -5,6 +5,40 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.11.0] - 2026-10-03
+
+### Added
+
+- **Spectrum files with a header now load.** Before, any non-numeric line
+  failed the whole file with "Ensure file contains only numeric data with no
+  header row". The parser (`modules/spectra/processing/parser.py`) now takes
+  the data to start at the first row of two or more numbers that the next four
+  non-blank rows confirm. Everything above that row is skipped as header, and
+  everything after the last numeric row as footer. That covers a row of column
+  names (`Raman shift (cm-1)<TAB>Intensity (a.u.)`), `#key=value` acquisition
+  blocks, `[Header]`/`[Data]` sections and `>>>>>Begin/End Spectral Data<<<<<`
+  markers without recognising any of them by name.
+- Semicolon is accepted as a delimiter, after tab and comma and before
+  whitespace.
+- Files are decoded as UTF-8 (with or without BOM), UTF-16 by its BOM, or
+  Windows-1252. Before, a "µ" or "°" in a cp1252 header failed the parse with
+  a misleading "must have at least 2 columns".
+
+### Changed
+
+- A column that is empty in every row, left by a delimiter at the end of each
+  line, is dropped instead of being reported as an unusable Y column.
+
+No numbers move. On 400 headerless RM/PL files under Data Collection and
+Sample Requests the new parser returns identical arrays to the old one, about
+5x faster (1.9 s against 9.5 s). Of the .txt files there that start with a
+non-numeric line, the only spectrum is the digitized TSMC spec file, which now
+loads. The rest (OM `_Analyzed.txt` tables, logs, JEOL SEM metadata) still
+fail, with "No rows of numbers found".
+
+A header line that is itself a row of numbers (`532<TAB>600`) directly above
+the data is read as the first point; a lone number (`1024`) is skipped.
+
 ## [5.10.6] - 2026-10-02
 
 ### Fixed
